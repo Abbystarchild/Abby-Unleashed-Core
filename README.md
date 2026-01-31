@@ -15,6 +15,13 @@ Abby Unleashed is a fully-functional, offline-capable AI orchestration system th
 
 ## Features
 
+✅ **Mobile Access** ⭐ NEW
+- Use Abby from your phone
+- PC-phone client-server architecture
+- All processing on PC, mobile-friendly UI
+- Works on local network
+- Secure by default
+
 ✅ **PersonaPlex Voice Interface**
 - Real-time speech-to-speech interaction
 - Wake word detection ("Hey Abby")
@@ -82,6 +89,23 @@ ollama pull qwen2.5:latest
 ```
 
 ### Usage
+
+#### Mobile Access (NEW!)
+
+Access Abby from your phone:
+
+```bash
+# On PC: Start API server
+python api_server.py
+
+# Or with start script
+./start.sh api
+
+# On phone: Open browser
+http://YOUR-PC-IP:8080
+```
+
+See [Mobile Access Guide](docs/MOBILE_ACCESS.md) for detailed setup.
 
 #### Text Mode (Default)
 ```bash
@@ -332,7 +356,8 @@ print(f"Can parallelize: {plan['can_parallelize']}")
 
 - [Quick Start Guide](docs/QUICK_START.md)
 - [Architecture Overview](docs/ARCHITECTURE.md)
-- [PersonaPlex Integration Guide](docs/PERSONAPLEX_INTEGRATION.md) ⭐ NEW
+- [PersonaPlex Integration Guide](docs/PERSONAPLEX_INTEGRATION.md)
+- [Mobile Access Guide](docs/MOBILE_ACCESS.md) ⭐ NEW
 
 ## Contributing
 

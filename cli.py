@@ -12,6 +12,7 @@ from agents.agent_factory import AgentFactory
 from ollama_integration.client import OllamaClient
 from ollama_integration.model_selector import ModelSelector
 from coordination.orchestrator import Orchestrator
+from config.validators import validate_task_input, validate_ollama_config, EnvironmentConfig
 
 
 # Load environment variables
@@ -48,6 +49,14 @@ class AbbyUnleashed:
             logging.getLogger().setLevel(logging.DEBUG)
         
         logger.info("Initializing Abby Unleashed...")
+        
+        # Validate environment configuration
+        try:
+            env_config = EnvironmentConfig.from_env()
+            logger.debug(f"Loaded environment configuration: {env_config.model_dump()}")
+        except Exception as e:
+            logger.error(f"Invalid environment configuration: {e}")
+            raise
         
         # Load brain clone (personality)
         self.brain_clone = BrainClone(personality_config)
@@ -90,6 +99,18 @@ class AbbyUnleashed:
         context = context or {}
         
         logger.info(f"Executing task: {task[:100]}...")
+        
+        # Validate task input
+        try:
+            validated_input = validate_task_input(task, context)
+            task = validated_input.description
+            context = validated_input.context or {}
+        except ValueError as e:
+            logger.error(f"Invalid task input: {e}")
+            return {
+                "status": "error",
+                "error": f"Invalid task input: {str(e)}"
+            }
         
         try:
             # Use orchestrator for complex tasks (Phase 3)

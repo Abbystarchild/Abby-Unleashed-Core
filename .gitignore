@@ -58,6 +58,9 @@ data/database.db
 data/embeddings/
 persona_library/personas/personas.yaml
 
+# Memory archives
+memory/storage/*_archive_*.json
+
 # Temporary files
 tmp/
 temp/

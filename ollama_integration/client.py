@@ -16,15 +16,23 @@ class OllamaClient:
     Client for interacting with Ollama API
     """
     
-    def __init__(self, host: Optional[str] = None):
+    def __init__(self, host: Optional[str] = None, timeout: int = 120, connect_timeout: int = 5):
         """
         Initialize Ollama client
         
         Args:
             host: Ollama host URL (default: from env or localhost)
+            timeout: Request timeout in seconds (default: 120)
+            connect_timeout: Connection timeout in seconds (default: 5)
         """
         self.host = host or os.getenv("OLLAMA_HOST", "http://localhost:11434")
+        # Validate host format
+        if not self.host.startswith(('http://', 'https://')):
+            self.host = f"http://{self.host}"
+        
         self.base_url = f"{self.host}/api"
+        self.timeout = timeout
+        self.connect_timeout = connect_timeout
         
         logger.info(f"Initialized Ollama client: {self.host}")
     
@@ -65,10 +73,20 @@ class OllamaClient:
             if stream:
                 return self._stream_generate(url, payload)
             else:
-                response = requests.post(url, json=payload, timeout=120)
+                response = requests.post(
+                    url, 
+                    json=payload, 
+                    timeout=(self.connect_timeout, self.timeout)
+                )
                 response.raise_for_status()
                 return response.json()
         
+        except requests.exceptions.Timeout as e:
+            logger.error(f"Timeout generating response: {e}")
+            return {"error": f"Request timed out after {self.timeout}s"}
+        except requests.exceptions.ConnectionError as e:
+            logger.error(f"Connection error: {e}")
+            return {"error": f"Failed to connect to Ollama at {self.host}"}
         except Exception as e:
             logger.error(f"Error generating response: {e}")
             return {"error": str(e)}
@@ -85,7 +103,12 @@ class OllamaClient:
             Response chunks
         """
         try:
-            with requests.post(url, json=payload, stream=True, timeout=120) as response:
+            with requests.post(
+                url, 
+                json=payload, 
+                stream=True, 
+                timeout=(self.connect_timeout, self.timeout)
+            ) as response:
                 response.raise_for_status()
                 
                 for line in response.iter_lines():
@@ -96,6 +119,12 @@ class OllamaClient:
                         except json.JSONDecodeError:
                             continue
         
+        except requests.exceptions.Timeout as e:
+            logger.error(f"Timeout streaming response: {e}")
+            yield {"error": f"Request timed out after {self.timeout}s"}
+        except requests.exceptions.ConnectionError as e:
+            logger.error(f"Connection error: {e}")
+            yield {"error": f"Failed to connect to Ollama at {self.host}"}
         except Exception as e:
             logger.error(f"Error streaming response: {e}")
             yield {"error": str(e)}
@@ -132,10 +161,20 @@ class OllamaClient:
             if stream:
                 return self._stream_generate(url, payload)
             else:
-                response = requests.post(url, json=payload, timeout=120)
+                response = requests.post(
+                    url, 
+                    json=payload, 
+                    timeout=(self.connect_timeout, self.timeout)
+                )
                 response.raise_for_status()
                 return response.json()
         
+        except requests.exceptions.Timeout as e:
+            logger.error(f"Timeout in chat: {e}")
+            return {"error": f"Request timed out after {self.timeout}s"}
+        except requests.exceptions.ConnectionError as e:
+            logger.error(f"Connection error: {e}")
+            return {"error": f"Failed to connect to Ollama at {self.host}"}
         except Exception as e:
             logger.error(f"Error in chat: {e}")
             return {"error": str(e)}
@@ -150,10 +189,16 @@ class OllamaClient:
         url = f"{self.base_url}/tags"
         
         try:
-            response = requests.get(url, timeout=10)
+            response = requests.get(url, timeout=self.connect_timeout)
             response.raise_for_status()
             return response.json()
         
+        except requests.exceptions.Timeout as e:
+            logger.error(f"Timeout listing models: {e}")
+            return {"models": [], "error": "Request timed out"}
+        except requests.exceptions.ConnectionError as e:
+            logger.error(f"Connection error listing models: {e}")
+            return {"models": [], "error": f"Failed to connect to Ollama at {self.host}"}
         except Exception as e:
             logger.error(f"Error listing models: {e}")
             return {"models": [], "error": str(e)}
@@ -196,6 +241,26 @@ class OllamaClient:
             response.raise_for_status()
             return response.json()
         
+        except requests.exceptions.Timeout as e:
+            logger.error(f"Timeout pulling model: {e}")
+            return {"error": "Pull request timed out"}
+        except requests.exceptions.ConnectionError as e:
+            logger.error(f"Connection error pulling model: {e}")
+            return {"error": f"Failed to connect to Ollama at {self.host}"}
         except Exception as e:
             logger.error(f"Error pulling model: {e}")
             return {"error": str(e)}
+    
+    def health_check(self) -> bool:
+        """
+        Check if Ollama service is available
+        
+        Returns:
+            True if service is healthy
+        """
+        try:
+            response = requests.get(self.host, timeout=self.connect_timeout)
+            return response.status_code == 200
+        except Exception as e:
+            logger.error(f"Health check failed: {e}")
+            return False
