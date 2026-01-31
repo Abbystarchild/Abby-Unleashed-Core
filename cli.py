@@ -11,6 +11,7 @@ from persona_library.library_manager import PersonaLibrary
 from agents.agent_factory import AgentFactory
 from ollama_integration.client import OllamaClient
 from ollama_integration.model_selector import ModelSelector
+from coordination.orchestrator import Orchestrator
 
 
 # Load environment variables
@@ -68,15 +69,20 @@ class AbbyUnleashed:
             personality=self.brain_clone.get_personality()
         )
         
+        # Initialize orchestrator (Phase 3)
+        self.orchestrator = Orchestrator(agent_factory=self.agent_factory)
+        self.orchestrator.start()
+        
         logger.info("Abby Unleashed initialized successfully!")
     
-    def execute_task(self, task: str, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    def execute_task(self, task: str, context: Optional[Dict[str, Any]] = None, use_orchestrator: bool = True) -> Dict[str, Any]:
         """
         Execute a task
         
         Args:
             task: Task description
             context: Optional task context
+            use_orchestrator: Use orchestrator for complex tasks (Phase 3)
             
         Returns:
             Result dictionary
@@ -86,6 +92,11 @@ class AbbyUnleashed:
         logger.info(f"Executing task: {task[:100]}...")
         
         try:
+            # Use orchestrator for complex tasks (Phase 3)
+            if use_orchestrator:
+                return self.orchestrator.execute_task(task, context)
+            
+            # Legacy single-agent execution (Phase 1)
             # Create agent for task
             agent = self.agent_factory.create_agent(task, context)
             
@@ -234,8 +245,23 @@ class AbbyUnleashed:
         """
         return {
             "persona_library": self.persona_library.get_stats(),
-            "ollama_models": self.model_selector.get_available_models()
+            "ollama_models": self.model_selector.get_available_models(),
+            "orchestrator": self.orchestrator.get_progress()
         }
+    
+    def get_orchestrator_progress(self) -> Dict[str, Any]:
+        """
+        Get orchestrator progress
+        
+        Returns:
+            Progress dictionary
+        """
+        return self.orchestrator.get_progress()
+    
+    def cleanup(self):
+        """Cleanup resources"""
+        self.orchestrator.stop()
+        self.orchestrator.cleanup()
 
 
 def main():

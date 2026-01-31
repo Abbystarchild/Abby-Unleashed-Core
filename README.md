@@ -124,6 +124,11 @@ Abby-Unleashed-Core/
 │   ├── decomposer.py         # Recursive task breakdown
 │   ├── dependency_mapper.py  # Dependency graph (DAG)
 │   └── execution_planner.py  # Execution planning
+├── coordination/             # Agent coordination system (Phase 3)
+│   ├── orchestrator.py       # Master coordinator
+│   ├── message_bus.py        # Inter-agent communication
+│   ├── task_tracker.py       # Progress tracking
+│   └── result_aggregator.py  # Result aggregation
 ├── personality/               # Personality system
 │   └── brain_clone.py        # Personality loader
 ├── persona_library/           # Reusable persona storage
@@ -217,6 +222,26 @@ stats = abby.get_stats()
 print(f"Total personas: {stats['persona_library']['total_personas']}")
 ```
 
+### Using the Orchestrator
+
+```python
+from cli import AbbyUnleashed
+
+# Initialize
+abby = AbbyUnleashed()
+
+# Execute task with orchestrator (Phase 3)
+result = abby.execute_task("Build a REST API for user management")
+
+# Get progress
+progress = abby.get_orchestrator_progress()
+print(f"Overall progress: {progress['overall_progress']:.1%}")
+
+# Check stats
+stats = abby.get_stats()
+print(f"Total tasks: {stats['orchestrator']['task_stats']['total_tasks']}")
+```
+
 ### Using the Task Engine
 
 ```python
@@ -270,16 +295,16 @@ print(f"Can parallelize: {plan['can_parallelize']}")
   - [x] Execution planner (parallel execution, critical path)
 
 ### ✅ Completed (Phase 3)
-- [x] PersonaPlex Speech Interface Integration
-  - [x] Speech-to-text engine (faster-whisper)
-  - [x] Text-to-speech engine (piper-tts)
-  - [x] Voice activity detection (silero-vad)
-  - [x] Wake word detection (pvporcupine)
-  - [x] Conversation manager (real-time flow)
-  - [x] Voice mode CLI integration
+- [x] Agent coordination system
+  - [x] Orchestrator (master coordinator for multi-agent tasks)
+  - [x] Message bus (inter-agent communication with pub/sub)
+  - [x] Task tracker (progress tracking for all tasks)
+  - [x] Result aggregator (combines outputs from multiple agents)
+  - [x] Integration with task engine and agent factory
+  - [x] CLI integration with orchestrator
 
 ### 🚧 In Progress
-- [ ] Agent coordination system
+- [ ] Speech interface (STT, TTS, VAD)
 - [ ] Memory systems
 - [ ] Learning systems
 - [ ] Web dashboard

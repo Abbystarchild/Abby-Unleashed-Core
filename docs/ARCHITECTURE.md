@@ -151,6 +151,53 @@ Complete speech-to-speech interaction system for real-time voice conversations.
 6. Response generated
 7. TTS synthesizes response
 8. Audio played back to user
+### 8. Coordination System (Phase 3)
+
+**NEW**: Multi-agent coordination system for orchestrating complex workflows.
+
+**Location**: `coordination/`
+
+**Components**:
+
+#### Orchestrator
+Master coordinator that integrates all components for multi-agent task execution.
+
+**Features**:
+- Integrates with task engine for decomposition and planning
+- Creates and manages multiple agents
+- Coordinates execution across agents
+- Tracks progress and aggregates results
+- Handles task dependencies and parallel execution
+
+#### Message Bus
+Pub/sub messaging system for inter-agent communication.
+
+**Features**:
+- Asynchronous message delivery
+- Message type filtering
+- Subscriber management
+- Message history
+- Broadcast and direct messaging
+
+#### Task Tracker
+Tracks status and progress of all tasks in a workflow.
+
+**Features**:
+- Task lifecycle management (pending → assigned → in_progress → completed/failed)
+- Dependency checking
+- Progress tracking (0.0 to 1.0)
+- Status filtering
+- Overall progress calculation
+
+#### Result Aggregator
+Collects and combines results from multiple agents.
+
+**Features**:
+- Result collection from multiple agents
+- Task result aggregation
+- Workflow result compilation
+- Multiple output formats (summary, detailed, JSON)
+- Agent contribution tracking
 
 ## Data Flow
 
@@ -168,6 +215,12 @@ Dependency Mapping (DependencyMapper)
     ↓
 Execution Planning (ExecutionPlanner)
     ↓
+Orchestrator (Phase 3) ← NEW!
+    ↓
+    ├─→ Message Bus: Publish task assignments
+    ├─→ Task Tracker: Track task status
+    └─→ Agent Creation & Execution
+            ↓
 Persona Library Check
     ↓
     ├─→ Match Found? → Reuse Persona
@@ -181,6 +234,12 @@ Clarification Protocol
     └─→ Complete Info? → Execute Task
     ↓
 Task Execution (via LLM)
+    ↓
+Result Aggregator ← NEW!
+    ↓
+    ├─→ Collect results from all agents
+    ├─→ Aggregate workflow results
+    └─→ Format final output
     ↓
 Result
 ```
@@ -202,13 +261,12 @@ task_engine/                # Task decomposition system
 ├── dependency_mapper.py    # Dependency graph (DAG)
 └── execution_planner.py    # Execution planning
 
-speech_interface/           # PersonaPlex integration
+coordination/               # Agent coordination (Phase 3) ← NEW!
 ├── __init__.py
-├── stt_engine.py          # Speech-to-text (Whisper)
-├── tts_engine.py          # Text-to-speech (Piper)
-├── vad_detector.py        # Voice activity detection
-├── wake_word.py           # Wake word detection
-└── conversation_manager.py # Conversation orchestration
+├── orchestrator.py         # Master coordinator
+├── message_bus.py          # Inter-agent communication
+├── task_tracker.py         # Progress tracking
+└── result_aggregator.py    # Result aggregation
 
 personality/                 # Personality system
 ├── __init__.py
@@ -238,13 +296,15 @@ tests/                      # Test suite
 ├── test_agents.py
 ├── test_speech_interface.py
 ├── test_persona_library.py
-└── test_task_engine.py
+├── test_task_engine.py
+└── test_coordination.py   # ← NEW!
 
 examples/                   # Example scripts
 ├── create_web_scraper.py
 ├── persona_library_demo.py
 ├── agent_factory_demo.py
-└── task_engine_demo.py
+├── task_engine_demo.py
+└── coordination_demo.py   # ← NEW!
 ```
 
 ## Design Principles
@@ -293,16 +353,7 @@ examples/                   # Example scripts
 
 ## Future Architecture
 
-### Phase 3: Coordination (Planned)
-```
-coordination/
-├── orchestrator.py         # Master coordinator
-├── message_bus.py          # Inter-agent communication
-├── task_tracker.py         # Progress tracking
-└── result_aggregator.py
-```
-
-### Phase 4: Memory & Learning (Planned)
+### Phase 4: Memory & Learning
 ```
 memory/
 ├── short_term.py           # Conversation context
@@ -342,4 +393,4 @@ All configuration is YAML-based for easy editing:
 
 ---
 
-**Version**: 0.1.0 (Phase 1 Complete)
+**Version**: 0.3.0 (Phase 3 Complete)

@@ -112,6 +112,9 @@ python examples/create_web_scraper.py
 
 # Task engine demo (NEW!)
 python examples/task_engine_demo.py
+
+# Coordination system demo (Phase 3)
+python examples/coordination_demo.py
 ```
 
 ## Running Tests
@@ -223,10 +226,18 @@ python examples/agent_factory_demo.py
 ✅ Dependency mapper (DAG, cycle detection)
 ✅ Execution planner (parallel execution, critical path)
 
+## What's Working (Phase 3)
+
+✅ Agent coordination system
+✅ Orchestrator (multi-agent coordination)
+✅ Message bus (inter-agent communication)
+✅ Task tracker (progress tracking)
+✅ Result aggregator (result compilation)
+✅ CLI integration with orchestrator
+
 ## What's Coming
 
 🚧 Speech interface (STT, TTS, VAD)
-🚧 Agent coordination system
 🚧 Memory systems
 🚧 Learning systems
 🚧 Web dashboard
