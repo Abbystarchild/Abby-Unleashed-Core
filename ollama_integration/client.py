@@ -36,6 +36,20 @@ class OllamaClient:
         
         logger.info(f"Initialized Ollama client: {self.host}")
     
+    def health_check(self) -> bool:
+        """
+        Check if Ollama server is healthy and responding
+        
+        Returns:
+            True if server is healthy, False otherwise
+        """
+        try:
+            response = requests.get(f"{self.host}/api/tags", timeout=5)
+            return response.status_code == 200
+        except Exception as e:
+            logger.warning(f"Ollama health check failed: {e}")
+            return False
+    
     def generate(
         self,
         prompt: str,

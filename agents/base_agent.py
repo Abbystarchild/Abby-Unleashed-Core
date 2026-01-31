@@ -3,6 +3,7 @@ Base Agent class for all agents in the system
 """
 from typing import Dict, Any, Optional, List
 import logging
+import os
 from agents.agent_dna import AgentDNA
 
 
@@ -72,7 +73,7 @@ class Agent:
     
     def perform_task(self, task: str, context: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Actual task execution - to be implemented by subclasses or used generically
+        Actual task execution using LLM
         
         Args:
             task: Task description
@@ -81,12 +82,60 @@ class Agent:
         Returns:
             Result dictionary
         """
-        # This is a placeholder - real implementation would use LLM
-        return {
-            "status": "completed",
-            "output": f"Task executed by {self.dna.role}",
-            "agent": str(self.dna)
-        }
+        from ollama_integration.client import OllamaClient
+        
+        try:
+            # Get Ollama client
+            client = OllamaClient()
+            model = os.getenv("DEFAULT_MODEL", "qwen2.5:latest")
+            
+            # Build system prompt from agent DNA
+            system_prompt = self.get_system_prompt()
+            
+            # Build the task prompt with context
+            context_str = ""
+            if context:
+                context_items = [f"- {k}: {v}" for k, v in context.items()]
+                context_str = f"\n\nContext:\n" + "\n".join(context_items)
+            
+            full_prompt = f"{task}{context_str}"
+            
+            # Call LLM
+            response = client.chat(
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": full_prompt}
+                ],
+                model=model
+            )
+            
+            # Extract response
+            if "error" in response:
+                logger.error(f"LLM error: {response['error']}")
+                return {
+                    "status": "error",
+                    "output": f"Error: {response['error']}",
+                    "agent": str(self.dna)
+                }
+            
+            output = response.get("message", {}).get("content", "")
+            if not output:
+                output = response.get("response", "Task completed but no output generated.")
+            
+            return {
+                "status": "completed",
+                "output": output,
+                "agent": str(self.dna),
+                "model": model
+            }
+            
+        except Exception as e:
+            logger.error(f"Error in perform_task: {e}")
+            return {
+                "status": "error",
+                "output": f"Error executing task: {str(e)}",
+                "agent": str(self.dna)
+            }
     
     def get_system_prompt(self) -> str:
         """

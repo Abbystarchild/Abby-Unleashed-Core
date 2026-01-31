@@ -12,7 +12,8 @@ logger = logging.getLogger(__name__)
 class ClarificationProtocol:
     """
     Ensures agents ask questions when information is insufficient.
-    CRITICAL: Agents MUST ask clarifying questions instead of making assumptions.
+    For conversational messages, allows them to proceed.
+    For complex tasks, may ask clarifying questions.
     """
     
     def __init__(self):
@@ -22,6 +23,9 @@ class ClarificationProtocol:
         """
         Returns True if sufficient info to proceed.
         Returns False if clarification needed.
+        
+        For conversational AI, we default to proceeding and let the LLM
+        ask questions naturally if needed.
         
         Args:
             task: Task description
@@ -33,26 +37,49 @@ class ClarificationProtocol:
         """
         self.questions = []
         
-        # Check for missing requirements
-        if not self.has_clear_objective(task):
-            self.questions.append("What is the specific goal/outcome?")
+        # For conversational messages, always proceed - let the LLM handle it naturally
+        # The LLM is smart enough to ask follow-up questions if needed
+        if self._is_conversational(task):
+            logger.info("Conversational message - proceeding without clarification")
+            return True
         
-        if not self.has_constraints(context, dna):
-            self.questions.append("Are there any constraints (budget, time, security)?")
-        
-        if not self.has_output_requirements(context, dna):
-            self.questions.append("What format should the deliverable be in?")
-        
-        if not self.has_domain_specifics(task, context, dna):
-            self.questions.append(f"Any specific {dna.domain} requirements I should know?")
-        
-        # If we have questions, clarification is needed
-        if self.questions:
-            logger.info(f"Clarification needed: {len(self.questions)} questions")
+        # For very short unclear tasks, might need clarification
+        if len(task.strip()) < 5:
+            self.questions.append("Could you tell me more about what you'd like me to help with?")
+            logger.info("Task too short - requesting clarification")
             return False
         
-        logger.info("Task information is complete")
+        # Default: proceed and let the LLM handle naturally
+        logger.info("Task information sufficient - proceeding")
         return True
+    
+    def _is_conversational(self, task: str) -> bool:
+        """Check if this is a conversational message vs a complex task"""
+        task_lower = task.lower().strip()
+        
+        # Greetings and simple conversation
+        conversational_patterns = [
+            "hi", "hello", "hey", "good morning", "good afternoon", "good evening",
+            "how are you", "what's up", "sup", "yo", "greetings",
+            "thanks", "thank you", "bye", "goodbye", "see you",
+            "who are you", "what are you", "what can you do",
+            "help", "?",  # Questions are conversational
+        ]
+        
+        # Check if it starts with or contains conversational patterns
+        for pattern in conversational_patterns:
+            if task_lower.startswith(pattern) or task_lower == pattern:
+                return True
+        
+        # Questions are generally conversational
+        if "?" in task:
+            return True
+            
+        # Short messages are usually conversational
+        if len(task.split()) <= 10:
+            return True
+        
+        return False
     
     def has_clear_objective(self, task: str) -> bool:
         """Check if task has clear objective"""

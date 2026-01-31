@@ -192,6 +192,123 @@ def get_personality():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/engram/questionnaire', methods=['GET'])
+def get_engram_questionnaire():
+    """Get the questionnaire for creating a personality engram"""
+    try:
+        abby_instance = get_abby()
+        questionnaire = abby_instance.brain_clone.create_engram_questionnaire()
+        
+        return jsonify({
+            'questionnaire': questionnaire,
+            'instructions': 'Answer these questions to create an accurate digital clone of your personality.'
+        })
+    
+    except Exception as e:
+        logger.error(f"Engram questionnaire error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/engram/create', methods=['POST'])
+def create_engram():
+    """Create a new personality engram from questionnaire responses"""
+    try:
+        from personality.engram_builder import EngramBuilder, Engram, OceanTraits, CommunicationStyle, ValueSystem, DecisionMakingStyle, KnowledgeBase
+        
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({'error': 'Engram data required'}), 400
+        
+        # Build engram from responses
+        builder = EngramBuilder()
+        engram = builder.start_new_engram(data.get('name', 'User'))
+        
+        # Process OCEAN traits if provided
+        if 'ocean' in data:
+            ocean_data = data['ocean']
+            engram.ocean_traits = OceanTraits(
+                openness=ocean_data.get('openness', 50),
+                conscientiousness=ocean_data.get('conscientiousness', 50),
+                extraversion=ocean_data.get('extraversion', 50),
+                agreeableness=ocean_data.get('agreeableness', 50),
+                neuroticism=ocean_data.get('neuroticism', 50),
+                honesty_humility=ocean_data.get('honesty_humility', 50)
+            )
+        
+        # Process communication style if provided
+        if 'communication' in data:
+            comm_data = data['communication']
+            engram.communication_style = CommunicationStyle(
+                formality=comm_data.get('formality', 50),
+                verbosity=comm_data.get('verbosity', 50),
+                directness=comm_data.get('directness', 50),
+                humor_level=comm_data.get('humor_level', 50),
+                humor_style=comm_data.get('humor_style', 'witty'),
+                favorite_expressions=comm_data.get('favorite_expressions', [])
+            )
+        
+        # Process values if provided
+        if 'values' in data:
+            values_data = data['values']
+            engram.value_system = ValueSystem(
+                core_values=values_data.get('core_values', []),
+                deal_breakers=values_data.get('deal_breakers', []),
+                motivators=values_data.get('motivators', []),
+                risk_tolerance=values_data.get('risk_tolerance', 50)
+            )
+        
+        # Process knowledge if provided
+        if 'knowledge' in data:
+            kb_data = data['knowledge']
+            engram.knowledge_base = KnowledgeBase(
+                expertise_areas=kb_data.get('expertise_areas', []),
+                interests=kb_data.get('interests', []),
+                background_facts=kb_data.get('background_facts', []),
+                pet_peeves=kb_data.get('pet_peeves', [])
+            )
+        
+        # Save engram
+        abby_instance = get_abby()
+        saved_path = abby_instance.brain_clone.save_engram(engram)
+        
+        # Generate system prompt
+        system_prompt = builder.generate_system_prompt(engram)
+        
+        return jsonify({
+            'status': 'success',
+            'message': f'Engram created for {engram.subject_name}',
+            'saved_to': saved_path,
+            'system_prompt_preview': system_prompt[:500] + '...' if len(system_prompt) > 500 else system_prompt
+        })
+    
+    except Exception as e:
+        logger.error(f"Engram creation error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/engram/analyze-writing', methods=['POST'])
+def analyze_writing():
+    """Analyze a writing sample to extract personality patterns"""
+    try:
+        data = request.get_json()
+        
+        if not data or 'text' not in data:
+            return jsonify({'error': 'Text sample required'}), 400
+        
+        abby_instance = get_abby()
+        patterns = abby_instance.brain_clone.analyze_writing(data['text'])
+        
+        return jsonify({
+            'status': 'success',
+            'patterns': patterns
+        })
+    
+    except Exception as e:
+        logger.error(f"Writing analysis error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/api/personas', methods=['GET'])
 def list_personas():
     """List available personas"""

@@ -1,10 +1,16 @@
 """
 Brain Clone - Loads and applies personality configuration
+
+Supports both traditional YAML config and advanced Engram-based personalities.
+The Engram system provides a more accurate representation of human personality
+based on psychological research (Big Five OCEAN traits, HEXACO model, etc.)
 """
 import yaml
 import os
 import logging
 from typing import Dict, Any, Optional
+
+from .engram_builder import EngramBuilder, Engram, create_engram_interactive
 
 
 logger = logging.getLogger(__name__)
@@ -12,38 +18,64 @@ logger = logging.getLogger(__name__)
 
 class BrainClone:
     """
-    Manages personality configuration for Abby
+    Manages personality configuration for Abby.
+    
+    Supports two modes:
+    1. Traditional YAML config (simple, manual configuration)
+    2. Engram-based personality (comprehensive, scientifically-grounded)
     """
     
-    def __init__(self, config_path: str = "config/brain_clone.yaml"):
+    def __init__(self, config_path: str = "config/brain_clone.yaml", engram_path: Optional[str] = None):
         """
         Initialize brain clone
         
         Args:
-            config_path: Path to personality configuration
+            config_path: Path to traditional personality configuration
+            engram_path: Path to engram file (if using advanced personality)
         """
         self.config_path = config_path
+        self.engram_path = engram_path
         self.personality: Dict[str, Any] = {}
+        self.engram: Optional[Engram] = None
+        self.engram_builder = EngramBuilder()
         
-        # Load personality
+        # Load personality (prefer engram if available)
         self.load()
     
     def load(self):
-        """Load personality from configuration file"""
-        if not os.path.exists(self.config_path):
-            logger.warning(f"Personality config not found: {self.config_path}")
-            self._use_defaults()
-            return
+        """Load personality from configuration file or engram"""
+        # Try to load engram first if path provided
+        if self.engram_path and os.path.exists(self.engram_path):
+            try:
+                self.engram = self.engram_builder.load_engram(self.engram_path)
+                self.personality = self.engram_builder.export_for_brain_clone(self.engram)
+                logger.info(f"Loaded engram personality: {self.engram.subject_name}")
+                return
+            except Exception as e:
+                logger.warning(f"Failed to load engram, falling back to YAML: {e}")
         
-        try:
-            with open(self.config_path, 'r') as f:
-                self.personality = yaml.safe_load(f)
+        # Check for engram embedded in config
+        if os.path.exists(self.config_path):
+            try:
+                with open(self.config_path, 'r') as f:
+                    self.personality = yaml.safe_load(f)
+                
+                # Check if config has embedded engram
+                if "engram" in self.personality:
+                    try:
+                        self.engram = Engram.from_dict(self.personality["engram"])
+                        logger.info(f"Loaded embedded engram for: {self.engram.subject_name}")
+                    except Exception as e:
+                        logger.warning(f"Failed to parse embedded engram: {e}")
+                
+                logger.info(f"Loaded personality: {self.personality.get('identity', {}).get('name', 'Unknown')}")
+                return
             
-            logger.info(f"Loaded personality: {self.personality.get('identity', {}).get('name', 'Unknown')}")
+            except Exception as e:
+                logger.error(f"Error loading personality: {e}")
         
-        except Exception as e:
-            logger.error(f"Error loading personality: {e}")
-            self._use_defaults()
+        logger.warning(f"Personality config not found: {self.config_path}")
+        self._use_defaults()
     
     def _use_defaults(self):
         """Use default personality"""
@@ -97,11 +129,19 @@ class BrainClone:
     
     def get_system_prompt(self) -> str:
         """
-        Build system prompt from personality
+        Build system prompt from personality.
+        
+        If an engram is loaded, uses the advanced engram-based prompt.
+        Otherwise falls back to traditional YAML-based prompt.
         
         Returns:
             System prompt string
         """
+        # Use engram-based prompt if available (more accurate personality modeling)
+        if self.engram is not None:
+            return self.engram_builder.generate_system_prompt(self.engram)
+        
+        # Traditional YAML-based prompt
         identity = self.personality.get("identity", {})
         comm_style = self.personality.get("communication_style", {})
         decision_making = self.personality.get("decision_making", {})
@@ -144,3 +184,62 @@ class BrainClone:
             Personality configuration
         """
         return self.personality
+    
+    def get_engram(self) -> Optional[Engram]:
+        """
+        Get the loaded engram if available.
+        
+        Returns:
+            Engram object or None
+        """
+        return self.engram
+    
+    def has_engram(self) -> bool:
+        """Check if an engram is loaded"""
+        return self.engram is not None
+    
+    def create_engram_questionnaire(self) -> str:
+        """
+        Get the questionnaire for creating a new engram.
+        
+        Returns:
+            Formatted questionnaire string
+        """
+        return create_engram_interactive(self.personality.get("identity", {}).get("name", "User"))
+    
+    def save_engram(self, engram: Engram, filepath: Optional[str] = None) -> str:
+        """
+        Save an engram to file.
+        
+        Args:
+            engram: The engram to save
+            filepath: Optional custom filepath
+        
+        Returns:
+            Path where engram was saved
+        """
+        self.engram_builder.current_engram = engram
+        saved_path = self.engram_builder.save_engram(filepath)
+        self.engram = engram
+        self.personality = self.engram_builder.export_for_brain_clone(engram)
+        return saved_path
+    
+    def analyze_writing(self, text: str) -> Dict[str, Any]:
+        """
+        Analyze a writing sample to extract linguistic patterns.
+        
+        Args:
+            text: Sample text written by the person
+        
+        Returns:
+            Dictionary of extracted patterns
+        """
+        patterns = self.engram_builder.analyze_writing_sample(text)
+        return {
+            "vocabulary_complexity": patterns.vocabulary_complexity,
+            "sentence_style": patterns.sentence_length_preference,
+            "common_words": patterns.common_words[:10],
+            "phrase_patterns": patterns.phrase_patterns[:5],
+            "contraction_usage": patterns.contraction_usage,
+            "active_voice_tendency": patterns.active_vs_passive
+        }
