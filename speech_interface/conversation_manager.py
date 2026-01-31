@@ -212,7 +212,8 @@ class ConversationManager:
             text: User input text
             
         Returns:
-            Response text
+            Response text from executor, error message if execution fails,
+            or "No task executor configured." if no executor is set
         """
         if self.task_executor:
             try:

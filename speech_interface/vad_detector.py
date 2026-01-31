@@ -103,6 +103,7 @@ class VADDetector:
     def _fallback_detection(self, audio: "np.ndarray") -> bool:
         """
         Fallback detection using energy threshold
+        Uses mean absolute value for faster computation than RMS
         
         Args:
             audio: Audio data
@@ -113,8 +114,8 @@ class VADDetector:
         if len(audio) == 0:
             return False
         
-        # Simple energy-based detection
-        energy = np.sqrt(np.mean(audio ** 2))
+        # Simple energy-based detection using mean absolute value (faster than RMS)
+        energy = np.mean(np.abs(audio))
         return energy > 0.01  # Threshold for energy
     
     def get_speech_segments(

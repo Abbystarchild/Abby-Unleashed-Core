@@ -285,11 +285,16 @@ print(f"Can parallelize: {plan['can_parallelize']}")
 - [ ] Web dashboard
 
 ### 📋 Planned
-- [ ] Wake word detection
 - [ ] Advanced task planning
 - [ ] Knowledge graph
 - [ ] Performance optimization
 - [ ] Comprehensive testing
+
+## Documentation
+
+- [Quick Start Guide](docs/QUICK_START.md)
+- [Architecture Overview](docs/ARCHITECTURE.md)
+- [PersonaPlex Integration Guide](docs/PERSONAPLEX_INTEGRATION.md) ⭐ NEW
 
 ## Contributing
 
