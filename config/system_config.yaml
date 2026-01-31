@@ -1,0 +1,35 @@
+# System Configuration
+
+system:
+  log_level: "INFO"
+  log_file: "logs/abby.log"
+  data_dir: "data"
+  max_concurrent_agents: 5
+  task_timeout: 300  # seconds
+
+memory:
+  short_term_capacity: 10  # messages
+  working_memory_capacity: 100  # items
+  embedding_model: "all-MiniLM-L6-v2"
+  vector_db_path: "data/embeddings"
+  sqlite_db_path: "data/database.db"
+
+agents:
+  max_recursion_depth: 5
+  clarification_threshold: 0.7  # confidence below this triggers questions
+  persona_library_path: "persona_library/personas/personas.yaml"
+  auto_save_personas: true
+
+speech:
+  stt_model: "base.en"
+  tts_voice: "en_US-amy-medium"
+  wake_word: "hey abby"
+  vad_threshold: 0.5
+  sample_rate: 16000
+  chunk_duration: 0.03  # seconds
+
+web_dashboard:
+  enabled: true
+  host: "0.0.0.0"
+  port: 5000
+  debug: false
