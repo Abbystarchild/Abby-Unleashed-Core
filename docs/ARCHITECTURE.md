@@ -127,8 +127,8 @@ User Task
     ↓
 Task Analysis (TaskAnalyzer)
     ↓
-    ├─→ Simple Task? → Direct Execution
-    └─→ Complex Task? → Task Decomposition
+    ├─→ Simple Task? → Single Subtask (No decomposition)
+    └─→ Complex Task? → Task Decomposition (Multiple subtasks)
             ↓
 Task Decomposition (TaskDecomposer)
     ↓

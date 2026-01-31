@@ -228,8 +228,6 @@ plan = planner.create_plan(dep_map, decomposition['subtasks'])
 print(f"Total steps: {plan['total_steps']}")
 print(f"Can parallelize: {plan['can_parallelize']}")
 ```
-print(f"Total personas: {stats['persona_library']['total_personas']}")
-```
 
 ## Development Status
 
