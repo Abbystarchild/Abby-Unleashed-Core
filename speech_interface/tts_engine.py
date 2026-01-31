@@ -6,8 +6,15 @@ import logging
 import subprocess
 import tempfile
 import os
-from typing import Optional
-import numpy as np
+from typing import Optional, TYPE_CHECKING
+
+try:
+    import numpy as np
+except ImportError:
+    np = None
+
+if TYPE_CHECKING:
+    import numpy as np
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +65,7 @@ class TTSEngine:
             logger.warning(f"Piper not available: {e}")
             self.initialized = False
     
-    def synthesize(self, text: str) -> Optional[np.ndarray]:
+    def synthesize(self, text: str) -> Optional["np.ndarray"]:
         """
         Synthesize text to speech
         
@@ -82,7 +89,7 @@ class TTSEngine:
             logger.error(f"TTS synthesis error: {e}")
             return None
     
-    def _synthesize_with_piper(self, text: str) -> Optional[np.ndarray]:
+    def _synthesize_with_piper(self, text: str) -> Optional["np.ndarray"]:
         """
         Synthesize using piper-tts
         

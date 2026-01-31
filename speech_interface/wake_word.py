@@ -3,8 +3,15 @@ Wake Word Detection using pvporcupine
 Detects "Hey Abby" or custom wake phrases
 """
 import logging
-from typing import Optional
-import numpy as np
+from typing import Optional, TYPE_CHECKING
+
+try:
+    import numpy as np
+except ImportError:
+    np = None
+
+if TYPE_CHECKING:
+    import numpy as np
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +73,7 @@ class WakeWordDetector:
             logger.error(f"Failed to initialize wake word detector: {e}")
             self.initialized = True  # Use fallback
     
-    def detect(self, audio_chunk: np.ndarray) -> bool:
+    def detect(self, audio_chunk: "np.ndarray") -> bool:
         """
         Detect wake word in audio chunk
         

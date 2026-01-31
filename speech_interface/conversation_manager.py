@@ -6,8 +6,18 @@ import logging
 import queue
 import threading
 from typing import Optional, Callable, Dict, Any
-import numpy as np
-import sounddevice as sd
+
+try:
+    import numpy as np
+except ImportError:
+    np = None
+
+try:
+    import sounddevice as sd
+    SOUNDDEVICE_AVAILABLE = True
+except ImportError:
+    SOUNDDEVICE_AVAILABLE = False
+    sd = None
 
 from .stt_engine import STTEngine
 from .tts_engine import TTSEngine
@@ -117,6 +127,11 @@ class ConversationManager:
     
     def _audio_input_thread(self):
         """Thread for capturing audio input"""
+        if not SOUNDDEVICE_AVAILABLE:
+            logger.error("sounddevice not available. Cannot capture audio.")
+            self.is_listening = False
+            return
+        
         try:
             with sd.InputStream(
                 samplerate=self.sample_rate,
@@ -215,6 +230,11 @@ class ConversationManager:
         Args:
             text: Text to speak
         """
+        if not SOUNDDEVICE_AVAILABLE:
+            # Fallback: print text
+            print(f"Abby: {text}")
+            return
+        
         try:
             audio = self.tts.synthesize(text)
             

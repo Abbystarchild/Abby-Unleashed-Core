@@ -3,9 +3,22 @@ Speech-to-Text Engine using faster-whisper
 PersonaPlex-inspired real-time transcription
 """
 import logging
-from typing import Optional, Iterator
-from faster_whisper import WhisperModel
-import numpy as np
+from typing import Optional, Iterator, TYPE_CHECKING
+
+try:
+    from faster_whisper import WhisperModel
+    WHISPER_AVAILABLE = True
+except ImportError:
+    WHISPER_AVAILABLE = False
+    WhisperModel = None
+
+try:
+    import numpy as np
+except ImportError:
+    np = None
+
+if TYPE_CHECKING:
+    import numpy as np
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +52,10 @@ class STTEngine:
     
     def initialize(self):
         """Load the Whisper model"""
+        if not WHISPER_AVAILABLE:
+            logger.error("faster-whisper not available. Install with: pip install faster-whisper")
+            raise ImportError("faster-whisper not available")
+        
         try:
             self.model = WhisperModel(
                 self.model_size,
@@ -52,7 +69,7 @@ class STTEngine:
     
     def transcribe(
         self,
-        audio: np.ndarray,
+        audio: "np.ndarray",
         language: str = "en",
         beam_size: int = 5
     ) -> str:
@@ -89,7 +106,7 @@ class STTEngine:
     
     def transcribe_stream(
         self,
-        audio_stream: Iterator[np.ndarray],
+        audio_stream: Iterator["np.ndarray"],
         language: str = "en"
     ) -> Iterator[str]:
         """

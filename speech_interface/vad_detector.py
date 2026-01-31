@@ -3,9 +3,22 @@ Voice Activity Detection using silero-vad
 Detects when speech is present in audio
 """
 import logging
-import torch
-import numpy as np
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
+
+try:
+    import torch
+    TORCH_AVAILABLE = True
+except ImportError:
+    TORCH_AVAILABLE = False
+    torch = None
+
+try:
+    import numpy as np
+except ImportError:
+    np = None
+
+if TYPE_CHECKING:
+    import numpy as np
 
 logger = logging.getLogger(__name__)
 
@@ -34,12 +47,16 @@ class VADDetector:
         self.sample_rate = sample_rate
         self.chunk_duration = chunk_duration
         self.chunk_size = int(sample_rate * chunk_duration)
-        self.model: Optional[torch.nn.Module] = None
+        self.model = None
         
         logger.info(f"Initializing VAD detector (threshold: {threshold})")
     
     def initialize(self):
         """Load the Silero VAD model"""
+        if not TORCH_AVAILABLE:
+            logger.warning("PyTorch not available. VAD will use fallback energy detection.")
+            return
+        
         try:
             # Load Silero VAD model
             self.model, utils = torch.hub.load(
@@ -56,7 +73,7 @@ class VADDetector:
             logger.warning("VAD will be disabled")
             self.model = None
     
-    def detect(self, audio: np.ndarray) -> bool:
+    def detect(self, audio: "np.ndarray") -> bool:
         """
         Detect voice activity in audio
         
@@ -83,7 +100,7 @@ class VADDetector:
             logger.error(f"VAD detection error: {e}")
             return self._fallback_detection(audio)
     
-    def _fallback_detection(self, audio: np.ndarray) -> bool:
+    def _fallback_detection(self, audio: "np.ndarray") -> bool:
         """
         Fallback detection using energy threshold
         
@@ -102,7 +119,7 @@ class VADDetector:
     
     def get_speech_segments(
         self,
-        audio: np.ndarray,
+        audio: "np.ndarray",
         min_speech_duration: float = 0.5,
         min_silence_duration: float = 0.3
     ) -> list:
