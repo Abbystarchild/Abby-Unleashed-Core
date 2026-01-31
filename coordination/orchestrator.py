@@ -228,7 +228,9 @@ class Orchestrator:
         try:
             # Create agent for this task
             agent = self.agent_factory.create_agent(description, context)
-            agent_id = f"{agent.dna.role}_{datetime.now().timestamp()}"
+            # Generate unique agent ID with UUID for collision resistance
+            import uuid
+            agent_id = f"{agent.dna.role}_{uuid.uuid4().hex[:8]}"
             self.agents[agent_id] = agent
             
             # Assign and start task

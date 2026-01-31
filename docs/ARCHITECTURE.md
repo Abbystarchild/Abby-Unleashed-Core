@@ -122,7 +122,7 @@ A complete system for breaking down complex tasks into manageable subtasks with 
 
 ### 8. Coordination System (Phase 3)
 
-**NEW**: Multi-agent coordination system for orchestrating complex workflows.
+Multi-agent coordination system for orchestrating complex workflows.
 
 **Location**: `coordination/`
 
@@ -137,6 +137,7 @@ Master coordinator that integrates all components for multi-agent task execution
 - Coordinates execution across agents
 - Tracks progress and aggregates results
 - Handles task dependencies and parallel execution
+- Integrates memory and learning systems (Phase 4)
 
 #### Message Bus
 Pub/sub messaging system for inter-agent communication.
@@ -167,6 +168,71 @@ Collects and combines results from multiple agents.
 - Workflow result compilation
 - Multiple output formats (summary, detailed, JSON)
 - Agent contribution tracking
+
+### 9. Memory Systems (Phase 4)
+
+**NEW**: Persistent and working memory for context retention.
+
+**Location**: `memory/`
+
+**Components**:
+
+#### Short-Term Memory
+Maintains recent conversation context using a sliding window.
+
+**Features**:
+- Conversation turn storage
+- Configurable window size
+- LLM message formatting
+- Context string generation
+
+#### Working Memory
+Manages active tasks and temporary data.
+
+**Features**:
+- Active task registration
+- Intermediate result storage
+- Scratch pad for temporary data
+- Agent task tracking
+
+#### Long-Term Memory
+Persistent storage for conversations, tasks, and learnings.
+
+**Features**:
+- JSON-based file storage
+- Conversation history
+- Task outcome storage
+- Learning and insight storage
+- Search capabilities
+
+### 10. Learning Systems (Phase 4)
+
+**NEW**: Outcome evaluation and delegation optimization.
+
+**Location**: `learning/`
+
+**Components**:
+
+#### Outcome Evaluator
+Evaluates task execution quality and identifies patterns.
+
+**Features**:
+- Task outcome scoring
+- Quality, completeness, and success evaluation
+- Agent performance tracking
+- Pattern identification
+- Task type performance analysis
+
+#### Delegation Optimizer
+Learns from past performance to optimize agent selection.
+
+**Features**:
+- Delegation history tracking
+- Agent specialty learning
+- Agent recommendation
+- Top performer identification
+- Delegation pattern analysis
+- Optimization suggestions
 
 ## Data Flow
 
@@ -230,12 +296,23 @@ task_engine/                # Task decomposition system
 ├── dependency_mapper.py    # Dependency graph (DAG)
 └── execution_planner.py    # Execution planning
 
-coordination/               # Agent coordination (Phase 3) ← NEW!
+coordination/               # Agent coordination (Phase 3)
 ├── __init__.py
 ├── orchestrator.py         # Master coordinator
 ├── message_bus.py          # Inter-agent communication
 ├── task_tracker.py         # Progress tracking
 └── result_aggregator.py    # Result aggregation
+
+memory/                     # Memory systems (Phase 4) ← NEW!
+├── __init__.py
+├── short_term.py           # Conversation context
+├── working_memory.py       # Active tasks & temp data
+└── long_term.py            # Persistent storage
+
+learning/                   # Learning systems (Phase 4) ← NEW!
+├── __init__.py
+├── outcome_evaluator.py    # Task outcome evaluation
+└── delegation_optimizer.py # Agent selection optimization
 
 personality/                 # Personality system
 ├── __init__.py
@@ -321,20 +398,6 @@ examples/                   # Example scripts
 
 ## Future Architecture
 
-### Phase 4: Memory & Learning
-```
-memory/
-├── short_term.py           # Conversation context
-├── working_memory.py       # Active tasks
-├── long_term.py           # SQLite + embeddings
-└── semantic_search.py     # RAG
-
-learning/
-├── outcome_evaluator.py
-├── delegation_optimizer.py
-└── skill_library.py
-```
-
 ### Phase 5: Speech Interface
 ```
 speech_interface/
@@ -371,4 +434,4 @@ All configuration is YAML-based for easy editing:
 
 ---
 
-**Version**: 0.3.0 (Phase 3 Complete)
+**Version**: 0.4.0 (Phase 4 Complete - Memory & Learning)
