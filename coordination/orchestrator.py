@@ -10,6 +10,11 @@ from task_engine.decomposer import TaskDecomposer
 from task_engine.dependency_mapper import DependencyMapper
 from task_engine.execution_planner import ExecutionPlanner
 from agents.agent_factory import AgentFactory
+from memory.short_term import ShortTermMemory
+from memory.working_memory import WorkingMemory
+from memory.long_term import LongTermMemory
+from learning.outcome_evaluator import OutcomeEvaluator
+from learning.delegation_optimizer import DelegationOptimizer
 from .message_bus import MessageBus, Message, MessageType
 from .task_tracker import TaskTracker, TaskStatus
 from .result_aggregator import ResultAggregator
@@ -22,7 +27,7 @@ class Orchestrator:
     Master coordinator for multi-agent task execution
     
     Integrates task decomposition, agent coordination, progress tracking,
-    and result aggregation for complex workflows
+    result aggregation, memory, and learning (Phases 3 & 4)
     """
     
     def __init__(
@@ -31,7 +36,9 @@ class Orchestrator:
         task_analyzer: Optional[TaskAnalyzer] = None,
         task_decomposer: Optional[TaskDecomposer] = None,
         dependency_mapper: Optional[DependencyMapper] = None,
-        execution_planner: Optional[ExecutionPlanner] = None
+        execution_planner: Optional[ExecutionPlanner] = None,
+        enable_memory: bool = True,
+        enable_learning: bool = True
     ):
         """
         Initialize orchestrator
@@ -42,6 +49,8 @@ class Orchestrator:
             task_decomposer: Task decomposer (creates if None)
             dependency_mapper: Dependency mapper (creates if None)
             execution_planner: Execution planner (creates if None)
+            enable_memory: Enable memory systems (Phase 4)
+            enable_learning: Enable learning systems (Phase 4)
         """
         self.agent_factory = agent_factory
         
@@ -51,15 +60,29 @@ class Orchestrator:
         self.dependency_mapper = dependency_mapper or DependencyMapper()
         self.execution_planner = execution_planner or ExecutionPlanner()
         
-        # Coordination components
+        # Coordination components (Phase 3)
         self.message_bus = MessageBus()
         self.task_tracker = TaskTracker()
         self.result_aggregator = ResultAggregator()
         
+        # Memory systems (Phase 4)
+        self.enable_memory = enable_memory
+        if enable_memory:
+            self.short_term_memory = ShortTermMemory()
+            self.working_memory = WorkingMemory()
+            self.long_term_memory = LongTermMemory()
+        
+        # Learning systems (Phase 4)
+        self.enable_learning = enable_learning
+        if enable_learning:
+            self.outcome_evaluator = OutcomeEvaluator()
+            self.delegation_optimizer = DelegationOptimizer()
+        
         # Active agents
         self.agents: Dict[str, Any] = {}
         
-        logger.info("Orchestrator initialized")
+        logger.info("Orchestrator initialized (Memory: %s, Learning: %s)", 
+                   enable_memory, enable_learning)
     
     def start(self):
         """Start orchestrator services"""
@@ -191,6 +214,10 @@ class Orchestrator:
         
         logger.info(f"Executing task: {task_id}")
         
+        # Register in working memory (Phase 4)
+        if self.enable_memory:
+            self.working_memory.register_task(task_id, description)
+        
         # Publish task assigned message
         self.message_bus.publish(Message(
             msg_type=MessageType.TASK_ASSIGNED,
@@ -233,6 +260,39 @@ class Orchestrator:
                 metadata=result.get('metadata', {})
             )
             
+            # Complete in working memory (Phase 4)
+            if self.enable_memory:
+                self.working_memory.complete_task(task_id)
+            
+            # Evaluate outcome (Phase 4)
+            if self.enable_learning:
+                evaluation = self.outcome_evaluator.evaluate_task_outcome(
+                    task_id=task_id,
+                    task_description=description,
+                    result=result,
+                    agent_id=agent_id
+                )
+                
+                # Record delegation (Phase 4)
+                task_type = task.get('metadata', {}).get('domain', 'general')
+                self.delegation_optimizer.record_delegation(
+                    task_id=task_id,
+                    task_description=description,
+                    agent_id=agent_id,
+                    task_type=task_type,
+                    outcome_score=evaluation['overall_score']
+                )
+            
+            # Store in long-term memory (Phase 4)
+            if self.enable_memory:
+                self.long_term_memory.store_task_outcome(
+                    task_id=task_id,
+                    description=description,
+                    result=result,
+                    agent_id=agent_id,
+                    success=True
+                )
+            
             # Publish completion message
             self.message_bus.publish(Message(
                 msg_type=MessageType.TASK_COMPLETED,
@@ -245,6 +305,16 @@ class Orchestrator:
         except Exception as e:
             logger.error(f"Task {task_id} failed: {e}")
             self.task_tracker.fail_task(task_id, str(e))
+            
+            # Store failure in long-term memory (Phase 4)
+            if self.enable_memory:
+                self.long_term_memory.store_task_outcome(
+                    task_id=task_id,
+                    description=description,
+                    result={"error": str(e)},
+                    agent_id=agent_id if 'agent_id' in locals() else None,
+                    success=False
+                )
             
             # Publish failure message
             self.message_bus.publish(Message(
@@ -260,12 +330,29 @@ class Orchestrator:
         Returns:
             Progress dictionary
         """
-        return {
+        progress = {
             "overall_progress": self.task_tracker.get_overall_progress(),
             "task_stats": self.task_tracker.get_stats(),
             "result_stats": self.result_aggregator.get_stats(),
             "message_stats": self.message_bus.get_stats()
         }
+        
+        # Add memory stats (Phase 4)
+        if self.enable_memory:
+            progress["memory_stats"] = {
+                "short_term": self.short_term_memory.get_stats(),
+                "working": self.working_memory.get_stats(),
+                "long_term": self.long_term_memory.get_stats()
+            }
+        
+        # Add learning stats (Phase 4)
+        if self.enable_learning:
+            progress["learning_stats"] = {
+                "evaluator": self.outcome_evaluator.get_stats(),
+                "optimizer": self.delegation_optimizer.get_stats()
+            }
+        
+        return progress
     
     def get_task_status(self, task_id: str) -> Optional[Dict[str, Any]]:
         """
@@ -309,4 +396,26 @@ class Orchestrator:
         self.result_aggregator.clear_all_results()
         self.message_bus.clear_history()
         self.agents.clear()
+        
+        # Clear memory (Phase 4)
+        if self.enable_memory:
+            self.short_term_memory.clear()
+            self.working_memory.clear_all()
+        
         logger.info("Orchestrator cleaned up")
+    
+    def get_learning_insights(self) -> Dict[str, Any]:
+        """
+        Get learning insights (Phase 4)
+        
+        Returns:
+            Insights dictionary
+        """
+        if not self.enable_learning:
+            return {"message": "Learning not enabled"}
+        
+        return {
+            "patterns": self.outcome_evaluator.identify_patterns(),
+            "delegation_analysis": self.delegation_optimizer.analyze_delegation_patterns(),
+            "optimization_suggestions": self.delegation_optimizer.generate_optimization_suggestions()
+        }
