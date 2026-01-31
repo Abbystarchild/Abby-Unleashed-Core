@@ -100,6 +100,11 @@ Abby-Unleashed-Core/
 │   ├── base_agent.py         # Base agent class
 │   ├── agent_factory.py      # Agent creation
 │   └── clarification_protocol.py
+├── task_engine/              # Task decomposition and planning
+│   ├── task_analyzer.py      # Task analysis and classification
+│   ├── decomposer.py         # Recursive task breakdown
+│   ├── dependency_mapper.py  # Dependency graph (DAG)
+│   └── execution_planner.py  # Execution planning
 ├── personality/               # Personality system
 │   └── brain_clone.py        # Personality loader
 ├── persona_library/           # Reusable persona storage
@@ -193,6 +198,37 @@ stats = abby.get_stats()
 print(f"Total personas: {stats['persona_library']['total_personas']}")
 ```
 
+### Using the Task Engine
+
+```python
+from task_engine import TaskAnalyzer, TaskDecomposer, DependencyMapper, ExecutionPlanner
+
+# Initialize components
+analyzer = TaskAnalyzer()
+decomposer = TaskDecomposer()
+mapper = DependencyMapper()
+planner = ExecutionPlanner()
+
+# Analyze a complex task
+task = "Build a REST API with authentication and deploy to AWS"
+analysis = analyzer.analyze(task)
+print(f"Complexity: {analysis['complexity'].value}")
+print(f"Domains: {analysis['domains']}")
+
+# Decompose into subtasks
+decomposition = decomposer.decompose(analysis)
+print(f"Subtasks: {len(decomposition['subtasks'])}")
+
+# Build dependency graph
+dep_map = mapper.build_graph(decomposition['subtasks'])
+print(f"Execution order: {dep_map['execution_order']}")
+
+# Create execution plan
+plan = planner.create_plan(dep_map, decomposition['subtasks'])
+print(f"Total steps: {plan['total_steps']}")
+print(f"Can parallelize: {plan['can_parallelize']}")
+```
+
 ## Development Status
 
 ### ✅ Completed (Phase 1)
@@ -207,9 +243,15 @@ print(f"Total personas: {stats['persona_library']['total_personas']}")
 - [x] Configuration system
 - [x] Example personas
 
+### ✅ Completed (Phase 2)
+- [x] Task decomposition engine
+  - [x] Task analyzer (complexity detection, domain identification)
+  - [x] Task decomposer (recursive breakdown with domain strategies)
+  - [x] Dependency mapper (DAG creation, cycle detection)
+  - [x] Execution planner (parallel execution, critical path)
+
 ### 🚧 In Progress
 - [ ] Speech interface (STT, TTS, VAD)
-- [ ] Task decomposition engine
 - [ ] Agent coordination system
 - [ ] Memory systems
 - [ ] Learning systems
