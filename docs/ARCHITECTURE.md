@@ -120,6 +120,37 @@ A complete system for breaking down complex tasks into manageable subtasks with 
 - Critical path calculation
 - Progress tracking
 
+### 8. PersonaPlex Speech Interface (Phase 3)
+
+Complete speech-to-speech interaction system for real-time voice conversations.
+
+**Location**: `speech_interface/`
+
+**Components**:
+- **STTEngine**: Speech-to-text using faster-whisper (Whisper models)
+- **TTSEngine**: Text-to-speech using piper-tts for natural voice synthesis
+- **VADDetector**: Voice activity detection using silero-vad
+- **WakeWordDetector**: Wake word detection with pvporcupine ("Hey Abby")
+- **ConversationManager**: Orchestrates the complete conversation flow
+
+**Features**:
+- Real-time speech transcription
+- Natural voice synthesis
+- Automatic speech detection
+- Wake word activation
+- Conversation state management
+- Seamless integration with task execution
+- 100% offline operation
+
+**Flow**:
+1. User says wake word ("Hey Abby")
+2. System activates and responds
+3. VAD detects user speech
+4. STT transcribes audio to text
+5. Text sent to task executor
+6. Response generated
+7. TTS synthesizes response
+8. Audio played back to user
 ### 8. Coordination System (Phase 3)
 
 **NEW**: Multi-agent coordination system for orchestrating complex workflows.
@@ -263,6 +294,7 @@ config/                     # Configuration
 tests/                      # Test suite
 ├── test_agent_dna.py
 ├── test_agents.py
+├── test_speech_interface.py
 ├── test_persona_library.py
 ├── test_task_engine.py
 └── test_coordination.py   # ← NEW!
@@ -333,16 +365,6 @@ learning/
 ├── outcome_evaluator.py
 ├── delegation_optimizer.py
 └── skill_library.py
-```
-
-### Phase 5: Speech Interface
-```
-speech_interface/
-├── stt_engine.py          # Whisper
-├── tts_engine.py          # Piper
-├── vad_detector.py        # Voice activity
-├── wake_word.py           # "Hey Abby"
-└── conversation_manager.py
 ```
 
 ## Configuration Management
