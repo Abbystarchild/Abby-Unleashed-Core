@@ -1,0 +1,600 @@
+# Error Handling and Debugging Mastery
+# Best practices for robust error handling and effective debugging
+
+error_handling_mastery:
+  
+  # ============ ERROR HANDLING PRINCIPLES ============
+  principles:
+    
+    fail_fast:
+      description: "Detect and report errors as early as possible"
+      good: |
+        def process_order(order):
+            # Validate immediately
+            if not order:
+                raise ValueError("Order cannot be None")
+            if not order.items:
+                raise ValueError("Order must have items")
+            if order.total < 0:
+                raise ValueError("Order total cannot be negative")
+            
+            # Now proceed with valid data
+            return process_valid_order(order)
+      
+      bad: |
+        def process_order(order):
+            # Proceed without validation
+            for item in order.items:  # NoneType error deep in processing
+                process_item(item)
+
+    use_exceptions_for_exceptional_cases:
+      description: "Don't use exceptions for control flow"
+      bad: |
+        def find_user(user_id):
+            try:
+                return users[user_id]
+            except KeyError:
+                return None  # Using exception for normal case
+        
+        # Worse - exception as control flow
+        try:
+            while True:
+                item = get_next_item()  # Raises StopIteration
+        except StopIteration:
+            pass
+      
+      good: |
+        def find_user(user_id):
+            return users.get(user_id)  # Returns None if not found
+        
+        # Or be explicit about not found
+        def find_user(user_id):
+            if user_id not in users:
+                return None
+            return users[user_id]
+
+    be_specific_with_exceptions:
+      bad: |
+        try:
+            result = do_something()
+        except Exception:  # Catches everything!
+            pass  # Silently ignores all errors
+      
+      good: |
+        try:
+            result = do_something()
+        except ValueError as e:
+            logger.warning(f"Invalid value: {e}")
+            return default_value
+        except ConnectionError as e:
+            logger.error(f"Connection failed: {e}")
+            raise
+
+  # ============ PYTHON ERROR HANDLING ============
+  python:
+    
+    exception_hierarchy: |
+      BaseException
+      ├── SystemExit
+      ├── KeyboardInterrupt
+      └── Exception
+          ├── ValueError
+          ├── TypeError
+          ├── KeyError
+          ├── IndexError
+          ├── AttributeError
+          ├── FileNotFoundError
+          ├── ConnectionError
+          └── ... (many more)
+      
+      # Catch Exception, not BaseException
+      # BaseException includes SystemExit, KeyboardInterrupt
+
+    custom_exceptions: |
+      # Define custom exceptions for your domain
+      class OrderError(Exception):
+          """Base exception for order operations."""
+          pass
+      
+      class OrderNotFoundError(OrderError):
+          """Order does not exist."""
+          def __init__(self, order_id):
+              self.order_id = order_id
+              super().__init__(f"Order {order_id} not found")
+      
+      class InsufficientStockError(OrderError):
+          """Not enough stock to fulfill order."""
+          def __init__(self, product_id, requested, available):
+              self.product_id = product_id
+              self.requested = requested
+              self.available = available
+              super().__init__(
+                  f"Insufficient stock for {product_id}: "
+                  f"requested {requested}, available {available}"
+              )
+      
+      # Usage
+      def get_order(order_id):
+          order = db.query(Order).get(order_id)
+          if not order:
+              raise OrderNotFoundError(order_id)
+          return order
+
+    context_managers_for_cleanup: |
+      # Always clean up resources
+      
+      # Bad - resource leak on error
+      f = open("file.txt")
+      data = f.read()  # If this fails, file never closed
+      f.close()
+      
+      # Good - context manager ensures cleanup
+      with open("file.txt") as f:
+          data = f.read()  # File closed even on error
+      
+      # Custom context manager
+      from contextlib import contextmanager
+      
+      @contextmanager
+      def database_transaction(connection):
+          try:
+              yield connection
+              connection.commit()
+          except Exception:
+              connection.rollback()
+              raise
+          finally:
+              connection.close()
+      
+      with database_transaction(get_connection()) as conn:
+          conn.execute("INSERT ...")  # Auto rollback on error
+
+    exception_chaining: |
+      # Preserve original exception context
+      
+      def process_file(path):
+          try:
+              with open(path) as f:
+                  return parse_data(f.read())
+          except FileNotFoundError as e:
+              # Chain to preserve original error
+              raise ProcessingError(f"Cannot process {path}") from e
+      
+      # Output shows both exceptions:
+      # ProcessingError: Cannot process data.txt
+      # 
+      # The above exception was the direct cause of:
+      # 
+      # FileNotFoundError: [Errno 2] No such file: 'data.txt'
+
+    logging_exceptions: |
+      import logging
+      
+      logger = logging.getLogger(__name__)
+      
+      def risky_operation():
+          try:
+              result = external_api_call()
+          except ConnectionError:
+              # Log with stack trace
+              logger.exception("Failed to connect to API")
+              raise
+          except ValueError as e:
+              # Log without stack trace (expected error)
+              logger.warning(f"Invalid response: {e}")
+              return None
+
+    retry_patterns: |
+      import time
+      from functools import wraps
+      
+      def retry(max_attempts=3, delay=1, backoff=2, exceptions=(Exception,)):
+          def decorator(func):
+              @wraps(func)
+              def wrapper(*args, **kwargs):
+                  attempt = 1
+                  current_delay = delay
+                  
+                  while attempt <= max_attempts:
+                      try:
+                          return func(*args, **kwargs)
+                      except exceptions as e:
+                          if attempt == max_attempts:
+                              raise
+                          
+                          logger.warning(
+                              f"Attempt {attempt} failed: {e}. "
+                              f"Retrying in {current_delay}s"
+                          )
+                          time.sleep(current_delay)
+                          current_delay *= backoff
+                          attempt += 1
+              return wrapper
+          return decorator
+      
+      @retry(max_attempts=3, delay=1, exceptions=(ConnectionError,))
+      def fetch_data():
+          return api.get_data()
+
+  # ============ API ERROR HANDLING ============
+  api_errors:
+    
+    structured_errors: |
+      # Define error response format
+      from dataclasses import dataclass
+      from typing import Optional, List
+      
+      @dataclass
+      class APIError:
+          code: str
+          message: str
+          details: Optional[List[dict]] = None
+          
+          def to_dict(self):
+              result = {"code": self.code, "message": self.message}
+              if self.details:
+                  result["details"] = self.details
+              return result
+      
+      # Error codes
+      class ErrorCodes:
+          VALIDATION_ERROR = "VALIDATION_ERROR"
+          NOT_FOUND = "NOT_FOUND"
+          UNAUTHORIZED = "UNAUTHORIZED"
+          FORBIDDEN = "FORBIDDEN"
+          CONFLICT = "CONFLICT"
+          INTERNAL_ERROR = "INTERNAL_ERROR"
+
+    flask_error_handling: |
+      from flask import Flask, jsonify
+      from werkzeug.exceptions import HTTPException
+      
+      app = Flask(__name__)
+      
+      class APIException(Exception):
+          def __init__(self, code, message, status=400, details=None):
+              self.code = code
+              self.message = message
+              self.status = status
+              self.details = details
+      
+      @app.errorhandler(APIException)
+      def handle_api_exception(e):
+          return jsonify({
+              "error": {
+                  "code": e.code,
+                  "message": e.message,
+                  "details": e.details
+              }
+          }), e.status
+      
+      @app.errorhandler(HTTPException)
+      def handle_http_exception(e):
+          return jsonify({
+              "error": {
+                  "code": e.name.upper().replace(" ", "_"),
+                  "message": e.description
+              }
+          }), e.code
+      
+      @app.errorhandler(Exception)
+      def handle_unexpected_error(e):
+          # Log the actual error
+          app.logger.exception("Unexpected error")
+          
+          # Return generic message to client
+          return jsonify({
+              "error": {
+                  "code": "INTERNAL_ERROR",
+                  "message": "An unexpected error occurred"
+              }
+          }), 500
+      
+      # Usage
+      @app.route("/users/<int:user_id>")
+      def get_user(user_id):
+          user = db.get_user(user_id)
+          if not user:
+              raise APIException(
+                  code="NOT_FOUND",
+                  message=f"User {user_id} not found",
+                  status=404
+              )
+          return jsonify(user)
+
+    validation_errors: |
+      from pydantic import BaseModel, ValidationError
+      
+      @app.errorhandler(ValidationError)
+      def handle_validation_error(e):
+          details = []
+          for error in e.errors():
+              details.append({
+                  "field": ".".join(str(x) for x in error["loc"]),
+                  "message": error["msg"],
+                  "type": error["type"]
+              })
+          
+          return jsonify({
+              "error": {
+                  "code": "VALIDATION_ERROR",
+                  "message": "Request validation failed",
+                  "details": details
+              }
+          }), 422
+
+  # ============ DEBUGGING TECHNIQUES ============
+  debugging:
+    
+    systematic_approach:
+      steps:
+        1: "Reproduce the bug consistently"
+        2: "Understand the expected behavior"
+        3: "Isolate the problem (binary search)"
+        4: "Form a hypothesis"
+        5: "Test the hypothesis"
+        6: "Fix and verify"
+        7: "Add test to prevent regression"
+
+    python_debugging:
+      pdb: |
+        # Built-in debugger
+        import pdb
+        
+        def buggy_function():
+            data = get_data()
+            pdb.set_trace()  # Breakpoint here
+            result = process(data)
+            return result
+        
+        # pdb commands:
+        # n (next) - execute next line
+        # s (step) - step into function
+        # c (continue) - continue execution
+        # p variable - print variable
+        # l (list) - show current code
+        # w (where) - show stack trace
+        # q (quit) - exit debugger
+      
+      breakpoint: |
+        # Python 3.7+ - cleaner syntax
+        def buggy_function():
+            data = get_data()
+            breakpoint()  # Same as pdb.set_trace()
+            result = process(data)
+            return result
+      
+      ipdb: |
+        # pip install ipdb
+        # Enhanced debugger with IPython features
+        import ipdb
+        
+        ipdb.set_trace()
+        # or
+        breakpoint()  # Set PYTHONBREAKPOINT=ipdb.set_trace
+      
+      remote_debugging: |
+        # Debug running server
+        # pip install remote-pdb
+        from remote_pdb import RemotePdb
+        
+        RemotePdb('0.0.0.0', 4444).set_trace()
+        
+        # Connect with: telnet localhost 4444
+
+    logging_for_debugging: |
+      import logging
+      
+      # Configure detailed logging for debugging
+      logging.basicConfig(
+          level=logging.DEBUG,
+          format='%(asctime)s %(levelname)s %(name)s %(funcName)s:%(lineno)d %(message)s'
+      )
+      
+      logger = logging.getLogger(__name__)
+      
+      def complex_function(data):
+          logger.debug(f"Input data: {data}")
+          
+          result = step_one(data)
+          logger.debug(f"After step one: {result}")
+          
+          result = step_two(result)
+          logger.debug(f"After step two: {result}")
+          
+          return result
+
+    tracing: |
+      import sys
+      
+      def trace_calls(frame, event, arg):
+          if event == 'call':
+              code = frame.f_code
+              print(f"Call: {code.co_name} in {code.co_filename}:{frame.f_lineno}")
+          return trace_calls
+      
+      # Enable tracing
+      sys.settrace(trace_calls)
+      
+      # Your code here
+      result = buggy_function()
+      
+      # Disable tracing
+      sys.settrace(None)
+
+    memory_debugging: |
+      # pip install memory_profiler
+      from memory_profiler import profile
+      
+      @profile
+      def memory_hungry():
+          data = []
+          for i in range(1000000):
+              data.append(str(i) * 100)
+          return data
+      
+      # Track object references
+      import gc
+      import sys
+      
+      def debug_memory():
+          gc.collect()
+          
+          # Count objects by type
+          objects = gc.get_objects()
+          type_counts = {}
+          for obj in objects:
+              t = type(obj).__name__
+              type_counts[t] = type_counts.get(t, 0) + 1
+          
+          # Print top consumers
+          for t, count in sorted(type_counts.items(), key=lambda x: -x[1])[:10]:
+              print(f"{t}: {count}")
+
+  # ============ ANTI-PATTERNS ============
+  anti_patterns:
+    
+    - name: "Bare except"
+      bad: |
+        try:
+            risky_operation()
+        except:  # Catches EVERYTHING, even KeyboardInterrupt
+            pass
+      good: |
+        try:
+            risky_operation()
+        except Exception as e:  # Catches normal exceptions
+            logger.error(f"Operation failed: {e}")
+
+    - name: "Swallowing exceptions"
+      bad: |
+        try:
+            result = process()
+        except Exception:
+            pass  # Error hidden, debugging nightmare
+      good: |
+        try:
+            result = process()
+        except ValueError as e:
+            logger.warning(f"Invalid data: {e}")
+            result = default_value
+        # Let unexpected exceptions propagate
+
+    - name: "Exception as return value"
+      bad: |
+        def get_user(id):
+            try:
+                return db.get(id)
+            except NotFoundError:
+                return NotFoundError()  # Returning exception object!
+        
+        user = get_user(123)
+        if isinstance(user, NotFoundError):  # Weird check
+            ...
+      good: |
+        def get_user(id):
+            user = db.get(id)
+            if not user:
+                raise NotFoundError(id)
+            return user
+        
+        # Or use Optional
+        def get_user(id) -> Optional[User]:
+            return db.get(id)  # Returns None if not found
+
+    - name: "Catching and re-raising without info"
+      bad: |
+        try:
+            process()
+        except Exception:
+            raise Exception("Something went wrong")  # Lost original error!
+      good: |
+        try:
+            process()
+        except Exception as e:
+            raise ProcessingError("Failed to process") from e  # Chains
+
+    - name: "Print instead of logging"
+      bad: |
+        try:
+            result = fetch_data()
+        except Exception as e:
+            print(f"Error: {e}")  # Lost when deployed, no context
+      good: |
+        try:
+            result = fetch_data()
+        except Exception as e:
+            logger.exception("Failed to fetch data")  # Full context
+
+    - name: "Using assert for runtime checks"
+      bad: |
+        def divide(a, b):
+            assert b != 0, "Cannot divide by zero"  # Disabled with -O flag!
+            return a / b
+      good: |
+        def divide(a, b):
+            if b == 0:
+                raise ValueError("Cannot divide by zero")
+            return a / b
+
+  # ============ DEFENSIVE PROGRAMMING ============
+  defensive_programming:
+    
+    input_validation: |
+      from typing import Optional
+      
+      def create_user(name: str, email: str, age: Optional[int] = None) -> User:
+          # Validate types (helpful with duck typing)
+          if not isinstance(name, str):
+              raise TypeError(f"name must be str, got {type(name)}")
+          
+          # Validate values
+          if not name.strip():
+              raise ValueError("name cannot be empty")
+          
+          if not is_valid_email(email):
+              raise ValueError(f"Invalid email format: {email}")
+          
+          if age is not None and (age < 0 or age > 150):
+              raise ValueError(f"Invalid age: {age}")
+          
+          return User(name=name.strip(), email=email.lower(), age=age)
+
+    guard_clauses: |
+      # Bad - deeply nested
+      def process_order(order):
+          if order:
+              if order.items:
+                  if order.customer:
+                      if order.customer.is_active:
+                          # Finally, the actual logic
+                          return do_processing(order)
+          return None
+      
+      # Good - guard clauses
+      def process_order(order):
+          if not order:
+              return None
+          if not order.items:
+              return None
+          if not order.customer:
+              return None
+          if not order.customer.is_active:
+              return None
+          
+          # Clean path for actual logic
+          return do_processing(order)
+
+    null_safety: |
+      # Use Optional and guard against None
+      from typing import Optional
+      
+      def get_user_email(user_id: int) -> Optional[str]:
+          user = find_user(user_id)
+          if user is None:
+              return None
+          return user.email
+      
+      # Or use the walrus operator (Python 3.8+)
+      if (user := find_user(user_id)) is not None:
+          send_email(user.email)

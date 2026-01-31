@@ -1,0 +1,363 @@
+# Database Mastery Knowledge Base
+# SQL, NoSQL, and data patterns expertise
+
+database_expertise:
+  
+  # ============ SQL BEST PRACTICES ============
+  sql:
+    
+    query_optimization:
+      - name: "Use indexes effectively"
+        good: |
+          -- Create indexes on frequently queried columns
+          CREATE INDEX idx_users_email ON users(email);
+          CREATE INDEX idx_orders_user_date ON orders(user_id, created_at);
+          
+          -- Composite indexes: leftmost prefix rule
+          -- Index on (a, b, c) can be used for:
+          -- WHERE a = ? ✓
+          -- WHERE a = ? AND b = ? ✓
+          -- WHERE a = ? AND b = ? AND c = ? ✓
+          -- WHERE b = ? ✗ (doesn't use index)
+        
+        bad: |
+          -- Index on every column (slows writes)
+          CREATE INDEX idx_a ON table(a);
+          CREATE INDEX idx_b ON table(b);
+          CREATE INDEX idx_c ON table(c);
+          -- Better: composite index if queries use multiple columns
+
+      - name: "Avoid SELECT *"
+        bad: |
+          SELECT * FROM users;  -- Fetches all columns
+        good: |
+          SELECT id, name, email FROM users;  -- Only needed columns
+        why: "Reduces data transfer, allows index-only scans"
+
+      - name: "Use EXPLAIN to analyze queries"
+        example: |
+          EXPLAIN ANALYZE SELECT * FROM orders 
+          WHERE user_id = 123 AND created_at > '2024-01-01';
+          
+          -- Look for:
+          -- Seq Scan = bad (table scan)
+          -- Index Scan = good
+          -- Nested Loop = OK for small sets, bad for large
+          -- Hash Join = good for large sets
+
+      - name: "Optimize JOINs"
+        principles:
+          - "Join on indexed columns"
+          - "Filter early (WHERE before JOIN)"
+          - "Start with smallest table"
+        example: |
+          -- Good: filter before join
+          SELECT u.name, o.total
+          FROM (SELECT * FROM users WHERE status = 'active') u
+          JOIN orders o ON u.id = o.user_id;
+          
+          -- Or use EXISTS for existence check
+          SELECT u.name FROM users u
+          WHERE EXISTS (SELECT 1 FROM orders o WHERE o.user_id = u.id);
+
+      - name: "Avoid N+1 queries"
+        bad: |
+          # Python ORM - N+1 problem
+          users = session.query(User).all()  # 1 query
+          for user in users:
+              print(user.orders)  # N queries!
+        good: |
+          # Eager loading
+          users = session.query(User).options(
+              joinedload(User.orders)  # 1 query with JOIN
+          ).all()
+          
+          # Or explicit join
+          SELECT u.*, o.* FROM users u
+          LEFT JOIN orders o ON u.id = o.user_id;
+
+    anti_patterns:
+      - name: "Implicit type conversion"
+        bad: |
+          -- email is VARCHAR, comparing to integer
+          SELECT * FROM users WHERE email = 12345;
+          -- Forces table scan, can't use index
+        good: |
+          SELECT * FROM users WHERE email = '12345';
+
+      - name: "LIKE with leading wildcard"
+        bad: |
+          SELECT * FROM users WHERE name LIKE '%smith';
+          -- Can't use index
+        good: |
+          SELECT * FROM users WHERE name LIKE 'smith%';
+          -- Can use index
+          
+          -- For contains search, use full-text search
+          SELECT * FROM users WHERE to_tsvector(name) @@ to_tsquery('smith');
+
+      - name: "Functions on indexed columns"
+        bad: |
+          SELECT * FROM users WHERE LOWER(email) = 'test@example.com';
+          -- Can't use index on email
+        good: |
+          -- Store normalized or create functional index
+          CREATE INDEX idx_email_lower ON users(LOWER(email));
+          SELECT * FROM users WHERE LOWER(email) = 'test@example.com';
+
+      - name: "OR conditions on different columns"
+        bad: |
+          SELECT * FROM orders WHERE user_id = 1 OR product_id = 5;
+          -- Often can't use indexes efficiently
+        good: |
+          -- Use UNION for separate index usage
+          SELECT * FROM orders WHERE user_id = 1
+          UNION
+          SELECT * FROM orders WHERE product_id = 5;
+
+    transactions:
+      - name: "Keep transactions short"
+        principle: "Long transactions = lock contention = slow"
+        bad: |
+          BEGIN;
+          SELECT * FROM inventory WHERE product_id = 1 FOR UPDATE;
+          -- ... long processing ...
+          -- ... API calls ...
+          UPDATE inventory SET quantity = quantity - 1;
+          COMMIT;
+        good: |
+          # Do processing outside transaction
+          data = process_order(order)  # No transaction
+          
+          # Short transaction for the actual update
+          BEGIN;
+          UPDATE inventory SET quantity = quantity - 1 WHERE product_id = 1;
+          INSERT INTO orders (...) VALUES (...);
+          COMMIT;
+
+      - name: "Use appropriate isolation levels"
+        levels: |
+          READ UNCOMMITTED - Dirty reads possible (rarely used)
+          READ COMMITTED - Default in PostgreSQL, sees committed data
+          REPEATABLE READ - Snapshot at transaction start
+          SERIALIZABLE - Full isolation, slowest
+        
+        recommendation: "Use READ COMMITTED unless you need stronger guarantees"
+
+  # ============ NOSQL PATTERNS ============
+  nosql:
+    
+    mongodb:
+      - name: "Schema design - embed vs reference"
+        embed_when:
+          - "Data is always accessed together"
+          - "Child data doesn't exceed 16MB"
+          - "Data doesn't need to be accessed independently"
+        example_embed: |
+          // Good for blog posts with comments
+          {
+            "_id": ObjectId("..."),
+            "title": "My Post",
+            "comments": [
+              {"author": "Alice", "text": "Great!"},
+              {"author": "Bob", "text": "Nice post"}
+            ]
+          }
+        
+        reference_when:
+          - "Data accessed independently"
+          - "Many-to-many relationships"
+          - "Large or unbounded arrays"
+        example_reference: |
+          // Users and orders - reference
+          // users collection
+          {"_id": ObjectId("user1"), "name": "Alice"}
+          
+          // orders collection  
+          {"_id": ObjectId("order1"), "user_id": ObjectId("user1"), ...}
+
+      - name: "Index strategies"
+        example: |
+          // Single field index
+          db.users.createIndex({ email: 1 })
+          
+          // Compound index
+          db.orders.createIndex({ user_id: 1, created_at: -1 })
+          
+          // Text index for search
+          db.products.createIndex({ name: "text", description: "text" })
+          
+          // TTL index for auto-expiry
+          db.sessions.createIndex({ created_at: 1 }, { expireAfterSeconds: 3600 })
+
+      - name: "Aggregation pipeline"
+        example: |
+          db.orders.aggregate([
+            { $match: { status: "completed" } },
+            { $group: {
+                _id: "$user_id",
+                total: { $sum: "$amount" },
+                count: { $sum: 1 }
+            }},
+            { $sort: { total: -1 } },
+            { $limit: 10 }
+          ])
+
+    redis:
+      - name: "Choose appropriate data structures"
+        structures: |
+          STRING - Simple key-value, counters, caching
+          LIST - Queues, recent items, timelines
+          SET - Unique items, relationships
+          SORTED SET - Leaderboards, rate limiting
+          HASH - Objects, grouped data
+        
+        examples: |
+          # Caching (String)
+          SET user:123:profile '{"name":"Alice"}' EX 3600
+          
+          # Queue (List)
+          LPUSH jobs '{"task":"send_email"}'
+          RPOP jobs
+          
+          # Unique visitors (Set)
+          SADD page:home:visitors "user:123"
+          SCARD page:home:visitors
+          
+          # Leaderboard (Sorted Set)
+          ZADD leaderboard 1000 "user:123"
+          ZREVRANGE leaderboard 0 9 WITHSCORES
+          
+          # User session (Hash)
+          HSET session:abc123 user_id 123 expires 1234567890
+          HGETALL session:abc123
+
+      - name: "Avoid large keys/values"
+        bad: |
+          SET large_key <10MB value>  # Blocks other operations
+        good: |
+          # Split into smaller chunks
+          MSET chunk:1 <data> chunk:2 <data>
+          
+          # Or use streaming for large data
+          # Consider different storage for large blobs
+
+  # ============ DATA MODELING ============
+  data_modeling:
+    
+    normalization:
+      when_to_normalize:
+        - "Data integrity is critical"
+        - "Storage is limited"
+        - "Data changes frequently"
+      
+      when_to_denormalize:
+        - "Read performance is critical"
+        - "Data rarely changes"
+        - "Joins are expensive"
+      
+      forms: |
+        1NF: Atomic values, no repeating groups
+        2NF: 1NF + no partial dependencies
+        3NF: 2NF + no transitive dependencies
+        
+        Practical rule: Start with 3NF, denormalize for performance
+
+    patterns:
+      - name: "Soft deletes"
+        example: |
+          -- Add deleted_at column
+          ALTER TABLE users ADD COLUMN deleted_at TIMESTAMP;
+          
+          -- Delete = set timestamp
+          UPDATE users SET deleted_at = NOW() WHERE id = 123;
+          
+          -- Queries exclude deleted
+          SELECT * FROM users WHERE deleted_at IS NULL;
+        
+        pros: ["Audit trail", "Easy recovery", "Referential integrity"]
+        cons: ["Query complexity", "Storage growth", "Index bloat"]
+
+      - name: "Audit trail / Event sourcing"
+        example: |
+          -- Audit table
+          CREATE TABLE user_audit (
+            id SERIAL PRIMARY KEY,
+            user_id INT,
+            action VARCHAR(20),  -- CREATE, UPDATE, DELETE
+            old_values JSONB,
+            new_values JSONB,
+            changed_at TIMESTAMP DEFAULT NOW(),
+            changed_by INT
+          );
+          
+          -- Trigger to populate
+          CREATE TRIGGER user_audit_trigger
+          AFTER INSERT OR UPDATE OR DELETE ON users
+          FOR EACH ROW EXECUTE FUNCTION audit_trigger();
+
+      - name: "Partitioning for large tables"
+        example: |
+          -- PostgreSQL range partitioning
+          CREATE TABLE orders (
+            id SERIAL,
+            created_at TIMESTAMP,
+            amount DECIMAL
+          ) PARTITION BY RANGE (created_at);
+          
+          CREATE TABLE orders_2024_q1 PARTITION OF orders
+            FOR VALUES FROM ('2024-01-01') TO ('2024-04-01');
+          
+          CREATE TABLE orders_2024_q2 PARTITION OF orders
+            FOR VALUES FROM ('2024-04-01') TO ('2024-07-01');
+        
+        benefits:
+          - "Faster queries on partitioned column"
+          - "Easy data archival (drop partition)"
+          - "Parallel query execution"
+
+  # ============ CONNECTION MANAGEMENT ============
+  connections:
+    
+    pooling:
+      principle: "Database connections are expensive. Pool and reuse them."
+      
+      python_example: |
+        # SQLAlchemy with connection pool
+        from sqlalchemy import create_engine
+        
+        engine = create_engine(
+            DATABASE_URL,
+            pool_size=10,        # Permanent connections
+            max_overflow=20,     # Temporary connections
+            pool_timeout=30,     # Wait time for connection
+            pool_recycle=1800,   # Recycle connections after 30 min
+        )
+      
+      best_practices:
+        - "Size pool based on: workers * connections_per_worker"
+        - "Don't exceed database max_connections"
+        - "Use connection timeouts"
+        - "Handle connection errors gracefully"
+
+    async_databases:
+      example: |
+        # Python asyncpg (PostgreSQL)
+        import asyncpg
+        
+        async def main():
+            pool = await asyncpg.create_pool(
+                DATABASE_URL,
+                min_size=5,
+                max_size=20
+            )
+            
+            async with pool.acquire() as conn:
+                result = await conn.fetch('SELECT * FROM users')
+            
+            await pool.close()
+      
+      benefits:
+        - "Non-blocking I/O"
+        - "Handle many concurrent requests"
+        - "Better resource utilization"

@@ -1,0 +1,466 @@
+# API Design and REST Mastery
+# Best practices for building robust APIs
+
+api_design:
+  
+  # ============ REST PRINCIPLES ============
+  rest_fundamentals:
+    
+    http_methods:
+      GET:
+        purpose: "Retrieve resources"
+        properties: ["Safe", "Idempotent", "Cacheable"]
+        example: "GET /api/users/123"
+      
+      POST:
+        purpose: "Create new resources"
+        properties: ["Not safe", "Not idempotent"]
+        example: "POST /api/users"
+      
+      PUT:
+        purpose: "Replace entire resource"
+        properties: ["Not safe", "Idempotent"]
+        example: "PUT /api/users/123"
+      
+      PATCH:
+        purpose: "Partial update"
+        properties: ["Not safe", "Not idempotent"]
+        example: "PATCH /api/users/123"
+      
+      DELETE:
+        purpose: "Remove resource"
+        properties: ["Not safe", "Idempotent"]
+        example: "DELETE /api/users/123"
+
+    status_codes:
+      success:
+        200: "OK - Request succeeded"
+        201: "Created - Resource created"
+        204: "No Content - Success with no body"
+      
+      client_errors:
+        400: "Bad Request - Invalid syntax"
+        401: "Unauthorized - No/invalid auth"
+        403: "Forbidden - Auth OK, no permission"
+        404: "Not Found - Resource doesn't exist"
+        409: "Conflict - State conflict (duplicate)"
+        422: "Unprocessable Entity - Validation failed"
+        429: "Too Many Requests - Rate limited"
+      
+      server_errors:
+        500: "Internal Server Error - Server bug"
+        502: "Bad Gateway - Upstream error"
+        503: "Service Unavailable - Overloaded/maintenance"
+
+  # ============ URL DESIGN ============
+  url_patterns:
+    
+    good_patterns:
+      - name: "Use nouns, not verbs"
+        good: |
+          GET /api/users          # List users
+          GET /api/users/123      # Get user
+          POST /api/users         # Create user
+          DELETE /api/users/123   # Delete user
+        bad: |
+          GET /api/getUsers
+          POST /api/createUser
+          POST /api/deleteUser/123
+
+      - name: "Use plural nouns"
+        good: |
+          /api/users
+          /api/orders
+          /api/products
+        bad: |
+          /api/user
+          /api/order
+
+      - name: "Nest for relationships"
+        good: |
+          GET /api/users/123/orders     # User's orders
+          GET /api/orders/456/items     # Order's items
+        bad: |
+          GET /api/getUserOrders?userId=123
+
+      - name: "Use query params for filtering"
+        good: |
+          GET /api/users?status=active
+          GET /api/orders?created_after=2024-01-01
+          GET /api/products?category=electronics&price_max=100
+        bad: |
+          GET /api/users/active
+          GET /api/orders/date/2024-01-01
+
+      - name: "Pagination"
+        good: |
+          GET /api/users?page=2&per_page=20
+          GET /api/users?cursor=abc123&limit=20
+        response: |
+          {
+            "data": [...],
+            "pagination": {
+              "page": 2,
+              "per_page": 20,
+              "total": 150,
+              "total_pages": 8,
+              "next": "/api/users?page=3&per_page=20",
+              "prev": "/api/users?page=1&per_page=20"
+            }
+          }
+
+  # ============ REQUEST/RESPONSE DESIGN ============
+  request_response:
+    
+    request_validation:
+      python_example: |
+        from pydantic import BaseModel, EmailStr, Field
+        from typing import Optional
+        
+        class CreateUserRequest(BaseModel):
+            email: EmailStr
+            name: str = Field(..., min_length=1, max_length=100)
+            age: Optional[int] = Field(None, ge=0, le=150)
+        
+        @app.post("/api/users")
+        def create_user(request: CreateUserRequest):
+            # Pydantic validates automatically
+            # Returns 422 with details on validation failure
+            pass
+
+    error_responses:
+      good_format: |
+        {
+          "error": {
+            "code": "VALIDATION_ERROR",
+            "message": "Request validation failed",
+            "details": [
+              {
+                "field": "email",
+                "message": "Invalid email format"
+              },
+              {
+                "field": "age",
+                "message": "Must be between 0 and 150"
+              }
+            ],
+            "request_id": "abc-123-def"
+          }
+        }
+      
+      bad_format: |
+        {
+          "error": "Something went wrong"  # Too vague
+        }
+        
+        "Email is invalid"  # Not structured
+
+    envelope_pattern:
+      description: "Wrap responses in consistent structure"
+      example: |
+        # Success
+        {
+          "data": { "id": 123, "name": "Alice" },
+          "meta": { "request_id": "abc-123" }
+        }
+        
+        # List
+        {
+          "data": [...],
+          "pagination": { "page": 1, "total": 100 },
+          "meta": { "request_id": "abc-123" }
+        }
+        
+        # Error
+        {
+          "error": { "code": "NOT_FOUND", "message": "..." },
+          "meta": { "request_id": "abc-123" }
+        }
+
+  # ============ VERSIONING ============
+  versioning:
+    
+    strategies:
+      url_versioning:
+        example: "/api/v1/users"
+        pros: ["Clear", "Easy to implement"]
+        cons: ["Not truly RESTful"]
+      
+      header_versioning:
+        example: "Accept: application/vnd.myapp.v1+json"
+        pros: ["Clean URLs"]
+        cons: ["Less visible", "Harder to test"]
+      
+      query_versioning:
+        example: "/api/users?version=1"
+        pros: ["Easy to implement"]
+        cons: ["Messy URLs", "Easy to forget"]
+    
+    recommendation: "URL versioning is most practical for most APIs"
+    
+    breaking_changes:
+      - "Removing fields"
+      - "Changing field types"
+      - "Changing required fields"
+      - "Changing URL structure"
+    
+    non_breaking_changes:
+      - "Adding new optional fields"
+      - "Adding new endpoints"
+      - "Adding new optional parameters"
+
+  # ============ AUTHENTICATION ============
+  authentication:
+    
+    methods:
+      api_keys:
+        use_for: "Service-to-service, simple integrations"
+        example: |
+          # Header
+          X-API-Key: sk_live_abc123
+          
+          # Or query param (less secure)
+          /api/users?api_key=sk_live_abc123
+        security: "Always use HTTPS, rotate keys regularly"
+      
+      jwt:
+        use_for: "User authentication, stateless APIs"
+        structure: |
+          # Header.Payload.Signature
+          # Header: {"alg": "HS256", "typ": "JWT"}
+          # Payload: {"sub": "user123", "exp": 1234567890}
+          
+          Authorization: Bearer eyJhbGciOiJIUzI1NiIs...
+        
+        best_practices:
+          - "Set short expiration (15-60 min)"
+          - "Use refresh tokens for long sessions"
+          - "Don't store sensitive data in payload"
+          - "Use RS256 (asymmetric) for distributed systems"
+      
+      oauth2:
+        use_for: "Third-party access, delegated auth"
+        flows:
+          authorization_code: "Web apps with backend"
+          client_credentials: "Service-to-service"
+          device_code: "Limited input devices"
+
+  # ============ RATE LIMITING ============
+  rate_limiting:
+    
+    strategies:
+      fixed_window:
+        description: "X requests per time window"
+        example: "100 requests per minute"
+        issue: "Burst at window boundaries"
+      
+      sliding_window:
+        description: "Rolling time window"
+        example: "100 requests in last 60 seconds"
+        benefit: "Smoother rate limiting"
+      
+      token_bucket:
+        description: "Tokens replenish over time"
+        benefit: "Allows controlled bursts"
+
+    headers:
+      example: |
+        X-RateLimit-Limit: 100
+        X-RateLimit-Remaining: 95
+        X-RateLimit-Reset: 1234567890
+        Retry-After: 60  # On 429 response
+
+    implementation: |
+      # Python/Flask with Redis
+      import redis
+      from functools import wraps
+      
+      r = redis.Redis()
+      
+      def rate_limit(limit=100, window=60):
+          def decorator(f):
+              @wraps(f)
+              def wrapper(*args, **kwargs):
+                  key = f"rate:{request.remote_addr}"
+                  current = r.incr(key)
+                  if current == 1:
+                      r.expire(key, window)
+                  if current > limit:
+                      return jsonify({"error": "Rate limited"}), 429
+                  return f(*args, **kwargs)
+              return wrapper
+          return decorator
+      
+      @app.route("/api/resource")
+      @rate_limit(limit=100, window=60)
+      def get_resource():
+          return jsonify({"data": "..."})
+
+  # ============ CACHING ============
+  caching:
+    
+    http_caching:
+      cache_control:
+        public: "Can be cached by CDN/proxies"
+        private: "Only browser can cache"
+        no_cache: "Must revalidate before using"
+        no_store: "Never cache"
+        max_age: "Seconds until stale"
+      
+      example_headers: |
+        Cache-Control: public, max-age=3600
+        ETag: "abc123"
+        Last-Modified: Wed, 21 Oct 2024 07:28:00 GMT
+      
+      conditional_requests: |
+        # Client sends:
+        If-None-Match: "abc123"
+        If-Modified-Since: Wed, 21 Oct 2024 07:28:00 GMT
+        
+        # Server returns 304 Not Modified if unchanged
+
+    server_caching:
+      example: |
+        from functools import lru_cache
+        import redis
+        
+        r = redis.Redis()
+        
+        def get_user(user_id):
+            # Check cache
+            cached = r.get(f"user:{user_id}")
+            if cached:
+                return json.loads(cached)
+            
+            # Fetch from DB
+            user = db.query(User).get(user_id)
+            
+            # Cache with TTL
+            r.setex(f"user:{user_id}", 3600, json.dumps(user.dict()))
+            
+            return user
+
+  # ============ DOCUMENTATION ============
+  documentation:
+    
+    openapi_example: |
+      openapi: 3.0.0
+      info:
+        title: My API
+        version: 1.0.0
+      
+      paths:
+        /api/users:
+          get:
+            summary: List users
+            parameters:
+              - name: page
+                in: query
+                schema:
+                  type: integer
+                  default: 1
+            responses:
+              '200':
+                description: List of users
+                content:
+                  application/json:
+                    schema:
+                      type: array
+                      items:
+                        $ref: '#/components/schemas/User'
+      
+      components:
+        schemas:
+          User:
+            type: object
+            properties:
+              id:
+                type: integer
+              email:
+                type: string
+                format: email
+
+    tools:
+      - "Swagger/OpenAPI - Standard spec format"
+      - "Redoc - Beautiful documentation from OpenAPI"
+      - "Postman - API testing and documentation"
+      - "FastAPI - Auto-generates OpenAPI docs"
+
+  # ============ ANTI-PATTERNS ============
+  anti_patterns:
+    
+    - name: "RPC-style endpoints"
+      bad: |
+        POST /api/getUserById
+        POST /api/createOrder
+        POST /api/updateUserEmail
+      good: |
+        GET /api/users/{id}
+        POST /api/orders
+        PATCH /api/users/{id}
+
+    - name: "Exposing internal implementation"
+      bad: |
+        GET /api/mysql/users/select
+        {
+          "mysql_id": 123,
+          "_internal_flag": true
+        }
+      good: |
+        GET /api/users
+        {
+          "id": 123
+        }
+
+    - name: "Inconsistent naming"
+      bad: |
+        /api/users
+        /api/get-products
+        /api/ORDER_items
+        /api/customerAddress
+      good: |
+        /api/users
+        /api/products
+        /api/order-items
+        /api/customer-addresses
+
+    - name: "Ignoring HTTP semantics"
+      bad: |
+        GET /api/users/delete/123  # DELETE, not GET
+        POST /api/users/123        # Should be PUT/PATCH
+      good: |
+        DELETE /api/users/123
+        PUT /api/users/123
+
+    - name: "No error details"
+      bad: |
+        {"error": "Bad request"}
+        {"status": "fail"}
+      good: |
+        {
+          "error": {
+            "code": "INVALID_EMAIL",
+            "message": "Email format is invalid",
+            "field": "email"
+          }
+        }
+
+    - name: "Chatty APIs"
+      bad: |
+        # Client makes 10 requests to build one page
+        GET /api/user/123
+        GET /api/user/123/profile
+        GET /api/user/123/settings
+        GET /api/user/123/orders
+        ...
+      good: |
+        # Include related data or use expand param
+        GET /api/users/123?expand=profile,orders
+        
+        # Or GraphQL for complex needs
+        query {
+          user(id: 123) {
+            profile { ... }
+            orders { ... }
+          }
+        }

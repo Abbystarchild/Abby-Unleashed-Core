@@ -3,6 +3,7 @@ Main Abby Unleashed Orchestrator
 """
 import logging
 import os
+import yaml
 from typing import Dict, Any, Optional
 from dotenv import load_dotenv
 
@@ -22,6 +23,20 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+
+def load_coding_foundations() -> Dict[str, Any]:
+    """Load foundational coding knowledge for AI-assisted development"""
+    knowledge_path = os.path.join(
+        os.path.dirname(__file__), 
+        "agents", "knowledge", "coding_foundations.yaml"
+    )
+    try:
+        with open(knowledge_path, 'r', encoding='utf-8') as f:
+            return yaml.safe_load(f)
+    except Exception as e:
+        logger.warning(f"Could not load coding foundations: {e}")
+        return {}
 
 
 class AbbyUnleashed:
@@ -76,6 +91,50 @@ class AbbyUnleashed:
         self.conversation_history = []
         
         logger.info("Abby Unleashed initialized successfully!")
+        
+        # Load foundational coding knowledge
+        self.coding_foundations = load_coding_foundations()
+        if self.coding_foundations:
+            logger.info("Loaded foundational coding best practices")
+    
+    def _is_coding_task(self, task: str) -> bool:
+        """Check if a task is coding-related"""
+        coding_keywords = [
+            'code', 'coding', 'program', 'script', 'function', 'class',
+            'debug', 'fix', 'error', 'bug', 'implement', 'create', 'build',
+            'develop', 'write', 'refactor', 'optimize', 'api', 'database',
+            'python', 'javascript', 'html', 'css', 'sql', 'json', 'yaml',
+            'file', 'module', 'import', 'export', 'test', 'deploy'
+        ]
+        task_lower = task.lower()
+        return any(kw in task_lower for kw in coding_keywords)
+    
+    def _get_coding_guidance(self) -> str:
+        """Get coding best practices guidance for the prompt"""
+        if not self.coding_foundations:
+            return ""
+        
+        vibe = self.coding_foundations.get('vibe_coding_awareness', {})
+        parts = ["\n\n=== AI CODING BEST PRACTICES ==="]
+        
+        # Key limitations to be aware of
+        parts.append("\nBe aware of these AI-coding pitfalls:")
+        for lim in vibe.get('limitations', [])[:3]:
+            parts.append(f"• {lim.get('name')}: {lim.get('mitigation', '')[:150]}")
+        
+        # Best practices
+        practices = vibe.get('best_practices', {})
+        if practices.get('always_do'):
+            parts.append("\nAlways:")
+            for item in practices['always_do'][:4]:
+                parts.append(f"  ✓ {item}")
+        
+        if practices.get('never_do'):
+            parts.append("Never:")
+            for item in practices['never_do'][:4]:
+                parts.append(f"  ✗ {item}")
+        
+        return '\n'.join(parts)
     
     def execute_task(
         self, 
@@ -131,6 +190,13 @@ Instructions:
 - Keep responses concise but helpful
 
 Remember: You are having a conversation, not just executing commands."""
+
+            # Add coding best practices if this is a coding task
+            if self._is_coding_task(task):
+                coding_guidance = self._get_coding_guidance()
+                if coding_guidance:
+                    system_prompt += coding_guidance
+                    logger.debug("Added coding best practices to prompt")
 
             # Add user message to history
             self.conversation_history.append({

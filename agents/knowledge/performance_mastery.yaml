@@ -1,0 +1,496 @@
+# Performance and Optimization Mastery
+# Patterns for building fast, efficient software
+
+performance_mastery:
+  
+  # ============ PERFORMANCE PRINCIPLES ============
+  principles:
+    
+    premature_optimization:
+      quote: "Premature optimization is the root of all evil - Donald Knuth"
+      workflow:
+        1: "Make it work"
+        2: "Make it right"
+        3: "Make it fast (if needed)"
+      
+      when_to_optimize:
+        - "After profiling identifies bottlenecks"
+        - "When performance requirements aren't met"
+        - "NOT before you have working code"
+        - "NOT based on assumptions"
+
+    big_o_refresher:
+      common_complexities:
+        O(1): "Constant - hash lookups, array access"
+        O(log n): "Logarithmic - binary search"
+        O(n): "Linear - single loop through data"
+        O(n log n): "Linearithmic - efficient sorting"
+        O(n²): "Quadratic - nested loops"
+        O(2^n): "Exponential - recursive fibonacci"
+      
+      practical_impact: |
+        n = 1,000 items:
+        O(n)    = 1,000 operations
+        O(n²)   = 1,000,000 operations
+        O(n³)   = 1,000,000,000 operations
+
+  # ============ PYTHON PERFORMANCE ============
+  python:
+    
+    profiling:
+      cprofile: |
+        import cProfile
+        import pstats
+        
+        # Profile a function
+        cProfile.run('my_function()', 'output.prof')
+        
+        # Analyze results
+        stats = pstats.Stats('output.prof')
+        stats.sort_stats('cumulative')
+        stats.print_stats(20)  # Top 20 functions
+      
+      line_profiler: |
+        # pip install line_profiler
+        
+        @profile  # Decorator from line_profiler
+        def slow_function():
+            total = 0
+            for i in range(1000):
+                total += expensive_operation(i)
+            return total
+        
+        # Run: kernprof -l -v script.py
+      
+      memory_profiler: |
+        # pip install memory_profiler
+        
+        @profile  # From memory_profiler
+        def memory_hungry():
+            data = [i for i in range(1000000)]
+            return sum(data)
+        
+        # Run: python -m memory_profiler script.py
+
+    data_structures:
+      list_vs_set: |
+        # Bad: O(n) lookup
+        items = [1, 2, 3, 4, 5]
+        if 3 in items:  # Scans entire list
+            pass
+        
+        # Good: O(1) lookup
+        items = {1, 2, 3, 4, 5}
+        if 3 in items:  # Hash lookup
+            pass
+        
+        # 10,000 items: list=5ms, set=0.001ms
+
+      list_vs_deque: |
+        from collections import deque
+        
+        # Bad: O(n) for insert at front
+        my_list = [1, 2, 3]
+        my_list.insert(0, 0)  # Shifts all elements
+        
+        # Good: O(1) for insert at front
+        my_deque = deque([1, 2, 3])
+        my_deque.appendleft(0)  # No shifting
+
+      dict_vs_namedtuple: |
+        from collections import namedtuple
+        
+        # Dict: flexible but slower
+        point = {"x": 10, "y": 20}
+        
+        # Namedtuple: faster, less memory
+        Point = namedtuple("Point", ["x", "y"])
+        point = Point(10, 20)
+        
+        # dataclass with slots: fast + readable
+        @dataclass(slots=True)
+        class Point:
+            x: int
+            y: int
+
+    lazy_evaluation:
+      generators: |
+        # Bad: Creates entire list in memory
+        def get_squares_list(n):
+            return [x**2 for x in range(n)]
+        
+        # Good: Yields one at a time
+        def get_squares_gen(n):
+            for x in range(n):
+                yield x**2
+        
+        # Memory for 1M items:
+        # List: ~40MB
+        # Generator: ~100 bytes
+
+      itertools: |
+        from itertools import islice, chain, groupby
+        
+        # Process first 1000 of huge file
+        with open("huge_file.txt") as f:
+            first_1000 = islice(f, 1000)
+            for line in first_1000:
+                process(line)
+        
+        # Chain iterables without creating new list
+        combined = chain(list1, list2, list3)
+
+    caching:
+      lru_cache: |
+        from functools import lru_cache
+        
+        @lru_cache(maxsize=128)
+        def fibonacci(n):
+            if n < 2:
+                return n
+            return fibonacci(n-1) + fibonacci(n-2)
+        
+        # Without cache: fib(35) = 9.2 seconds
+        # With cache: fib(35) = 0.00001 seconds
+      
+      cache_decorator: |
+        from functools import cache  # Python 3.9+
+        
+        @cache  # Unbounded cache
+        def expensive_computation(x, y):
+            # ... complex calculation ...
+            return result
+
+    string_operations:
+      concatenation: |
+        # Bad: O(n²) - creates new string each time
+        result = ""
+        for s in strings:
+            result += s
+        
+        # Good: O(n) - single join
+        result = "".join(strings)
+        
+        # 10,000 strings:
+        # += : 0.5 seconds
+        # join: 0.001 seconds
+      
+      formatting: |
+        # All roughly equivalent in speed:
+        f"Hello {name}"           # f-string (preferred)
+        "Hello {}".format(name)   # .format()
+        "Hello %s" % name         # % formatting
+        
+        # f-strings are most readable
+
+    numpy_vectorization: |
+      import numpy as np
+      
+      # Bad: Python loop
+      def slow_sum(arr):
+          total = 0
+          for x in arr:
+              total += x
+          return total
+      
+      # Good: NumPy vectorized
+      def fast_sum(arr):
+          return np.sum(arr)
+      
+      # 1M elements:
+      # Python loop: 100ms
+      # NumPy: 1ms
+
+  # ============ DATABASE PERFORMANCE ============
+  database:
+    
+    n_plus_one:
+      problem: |
+        # N+1 query problem
+        users = User.query.all()  # 1 query
+        for user in users:
+            print(user.orders)    # N queries!
+      
+      solutions:
+        eager_loading: |
+          # SQLAlchemy
+          users = User.query.options(
+              joinedload(User.orders)
+          ).all()  # 1 query with JOIN
+        
+        select_in: |
+          # SQLAlchemy selectinload
+          users = User.query.options(
+              selectinload(User.orders)
+          ).all()  # 2 queries total
+
+    indexing:
+      principles:
+        - "Index columns in WHERE clauses"
+        - "Index JOIN columns"
+        - "Index ORDER BY columns"
+        - "Consider composite indexes"
+        - "Don't over-index (slows writes)"
+      
+      analyze_queries: |
+        -- PostgreSQL
+        EXPLAIN ANALYZE SELECT * FROM users WHERE email = 'test@example.com';
+        
+        -- Look for:
+        -- Seq Scan = bad (full table scan)
+        -- Index Scan = good
+        -- Bitmap Index Scan = OK
+
+    query_optimization:
+      select_only_needed: |
+        # Bad
+        SELECT * FROM users;
+        
+        # Good
+        SELECT id, name, email FROM users;
+      
+      pagination: |
+        # Offset pagination (slow for large offsets)
+        SELECT * FROM items LIMIT 20 OFFSET 10000;
+        -- Must scan 10,000 rows first
+        
+        # Cursor pagination (fast)
+        SELECT * FROM items
+        WHERE id > 12345
+        ORDER BY id
+        LIMIT 20;
+        -- Uses index directly
+
+    connection_pooling: |
+      # SQLAlchemy pooling
+      engine = create_engine(
+          DATABASE_URL,
+          pool_size=10,       # Keep 10 connections open
+          max_overflow=20,    # Allow 20 more if needed
+          pool_timeout=30,    # Wait max 30s for connection
+          pool_recycle=1800   # Recycle after 30 minutes
+      )
+
+  # ============ CACHING STRATEGIES ============
+  caching:
+    
+    levels:
+      application_cache: |
+        from functools import lru_cache
+        
+        @lru_cache(maxsize=1000)
+        def get_user_permissions(user_id):
+            return db.query(Permission).filter_by(user_id=user_id).all()
+      
+      distributed_cache: |
+        import redis
+        import json
+        
+        r = redis.Redis()
+        
+        def get_user(user_id):
+            # Try cache first
+            cached = r.get(f"user:{user_id}")
+            if cached:
+                return json.loads(cached)
+            
+            # Cache miss - fetch from DB
+            user = db.query(User).get(user_id)
+            
+            # Store in cache with TTL
+            r.setex(
+                f"user:{user_id}",
+                3600,  # 1 hour
+                json.dumps(user.to_dict())
+            )
+            
+            return user.to_dict()
+      
+      http_cache: |
+        from flask import make_response
+        
+        @app.route('/api/data')
+        def get_data():
+            response = make_response(jsonify(data))
+            response.headers['Cache-Control'] = 'public, max-age=3600'
+            response.headers['ETag'] = calculate_etag(data)
+            return response
+
+    invalidation:
+      strategies:
+        - name: "TTL (Time To Live)"
+          description: "Cache expires after time period"
+          use_when: "Data staleness is acceptable"
+        
+        - name: "Event-based"
+          description: "Invalidate when data changes"
+          use_when: "Need fresh data"
+          example: |
+            def update_user(user_id, data):
+                db.update(User, user_id, data)
+                redis.delete(f"user:{user_id}")  # Invalidate
+        
+        - name: "Write-through"
+          description: "Update cache on every write"
+          example: |
+            def update_user(user_id, data):
+                user = db.update(User, user_id, data)
+                redis.set(f"user:{user_id}", user.to_json())
+
+  # ============ ASYNC & CONCURRENCY ============
+  concurrency:
+    
+    when_to_use:
+      cpu_bound: "Use multiprocessing (parallel processes)"
+      io_bound: "Use asyncio or threading (concurrent I/O)"
+    
+    python_asyncio: |
+      import asyncio
+      import aiohttp
+      
+      async def fetch_url(session, url):
+          async with session.get(url) as response:
+              return await response.text()
+      
+      async def fetch_all(urls):
+          async with aiohttp.ClientSession() as session:
+              tasks = [fetch_url(session, url) for url in urls]
+              return await asyncio.gather(*tasks)
+      
+      # 100 URLs:
+      # Sequential: 10 seconds
+      # Async: 0.5 seconds
+
+    python_threading: |
+      from concurrent.futures import ThreadPoolExecutor
+      
+      def fetch_url(url):
+          response = requests.get(url)
+          return response.text
+      
+      with ThreadPoolExecutor(max_workers=10) as executor:
+          results = list(executor.map(fetch_url, urls))
+
+    python_multiprocessing: |
+      from multiprocessing import Pool
+      
+      def cpu_intensive(n):
+          return sum(i**2 for i in range(n))
+      
+      with Pool(processes=4) as pool:
+          results = pool.map(cpu_intensive, [1000000] * 10)
+      
+      # Uses all CPU cores
+
+  # ============ WEB PERFORMANCE ============
+  web:
+    
+    response_compression: |
+      # Flask with gzip
+      from flask_compress import Compress
+      
+      app = Flask(__name__)
+      Compress(app)
+      
+      # Automatically compresses responses
+      # Reduces transfer size by 70-90%
+
+    response_streaming: |
+      from flask import Response, stream_with_context
+      
+      @app.route('/large-data')
+      def stream_data():
+          def generate():
+              for chunk in get_data_chunks():
+                  yield json.dumps(chunk) + '\n'
+          
+          return Response(
+              stream_with_context(generate()),
+              mimetype='application/json'
+          )
+
+    pagination:
+      cursor_vs_offset: |
+        # Offset: slow for large pages
+        /api/items?page=1000&per_page=20
+        # Must skip 20,000 items
+        
+        # Cursor: consistent performance
+        /api/items?cursor=abc123&limit=20
+        # Direct index lookup
+
+  # ============ MEMORY OPTIMIZATION ============
+  memory:
+    
+    python_slots: |
+      # Regular class: ~300 bytes per instance
+      class RegularPoint:
+          def __init__(self, x, y):
+              self.x = x
+              self.y = y
+      
+      # With __slots__: ~70 bytes per instance
+      class SlotPoint:
+          __slots__ = ['x', 'y']
+          
+          def __init__(self, x, y):
+              self.x = x
+              self.y = y
+      
+      # 1 million instances:
+      # Regular: 300MB
+      # Slots: 70MB
+
+    generators_for_memory: |
+      # Bad: loads all into memory
+      def read_large_file(path):
+          with open(path) as f:
+              return f.readlines()  # All in memory
+      
+      # Good: process line by line
+      def read_large_file(path):
+          with open(path) as f:
+              for line in f:
+                  yield line  # One line at a time
+
+    weak_references: |
+      import weakref
+      
+      # Regular reference keeps object alive
+      cache = {}
+      cache['key'] = large_object  # Won't be garbage collected
+      
+      # Weak reference allows garbage collection
+      cache = weakref.WeakValueDictionary()
+      cache['key'] = large_object  # Can be GC'd when not used
+
+  # ============ ANTI-PATTERNS ============
+  anti_patterns:
+    
+    - name: "Optimizing without profiling"
+      problem: "Guessing what's slow"
+      solution: "Always profile first, optimize actual bottlenecks"
+
+    - name: "Premature micro-optimization"
+      problem: "Spending hours saving microseconds"
+      solution: "Focus on algorithmic improvements first"
+
+    - name: "Ignoring the database"
+      problem: "Database is often the bottleneck"
+      solution: "Profile queries, add indexes, optimize N+1"
+
+    - name: "Loading everything into memory"
+      problem: "OOM on large datasets"
+      solution: "Use generators, streaming, pagination"
+
+    - name: "Synchronous I/O in async code"
+      problem: "Blocks the event loop"
+      bad: |
+        async def handler():
+            result = requests.get(url)  # Blocks!
+            return result
+      good: |
+        async def handler():
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url) as response:
+                    return await response.text()

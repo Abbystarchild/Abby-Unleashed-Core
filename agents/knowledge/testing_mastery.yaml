@@ -1,0 +1,504 @@
+# Testing Mastery
+# Comprehensive testing patterns and best practices
+
+testing_mastery:
+  
+  # ============ TESTING PRINCIPLES ============
+  principles:
+    
+    test_pyramid:
+      description: "Balance of test types"
+      levels:
+        unit_tests:
+          percentage: "70%"
+          speed: "Milliseconds"
+          scope: "Single function/class"
+        integration_tests:
+          percentage: "20%"
+          speed: "Seconds"
+          scope: "Multiple components"
+        e2e_tests:
+          percentage: "10%"
+          speed: "Minutes"
+          scope: "Full application"
+      
+      anti_pattern: |
+        # Ice cream cone - inverted pyramid
+        # Many slow E2E tests, few unit tests
+        # = Slow feedback, hard to debug failures
+
+    first_principles:
+      F_ast: "Tests run quickly (< seconds)"
+      I_solated: "Tests don't depend on each other"
+      R_epeatable: "Same result every time"
+      S_elf_validating: "Pass or fail, no manual inspection"
+      T_imely: "Written at the right time (before code for TDD)"
+
+    aaa_pattern:
+      description: "Arrange, Act, Assert"
+      example: |
+        def test_calculate_total():
+            # Arrange - set up test data
+            cart = ShoppingCart()
+            cart.add_item(Item("Apple", 1.00), quantity=3)
+            cart.add_item(Item("Banana", 0.50), quantity=2)
+            
+            # Act - perform the action
+            total = cart.calculate_total()
+            
+            # Assert - verify the result
+            assert total == 4.00
+
+  # ============ UNIT TESTING ============
+  unit_testing:
+    
+    python_pytest:
+      basic_test: |
+        # test_calculator.py
+        import pytest
+        from calculator import Calculator
+        
+        class TestCalculator:
+            def test_add_positive_numbers(self):
+                calc = Calculator()
+                result = calc.add(2, 3)
+                assert result == 5
+            
+            def test_divide_by_zero_raises(self):
+                calc = Calculator()
+                with pytest.raises(ZeroDivisionError):
+                    calc.divide(10, 0)
+
+      fixtures: |
+        import pytest
+        
+        @pytest.fixture
+        def calculator():
+            """Fresh calculator for each test."""
+            return Calculator()
+        
+        @pytest.fixture
+        def user_data():
+            """Sample user data."""
+            return {
+                "name": "Alice",
+                "email": "alice@example.com"
+            }
+        
+        def test_add(calculator):
+            # Fixture automatically injected
+            assert calculator.add(1, 2) == 3
+        
+        @pytest.fixture(scope="module")
+        def database_connection():
+            """Expensive setup, reuse across module."""
+            conn = create_connection()
+            yield conn
+            conn.close()
+
+      parametrized: |
+        import pytest
+        
+        @pytest.mark.parametrize("input,expected", [
+            ("hello", "HELLO"),
+            ("World", "WORLD"),
+            ("123", "123"),
+            ("", ""),
+        ])
+        def test_uppercase(input, expected):
+            assert input.upper() == expected
+        
+        @pytest.mark.parametrize("a,b,expected", [
+            (1, 2, 3),
+            (0, 0, 0),
+            (-1, 1, 0),
+            (100, 200, 300),
+        ])
+        def test_add(a, b, expected):
+            assert add(a, b) == expected
+
+    mocking:
+      basic_mock: |
+        from unittest.mock import Mock, patch, MagicMock
+        
+        def test_send_email():
+            # Mock the email service
+            mock_email = Mock()
+            mock_email.send.return_value = True
+            
+            notification = NotificationService(email_service=mock_email)
+            result = notification.notify_user("test@example.com")
+            
+            assert result is True
+            mock_email.send.assert_called_once_with("test@example.com")
+
+      patch_decorator: |
+        from unittest.mock import patch
+        
+        @patch('myapp.services.external_api.fetch_data')
+        def test_process_data(mock_fetch):
+            # Configure mock
+            mock_fetch.return_value = {"status": "success", "data": [1, 2, 3]}
+            
+            result = process_external_data()
+            
+            assert result == [1, 2, 3]
+            mock_fetch.assert_called_once()
+        
+        # Context manager style
+        def test_process_data_v2():
+            with patch('myapp.services.external_api.fetch_data') as mock_fetch:
+                mock_fetch.return_value = {"status": "success"}
+                result = process_external_data()
+                assert result is not None
+
+      mock_async: |
+        import pytest
+        from unittest.mock import AsyncMock, patch
+        
+        @pytest.mark.asyncio
+        async def test_async_fetch():
+            with patch('myapp.client.fetch', new_callable=AsyncMock) as mock:
+                mock.return_value = {"data": "test"}
+                
+                result = await my_async_function()
+                
+                assert result["data"] == "test"
+
+  # ============ INTEGRATION TESTING ============
+  integration_testing:
+    
+    database_testing: |
+      import pytest
+      from sqlalchemy import create_engine
+      from sqlalchemy.orm import sessionmaker
+      
+      @pytest.fixture(scope="function")
+      def db_session():
+          """Create a fresh database for each test."""
+          # Use in-memory SQLite for speed
+          engine = create_engine("sqlite:///:memory:")
+          Base.metadata.create_all(engine)
+          
+          Session = sessionmaker(bind=engine)
+          session = Session()
+          
+          yield session
+          
+          session.close()
+      
+      def test_create_user(db_session):
+          user = User(name="Alice", email="alice@example.com")
+          db_session.add(user)
+          db_session.commit()
+          
+          saved_user = db_session.query(User).filter_by(email="alice@example.com").first()
+          assert saved_user.name == "Alice"
+
+    api_testing: |
+      import pytest
+      from fastapi.testclient import TestClient
+      from myapp import app
+      
+      @pytest.fixture
+      def client():
+          return TestClient(app)
+      
+      def test_get_users(client):
+          response = client.get("/api/users")
+          
+          assert response.status_code == 200
+          assert isinstance(response.json(), list)
+      
+      def test_create_user(client):
+          response = client.post(
+              "/api/users",
+              json={"name": "Alice", "email": "alice@example.com"}
+          )
+          
+          assert response.status_code == 201
+          assert response.json()["name"] == "Alice"
+      
+      def test_create_user_invalid_email(client):
+          response = client.post(
+              "/api/users",
+              json={"name": "Alice", "email": "invalid"}
+          )
+          
+          assert response.status_code == 422
+
+    flask_testing: |
+      import pytest
+      from myapp import create_app
+      
+      @pytest.fixture
+      def app():
+          app = create_app(testing=True)
+          yield app
+      
+      @pytest.fixture
+      def client(app):
+          return app.test_client()
+      
+      def test_health_check(client):
+          response = client.get("/health")
+          assert response.status_code == 200
+          assert response.json == {"status": "healthy"}
+
+  # ============ TEST DOUBLES ============
+  test_doubles:
+    
+    types:
+      dummy:
+        description: "Objects passed but never used"
+        example: |
+          def test_something():
+              # Dummy - we don't care about logger
+              dummy_logger = object()
+              service = MyService(logger=dummy_logger)
+
+      stub:
+        description: "Provides canned answers to calls"
+        example: |
+          class StubUserRepository:
+              def get_user(self, id):
+                  return User(id=id, name="Test User")
+          
+          def test_with_stub():
+              service = UserService(repo=StubUserRepository())
+              user = service.get_user(123)
+              assert user.name == "Test User"
+
+      mock:
+        description: "Records calls, verifies interactions"
+        example: |
+          def test_with_mock():
+              mock_notifier = Mock()
+              
+              service = OrderService(notifier=mock_notifier)
+              service.place_order(order)
+              
+              # Verify the mock was called correctly
+              mock_notifier.send.assert_called_once_with(
+                  "Order placed",
+                  order.customer_email
+              )
+
+      fake:
+        description: "Working implementation but simplified"
+        example: |
+          class FakeUserRepository:
+              def __init__(self):
+                  self.users = {}
+                  self.next_id = 1
+              
+              def save(self, user):
+                  user.id = self.next_id
+                  self.users[user.id] = user
+                  self.next_id += 1
+                  return user
+              
+              def get(self, id):
+                  return self.users.get(id)
+          
+          def test_with_fake():
+              repo = FakeUserRepository()
+              service = UserService(repo=repo)
+              
+              user = service.create_user("Alice")
+              assert service.get_user(user.id).name == "Alice"
+
+      spy:
+        description: "Real object that records calls"
+        example: |
+          from unittest.mock import create_autospec
+          
+          def test_with_spy():
+              real_service = EmailService()
+              spy = create_autospec(real_service, wraps=real_service)
+              
+              # Uses real implementation but records calls
+              spy.send("test@example.com", "Hello")
+              
+              spy.send.assert_called_once()
+
+  # ============ ANTI-PATTERNS ============
+  anti_patterns:
+    
+    - name: "Testing implementation, not behavior"
+      bad: |
+        def test_get_user():
+            repo = UserRepository()
+            repo._cache = {}  # Testing private attribute!
+            repo._db_connection = mock  # Implementation detail
+      good: |
+        def test_get_user_returns_user():
+            repo = UserRepository()
+            repo.save(User(name="Alice"))
+            
+            user = repo.get_by_name("Alice")
+            
+            assert user.name == "Alice"
+
+    - name: "Flaky tests"
+      bad: |
+        def test_concurrent_operation():
+            # Race condition - sometimes fails
+            time.sleep(0.1)  # Hope this is enough...
+            assert result is not None
+      good: |
+        def test_concurrent_operation():
+            # Use explicit synchronization
+            event = threading.Event()
+            
+            def on_complete():
+                event.set()
+            
+            start_operation(callback=on_complete)
+            
+            assert event.wait(timeout=5.0)
+
+    - name: "Test interdependence"
+      bad: |
+        test_data = None
+        
+        def test_create():
+            global test_data
+            test_data = create_item()  # Other tests depend on this
+        
+        def test_read():
+            assert test_data is not None  # Fails if test_create didn't run first
+      good: |
+        @pytest.fixture
+        def item():
+            return create_item()
+        
+        def test_create(item):
+            assert item.id is not None
+        
+        def test_read(item):
+            assert read_item(item.id) == item
+
+    - name: "Testing too much in one test"
+      bad: |
+        def test_user_workflow():
+            # Tests everything in one test
+            user = create_user()
+            assert user.id
+            
+            user.update_email("new@example.com")
+            assert user.email == "new@example.com"
+            
+            orders = user.get_orders()
+            assert len(orders) == 0
+            
+            user.delete()
+            assert user.is_deleted
+      good: |
+        def test_create_user():
+            user = create_user()
+            assert user.id is not None
+        
+        def test_update_email():
+            user = create_user()
+            user.update_email("new@example.com")
+            assert user.email == "new@example.com"
+        
+        # etc.
+
+    - name: "No assertions"
+      bad: |
+        def test_process_data():
+            process_data(input)  # No assertion!
+            # Test passes but tests nothing
+      good: |
+        def test_process_data():
+            result = process_data(input)
+            assert result.status == "success"
+            assert len(result.items) > 0
+
+    - name: "Magic numbers and strings"
+      bad: |
+        def test_calculate():
+            result = calculate(100, 0.15, 30)  # What are these?
+            assert result == 517.5
+      good: |
+        def test_calculate_loan_payment():
+            principal = 100
+            interest_rate = 0.15
+            term_months = 30
+            expected_payment = 517.5
+            
+            result = calculate_payment(principal, interest_rate, term_months)
+            
+            assert result == expected_payment
+
+  # ============ TDD WORKFLOW ============
+  tdd:
+    
+    red_green_refactor:
+      steps:
+        - red: "Write failing test"
+        - green: "Write minimum code to pass"
+        - refactor: "Improve code, keep tests green"
+    
+    example_workflow: |
+      # 1. RED - Write failing test
+      def test_add_returns_sum():
+          calc = Calculator()
+          assert calc.add(2, 3) == 5  # Fails - Calculator doesn't exist
+      
+      # 2. GREEN - Minimum code to pass
+      class Calculator:
+          def add(self, a, b):
+              return 5  # Hardcoded! But test passes
+      
+      # 3. RED - Add another test
+      def test_add_different_numbers():
+          calc = Calculator()
+          assert calc.add(1, 1) == 2  # Fails!
+      
+      # 4. GREEN - Real implementation
+      class Calculator:
+          def add(self, a, b):
+              return a + b  # Now both tests pass
+      
+      # 5. REFACTOR if needed
+
+    benefits:
+      - "Forces you to think about interface first"
+      - "Tests act as documentation"
+      - "High test coverage by default"
+      - "Catches bugs early"
+      - "Enables confident refactoring"
+
+  # ============ CODE COVERAGE ============
+  coverage:
+    
+    principles:
+      - "100% coverage doesn't mean bug-free"
+      - "Coverage measures execution, not correctness"
+      - "Aim for meaningful tests, not just coverage"
+    
+    python_coverage: |
+      # Run tests with coverage
+      pytest --cov=myapp --cov-report=html
+      
+      # Coverage report
+      coverage run -m pytest
+      coverage report
+      coverage html  # Generate HTML report
+
+    coverage_pragmas: |
+      def debug_only_function():  # pragma: no cover
+          # Excluded from coverage
+          pass
+      
+      if TYPE_CHECKING:  # pragma: no cover
+          # Type hints only, excluded
+          from myapp.types import CustomType
+
+    target_coverage:
+      minimum: "70-80%"
+      recommended: "80-90%"
+      warning: "Don't sacrifice test quality for coverage numbers"

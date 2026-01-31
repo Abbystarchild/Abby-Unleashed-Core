@@ -1,0 +1,550 @@
+# DevOps and CI/CD Mastery
+# Infrastructure, deployment, and operations best practices
+
+devops_mastery:
+  
+  # ============ CI/CD PRINCIPLES ============
+  ci_cd:
+    
+    continuous_integration:
+      principles:
+        - "Commit to main/trunk frequently"
+        - "Automated build on every commit"
+        - "Automated tests on every commit"
+        - "Fix broken builds immediately"
+        - "Keep builds fast (< 10 minutes)"
+      
+      pipeline_stages:
+        1_checkout: "Get source code"
+        2_dependencies: "Install packages"
+        3_lint: "Code style checks"
+        4_build: "Compile/package"
+        5_test: "Run test suites"
+        6_security: "Vulnerability scanning"
+
+    continuous_deployment:
+      principles:
+        - "Every passing build can be deployed"
+        - "Automated deployment to environments"
+        - "Feature flags for incomplete features"
+        - "Rollback capability"
+      
+      environments:
+        development: "Latest changes, unstable"
+        staging: "Production-like, for testing"
+        production: "Live user traffic"
+
+  # ============ GITHUB ACTIONS ============
+  github_actions:
+    
+    basic_workflow: |
+      # .github/workflows/ci.yml
+      name: CI
+      
+      on:
+        push:
+          branches: [main]
+        pull_request:
+          branches: [main]
+      
+      jobs:
+        test:
+          runs-on: ubuntu-latest
+          
+          steps:
+            - uses: actions/checkout@v4
+            
+            - name: Set up Python
+              uses: actions/setup-python@v5
+              with:
+                python-version: '3.11'
+                cache: 'pip'
+            
+            - name: Install dependencies
+              run: |
+                pip install -r requirements.txt
+                pip install pytest pytest-cov
+            
+            - name: Run tests
+              run: pytest --cov=myapp
+
+    matrix_builds: |
+      jobs:
+        test:
+          runs-on: ${{ matrix.os }}
+          strategy:
+            matrix:
+              os: [ubuntu-latest, windows-latest, macos-latest]
+              python-version: ['3.9', '3.10', '3.11']
+          
+          steps:
+            - uses: actions/checkout@v4
+            - uses: actions/setup-python@v5
+              with:
+                python-version: ${{ matrix.python-version }}
+            - run: pytest
+
+    docker_build: |
+      jobs:
+        build:
+          runs-on: ubuntu-latest
+          
+          steps:
+            - uses: actions/checkout@v4
+            
+            - name: Log in to Docker Hub
+              uses: docker/login-action@v3
+              with:
+                username: ${{ secrets.DOCKER_USERNAME }}
+                password: ${{ secrets.DOCKER_PASSWORD }}
+            
+            - name: Build and push
+              uses: docker/build-push-action@v5
+              with:
+                context: .
+                push: true
+                tags: myapp:${{ github.sha }}
+
+    caching: |
+      - name: Cache pip packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+      
+      - name: Cache node modules
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: ${{ runner.os }}-node-${{ hashFiles('package-lock.json') }}
+
+  # ============ DOCKER PRODUCTION ============
+  docker_production:
+    
+    dockerfile_best_practices: |
+      # Multi-stage build
+      FROM python:3.11-slim AS builder
+      
+      WORKDIR /app
+      
+      # Install build dependencies
+      RUN apt-get update && apt-get install -y --no-install-recommends \
+          build-essential \
+          && rm -rf /var/lib/apt/lists/*
+      
+      # Install Python dependencies
+      COPY requirements.txt .
+      RUN pip wheel --no-cache-dir --wheel-dir /wheels -r requirements.txt
+      
+      # Final stage - smaller image
+      FROM python:3.11-slim
+      
+      # Create non-root user
+      RUN useradd --create-home --shell /bin/bash appuser
+      
+      WORKDIR /app
+      
+      # Copy wheels and install
+      COPY --from=builder /wheels /wheels
+      RUN pip install --no-cache-dir /wheels/*
+      
+      # Copy application
+      COPY --chown=appuser:appuser . .
+      
+      # Switch to non-root user
+      USER appuser
+      
+      # Health check
+      HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
+          CMD curl -f http://localhost:8080/health || exit 1
+      
+      EXPOSE 8080
+      
+      CMD ["gunicorn", "-w", "4", "-b", "0.0.0.0:8080", "app:app"]
+
+    compose_production: |
+      # docker-compose.prod.yml
+      version: '3.8'
+      
+      services:
+        app:
+          build:
+            context: .
+            dockerfile: Dockerfile.prod
+          restart: always
+          deploy:
+            replicas: 3
+            resources:
+              limits:
+                cpus: '0.5'
+                memory: 512M
+          healthcheck:
+            test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+            interval: 30s
+            timeout: 10s
+            retries: 3
+          logging:
+            driver: "json-file"
+            options:
+              max-size: "10m"
+              max-file: "3"
+        
+        nginx:
+          image: nginx:alpine
+          ports:
+            - "80:80"
+            - "443:443"
+          volumes:
+            - ./nginx.conf:/etc/nginx/nginx.conf:ro
+            - ./certs:/etc/nginx/certs:ro
+          depends_on:
+            - app
+
+  # ============ KUBERNETES BASICS ============
+  kubernetes:
+    
+    deployment: |
+      # deployment.yaml
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: myapp
+        labels:
+          app: myapp
+      spec:
+        replicas: 3
+        selector:
+          matchLabels:
+            app: myapp
+        template:
+          metadata:
+            labels:
+              app: myapp
+          spec:
+            containers:
+            - name: myapp
+              image: myregistry/myapp:v1.0.0
+              ports:
+              - containerPort: 8080
+              resources:
+                requests:
+                  memory: "128Mi"
+                  cpu: "100m"
+                limits:
+                  memory: "256Mi"
+                  cpu: "500m"
+              livenessProbe:
+                httpGet:
+                  path: /health
+                  port: 8080
+                initialDelaySeconds: 30
+                periodSeconds: 10
+              readinessProbe:
+                httpGet:
+                  path: /ready
+                  port: 8080
+                initialDelaySeconds: 5
+                periodSeconds: 5
+              env:
+              - name: DATABASE_URL
+                valueFrom:
+                  secretKeyRef:
+                    name: myapp-secrets
+                    key: database-url
+
+    service: |
+      # service.yaml
+      apiVersion: v1
+      kind: Service
+      metadata:
+        name: myapp
+      spec:
+        selector:
+          app: myapp
+        ports:
+        - port: 80
+          targetPort: 8080
+        type: ClusterIP
+
+    configmap_and_secrets: |
+      # configmap.yaml
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: myapp-config
+      data:
+        LOG_LEVEL: "info"
+        MAX_CONNECTIONS: "100"
+      
+      ---
+      # secrets.yaml (values base64 encoded)
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: myapp-secrets
+      type: Opaque
+      data:
+        database-url: cG9zdGdyZXM6Ly91c2VyOnBhc3NAaG9zdC9kYg==
+
+  # ============ MONITORING ============
+  monitoring:
+    
+    metrics:
+      what_to_track:
+        - "Request rate (requests/second)"
+        - "Error rate (errors/second)"
+        - "Response time (latency percentiles)"
+        - "Resource usage (CPU, memory, disk)"
+        - "Database connections"
+        - "Queue depth"
+      
+      prometheus_metrics: |
+        from prometheus_client import Counter, Histogram, start_http_server
+        
+        # Define metrics
+        REQUEST_COUNT = Counter(
+            'http_requests_total',
+            'Total HTTP requests',
+            ['method', 'endpoint', 'status']
+        )
+        
+        REQUEST_LATENCY = Histogram(
+            'http_request_duration_seconds',
+            'HTTP request latency',
+            ['method', 'endpoint']
+        )
+        
+        # Use in Flask
+        @app.before_request
+        def start_timer():
+            request.start_time = time.time()
+        
+        @app.after_request
+        def record_metrics(response):
+            latency = time.time() - request.start_time
+            REQUEST_COUNT.labels(
+                method=request.method,
+                endpoint=request.endpoint,
+                status=response.status_code
+            ).inc()
+            REQUEST_LATENCY.labels(
+                method=request.method,
+                endpoint=request.endpoint
+            ).observe(latency)
+            return response
+        
+        # Start metrics server
+        start_http_server(9090)
+
+    logging:
+      structured_logging: |
+        import logging
+        import json
+        
+        class JSONFormatter(logging.Formatter):
+            def format(self, record):
+                log_data = {
+                    "timestamp": self.formatTime(record),
+                    "level": record.levelname,
+                    "message": record.getMessage(),
+                    "module": record.module,
+                    "function": record.funcName,
+                    "line": record.lineno
+                }
+                if record.exc_info:
+                    log_data["exception"] = self.formatException(record.exc_info)
+                return json.dumps(log_data)
+        
+        # Configure logging
+        handler = logging.StreamHandler()
+        handler.setFormatter(JSONFormatter())
+        logging.basicConfig(handlers=[handler], level=logging.INFO)
+      
+      log_levels:
+        DEBUG: "Detailed info for debugging"
+        INFO: "Normal operation events"
+        WARNING: "Unexpected but handled"
+        ERROR: "Failed operation"
+        CRITICAL: "Application failure"
+
+    alerting:
+      principles:
+        - "Alert on symptoms, not causes"
+        - "Every alert should be actionable"
+        - "Avoid alert fatigue"
+        - "Use severity levels appropriately"
+      
+      example_alerts:
+        critical:
+          - "Service completely down"
+          - "Database unreachable"
+          - "100% error rate"
+        warning:
+          - "High latency (p99 > 1s)"
+          - "Error rate > 1%"
+          - "Disk usage > 80%"
+
+  # ============ INFRASTRUCTURE AS CODE ============
+  iac:
+    
+    terraform_basics: |
+      # main.tf
+      terraform {
+        required_providers {
+          aws = {
+            source  = "hashicorp/aws"
+            version = "~> 5.0"
+          }
+        }
+        
+        backend "s3" {
+          bucket = "my-terraform-state"
+          key    = "prod/terraform.tfstate"
+          region = "us-east-1"
+        }
+      }
+      
+      provider "aws" {
+        region = var.aws_region
+      }
+      
+      # Variables
+      variable "aws_region" {
+        default = "us-east-1"
+      }
+      
+      variable "environment" {
+        description = "Environment name"
+      }
+      
+      # Resources
+      resource "aws_instance" "web" {
+        ami           = "ami-0c55b159cbfafe1f0"
+        instance_type = "t3.micro"
+        
+        tags = {
+          Name        = "web-server"
+          Environment = var.environment
+        }
+      }
+      
+      # Outputs
+      output "instance_ip" {
+        value = aws_instance.web.public_ip
+      }
+
+    terraform_best_practices:
+      - "Use remote state (S3, Terraform Cloud)"
+      - "Lock state file to prevent conflicts"
+      - "Use modules for reusable components"
+      - "Version control all configurations"
+      - "Use workspaces for environments"
+      - "Plan before apply"
+
+  # ============ DEPLOYMENT STRATEGIES ============
+  deployment_strategies:
+    
+    blue_green:
+      description: "Two identical environments, switch traffic"
+      flow:
+        1: "Deploy new version to green (idle)"
+        2: "Test green environment"
+        3: "Switch load balancer to green"
+        4: "Blue becomes new idle"
+      pros: ["Instant rollback", "Zero downtime"]
+      cons: ["Requires 2x infrastructure"]
+
+    rolling:
+      description: "Gradually replace old instances"
+      flow:
+        1: "Start new instance with new version"
+        2: "Wait for health check"
+        3: "Remove one old instance"
+        4: "Repeat until all replaced"
+      pros: ["Less infrastructure", "Gradual rollout"]
+      cons: ["Mixed versions during deploy"]
+
+    canary:
+      description: "Route small traffic percentage to new version"
+      flow:
+        1: "Deploy new version"
+        2: "Route 5% traffic to new version"
+        3: "Monitor metrics"
+        4: "Gradually increase traffic"
+        5: "Full rollout or rollback"
+      pros: ["Low risk", "Real traffic testing"]
+      cons: ["Complex routing", "Longer rollout"]
+
+    feature_flags:
+      description: "Deploy code, control activation separately"
+      example: |
+        # Simple feature flag
+        FEATURES = {
+            'new_checkout': os.getenv('FEATURE_NEW_CHECKOUT', 'false') == 'true'
+        }
+        
+        @app.route('/checkout')
+        def checkout():
+            if FEATURES['new_checkout']:
+                return new_checkout_flow()
+            return old_checkout_flow()
+        
+        # Advanced: gradual rollout
+        def is_feature_enabled(feature, user_id):
+            # Enable for 10% of users
+            return hash(f"{feature}:{user_id}") % 100 < 10
+
+  # ============ SECURITY IN DEVOPS ============
+  security:
+    
+    secrets_management:
+      dont:
+        - "Commit secrets to git"
+        - "Store secrets in environment files"
+        - "Hardcode secrets in code"
+      
+      do:
+        - "Use secrets manager (AWS Secrets Manager, Vault)"
+        - "Inject secrets at runtime"
+        - "Rotate secrets regularly"
+      
+      example: |
+        # Python with AWS Secrets Manager
+        import boto3
+        import json
+        
+        def get_secret(secret_name):
+            client = boto3.client('secretsmanager')
+            response = client.get_secret_value(SecretId=secret_name)
+            return json.loads(response['SecretString'])
+        
+        # Use at startup
+        secrets = get_secret('myapp/production')
+        DATABASE_URL = secrets['database_url']
+
+    container_security:
+      - "Use minimal base images (alpine, distroless)"
+      - "Run as non-root user"
+      - "Scan images for vulnerabilities"
+      - "Don't store secrets in images"
+      - "Use read-only filesystem where possible"
+      
+      scanning: |
+        # Trivy - container vulnerability scanner
+        trivy image myapp:latest
+        
+        # In GitHub Actions
+        - name: Scan image
+          uses: aquasecurity/trivy-action@master
+          with:
+            image-ref: 'myapp:${{ github.sha }}'
+            severity: 'CRITICAL,HIGH'
+            exit-code: '1'
+
+    network_security:
+      - "Use TLS everywhere"
+      - "Implement network policies (Kubernetes)"
+      - "Use VPC/private networks"
+      - "Principle of least privilege for access"

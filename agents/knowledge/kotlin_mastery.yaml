@@ -1,0 +1,509 @@
+# Kotlin Mastery Knowledge Base
+# Comprehensive Kotlin expertise for coding agents
+
+kotlin_expertise:
+  
+  # ============ IDIOMATIC KOTLIN ============
+  idiomatic_patterns:
+    
+    null_safety:
+      - name: "Use safe calls and elvis operator"
+        good: |
+          // Safe call with elvis
+          val length = name?.length ?: 0
+          
+          // Chain safe calls
+          val city = user?.address?.city ?: "Unknown"
+          
+          // Safe call with let for operations
+          user?.let { 
+              sendEmail(it.email)
+              logActivity(it.id)
+          }
+        bad: |
+          // Unnecessary null checks
+          if (name != null) {
+              val length = name.length
+          }
+          
+          // !! is dangerous
+          val length = name!!.length  // Throws NPE if null!
+        why: "Kotlin's null safety eliminates NPEs when used properly"
+
+      - name: "Use require/check for validation"
+        good: |
+          fun processAge(age: Int) {
+              require(age >= 0) { "Age cannot be negative: $age" }
+              require(age < 150) { "Age seems invalid: $age" }
+              // Process...
+          }
+          
+          fun User.validate() {
+              check(id > 0) { "User must have valid ID" }
+              check(email.contains("@")) { "Invalid email" }
+          }
+        bad: |
+          fun processAge(age: Int) {
+              if (age < 0) throw IllegalArgumentException("...")
+              // Verbose and less expressive
+          }
+        note: "require = IllegalArgumentException, check = IllegalStateException"
+
+    data_classes:
+      - name: "Use data classes for DTOs"
+        good: |
+          data class User(
+              val id: Long,
+              val name: String,
+              val email: String,
+              val roles: List<String> = emptyList()
+          )
+          
+          // Automatic: equals, hashCode, toString, copy, componentN
+          val user2 = user.copy(name = "New Name")
+          val (id, name) = user  // Destructuring
+        bad: |
+          class User(
+              val id: Long,
+              val name: String,
+              val email: String
+          ) {
+              override fun equals(other: Any?): Boolean { ... }
+              override fun hashCode(): Int { ... }
+              override fun toString(): String { ... }
+          }
+        note: "data class generates all boilerplate automatically"
+
+      - name: "Use sealed classes for state"
+        good: |
+          sealed class Result<out T> {
+              data class Success<T>(val data: T) : Result<T>()
+              data class Error(val message: String) : Result<Nothing>()
+              object Loading : Result<Nothing>()
+          }
+          
+          // Exhaustive when - compiler enforces all cases
+          when (result) {
+              is Result.Success -> showData(result.data)
+              is Result.Error -> showError(result.message)
+              Result.Loading -> showSpinner()
+              // No else needed - compiler knows all cases
+          }
+        why: "Sealed classes provide type-safe state handling with exhaustive when"
+
+    collections:
+      - name: "Use collection operations"
+        good: |
+          // Chain operations
+          val activeAdminEmails = users
+              .filter { it.isActive }
+              .filter { it.role == Role.ADMIN }
+              .map { it.email }
+              .distinct()
+              .sorted()
+          
+          // Grouping
+          val usersByRole = users.groupBy { it.role }
+          
+          // Aggregation
+          val totalAge = users.sumOf { it.age }
+          val averageAge = users.map { it.age }.average()
+          
+          // Finding
+          val admin = users.firstOrNull { it.role == Role.ADMIN }
+        bad: |
+          val activeAdminEmails = mutableListOf<String>()
+          for (user in users) {
+              if (user.isActive && user.role == Role.ADMIN) {
+                  if (!activeAdminEmails.contains(user.email)) {
+                      activeAdminEmails.add(user.email)
+                  }
+              }
+          }
+          activeAdminEmails.sort()
+        why: "Functional style is more readable, less error-prone"
+
+      - name: "Use sequences for large collections"
+        good: |
+          // Sequence - lazy evaluation, single pass
+          val result = users.asSequence()
+              .filter { it.isActive }
+              .map { it.email }
+              .take(10)
+              .toList()
+        bad: |
+          // Creates intermediate lists at each step
+          val result = users
+              .filter { it.isActive }  // New list
+              .map { it.email }        // Another new list
+              .take(10)                // Another new list
+        when: "Use sequences for chains of 3+ operations on large collections (1000+ items)"
+
+    scope_functions:
+      - name: "Choose the right scope function"
+        guide: |
+          // let - transform and return result, with 'it'
+          val length = str?.let { it.trim().length }
+          
+          // run - execute block and return result, with 'this'
+          val result = service.run {
+              connect()
+              query("SELECT *")
+          }
+          
+          // apply - configure object and return it, with 'this'
+          val user = User().apply {
+              name = "Alice"
+              email = "alice@example.com"
+          }
+          
+          // also - side effects and return original, with 'it'
+          val user = createUser().also { 
+              logger.info("Created user: ${it.id}")
+          }
+          
+          // with - operate on object, return result
+          val info = with(user) {
+              "$name ($email)"
+          }
+        decision_table: |
+          | Function | Returns    | Reference | Use Case                    |
+          |----------|------------|-----------|----------------------------|
+          | let      | Lambda     | it        | Null check, transform      |
+          | run      | Lambda     | this      | Object config + compute    |
+          | apply    | Object     | this      | Object initialization      |
+          | also     | Object     | it        | Side effects, logging      |
+          | with     | Lambda     | this      | Multiple operations        |
+
+  # ============ COROUTINES ============
+  coroutines:
+    
+    basics:
+      - name: "Choose correct dispatcher"
+        guide: |
+          // CPU-intensive work
+          withContext(Dispatchers.Default) {
+              computeHash(largeData)
+          }
+          
+          // IO operations
+          withContext(Dispatchers.IO) {
+              file.readText()
+              database.query()
+              httpClient.get(url)
+          }
+          
+          // Main thread (Android/UI)
+          withContext(Dispatchers.Main) {
+              updateUI(result)
+          }
+        note: "Default = CPU cores, IO = 64+ threads for blocking"
+
+      - name: "Structured concurrency"
+        good: |
+          // CoroutineScope ensures all children complete or cancel together
+          suspend fun fetchUserData(userId: Long): UserData = coroutineScope {
+              val profile = async { api.getProfile(userId) }
+              val posts = async { api.getPosts(userId) }
+              val friends = async { api.getFriends(userId) }
+              
+              UserData(
+                  profile = profile.await(),
+                  posts = posts.await(),
+                  friends = friends.await()
+              )
+          }
+        bad: |
+          // GlobalScope - no structured concurrency, can leak
+          suspend fun fetchUserData(userId: Long): UserData {
+              val profile = GlobalScope.async { api.getProfile(userId) }
+              // If exception occurs, these coroutines keep running!
+              ...
+          }
+        why: "Structured concurrency ensures proper cancellation and error handling"
+
+      - name: "Exception handling"
+        good: |
+          // supervisorScope - failure of one child doesn't cancel others
+          suspend fun fetchAll(): List<Result> = supervisorScope {
+              val results = urls.map { url ->
+                  async {
+                      try {
+                          Result.Success(fetch(url))
+                      } catch (e: Exception) {
+                          Result.Error(e.message)
+                      }
+                  }
+              }
+              results.awaitAll()
+          }
+          
+          // CoroutineExceptionHandler for uncaught exceptions
+          val handler = CoroutineExceptionHandler { _, exception ->
+              logger.error("Coroutine failed", exception)
+          }
+          
+          scope.launch(handler) { ... }
+        note: "Use try-catch inside async, or supervisorScope for independent tasks"
+
+      - name: "Flow for streams"
+        good: |
+          // Cold flow - starts when collected
+          fun observeUsers(): Flow<User> = flow {
+              while (true) {
+                  emit(database.getLatestUser())
+                  delay(1000)
+              }
+          }.flowOn(Dispatchers.IO)
+          
+          // Collect with lifecycle awareness
+          lifecycleScope.launch {
+              viewModel.users
+                  .flowWithLifecycle(lifecycle, Lifecycle.State.STARTED)
+                  .collect { user -> updateUI(user) }
+          }
+          
+          // Transform flows
+          val activeUsers = allUsers
+              .filter { it.isActive }
+              .map { it.toDisplayModel() }
+              .distinctUntilChanged()
+
+  # ============ ANTI-PATTERNS ============
+  anti_patterns:
+    
+    critical:
+      - name: "Overusing !! operator"
+        bad: |
+          val name = user!!.name!!.toUpperCase()  // Triple NPE risk!
+        good: |
+          val name = user?.name?.uppercase() ?: "UNKNOWN"
+        severity: "HIGH - defeats Kotlin's null safety"
+
+      - name: "Blocking in coroutines"
+        bad: |
+          suspend fun fetchData(): Data {
+              Thread.sleep(1000)  // Blocks thread!
+              return parseData(blockingHttpCall())  // Also blocks!
+          }
+        good: |
+          suspend fun fetchData(): Data = withContext(Dispatchers.IO) {
+              delay(1000)  // Suspends, doesn't block
+              parseData(httpClient.get(url))  // Use suspending client
+          }
+        why: "Blocking calls waste threads, can cause thread starvation"
+
+      - name: "Mutable state in data classes"
+        bad: |
+          data class User(
+              var name: String,  // Mutable!
+              val roles: MutableList<String>  // Mutable collection!
+          )
+        good: |
+          data class User(
+              val name: String,
+              val roles: List<String>
+          )
+          
+          // Use copy() for updates
+          val updated = user.copy(name = "New Name")
+        why: "Mutable data classes break equals/hashCode after mutation"
+
+      - name: "Lateinit overuse"
+        bad: |
+          class UserService {
+              lateinit var database: Database  // Can cause crashes
+              lateinit var cache: Cache
+              lateinit var logger: Logger
+              
+              fun getUser(id: Long): User {
+                  // What if database not initialized?
+                  return database.findById(id)
+              }
+          }
+        good: |
+          class UserService(
+              private val database: Database,
+              private val cache: Cache,
+              private val logger: Logger
+          ) {
+              // Constructor injection - guaranteed initialized
+          }
+        when_ok: "lateinit is OK for DI frameworks, test setup, or Android views"
+
+      - name: "Not using when exhaustively"
+        bad: |
+          fun getDiscount(tier: CustomerTier): Double {
+              return when (tier) {
+                  CustomerTier.BRONZE -> 0.05
+                  CustomerTier.SILVER -> 0.10
+                  else -> 0.0  // What if new tier added?
+              }
+          }
+        good: |
+          fun getDiscount(tier: CustomerTier): Double {
+              return when (tier) {
+                  CustomerTier.BRONZE -> 0.05
+                  CustomerTier.SILVER -> 0.10
+                  CustomerTier.GOLD -> 0.15
+                  CustomerTier.PLATINUM -> 0.20
+                  // No else - compiler error if new tier added!
+              }
+          }
+        why: "Exhaustive when catches missing cases at compile time"
+
+  # ============ ADVANCED PATTERNS ============
+  advanced_patterns:
+    
+    delegation:
+      - name: "Class delegation"
+        example: |
+          interface Logger {
+              fun log(message: String)
+          }
+          
+          class ConsoleLogger : Logger {
+              override fun log(message: String) = println(message)
+          }
+          
+          // Delegate all Logger methods to consoleLogger
+          class UserService(
+              consoleLogger: ConsoleLogger
+          ) : Logger by consoleLogger {
+              fun createUser(name: String) {
+                  log("Creating user: $name")  // Delegated
+              }
+          }
+
+      - name: "Property delegation"
+        example: |
+          // Lazy initialization
+          val heavyObject: HeavyObject by lazy {
+              HeavyObject()  // Created only on first access
+          }
+          
+          // Observable property
+          var name: String by Delegates.observable("") { _, old, new ->
+              println("Changed from $old to $new")
+          }
+          
+          // Map-backed properties
+          class User(map: Map<String, Any>) {
+              val name: String by map
+              val age: Int by map
+          }
+          
+          val user = User(mapOf("name" to "Alice", "age" to 30))
+          println(user.name)  // "Alice"
+
+    inline_functions:
+      - name: "Use inline for lambdas"
+        example: |
+          // Inline eliminates lambda allocation overhead
+          inline fun measureTime(block: () -> Unit): Long {
+              val start = System.currentTimeMillis()
+              block()
+              return System.currentTimeMillis() - start
+          }
+          
+          // reified - access type at runtime
+          inline fun <reified T> parseJson(json: String): T {
+              return gson.fromJson(json, T::class.java)
+          }
+          
+          // noinline - prevent inlining specific lambda
+          inline fun execute(
+              inlined: () -> Unit,
+              noinline stored: () -> Unit  // Can be stored/passed
+          ) { ... }
+        note: "Inline functions increase code size - use for small, frequently-called functions"
+
+    dsl_building:
+      - name: "Type-safe builders"
+        example: |
+          // HTML DSL example
+          fun html(init: HTML.() -> Unit): HTML {
+              val html = HTML()
+              html.init()
+              return html
+          }
+          
+          class HTML {
+              private val children = mutableListOf<Element>()
+              
+              fun body(init: Body.() -> Unit) {
+                  children.add(Body().apply(init))
+              }
+          }
+          
+          // Usage
+          val page = html {
+              body {
+                  div {
+                      p { +"Hello World" }
+                  }
+              }
+          }
+          
+          // @DslMarker prevents scope leakage
+          @DslMarker
+          annotation class HtmlDsl
+          
+          @HtmlDsl
+          class HTML { ... }
+
+  # ============ TESTING ============
+  testing:
+    
+    patterns:
+      - name: "Use MockK for mocking"
+        example: |
+          @Test
+          fun `should fetch user`() {
+              val api = mockk<UserApi>()
+              coEvery { api.getUser(1) } returns User("Alice")
+              
+              val service = UserService(api)
+              val user = runBlocking { service.getUser(1) }
+              
+              assertEquals("Alice", user.name)
+              coVerify { api.getUser(1) }
+          }
+
+      - name: "Test coroutines properly"
+        example: |
+          @Test
+          fun `should handle concurrent requests`() = runTest {
+              val results = (1..100).map { id ->
+                  async { service.fetchUser(id) }
+              }
+              
+              val users = results.awaitAll()
+              assertEquals(100, users.size)
+          }
+          
+          // With TestDispatcher for time control
+          @Test
+          fun `should debounce`() = runTest {
+              val results = mutableListOf<String>()
+              val flow = flowOf("a", "b", "c")
+                  .debounce(1000)
+              
+              flow.toList(results)
+              advanceTimeBy(1000)
+              
+              assertEquals(listOf("c"), results)
+          }
+
+      - name: "Parameterized tests"
+        example: |
+          @ParameterizedTest
+          @CsvSource(
+              "1, 1",
+              "2, 4", 
+              "3, 9",
+              "10, 100"
+          )
+          fun `square should work`(input: Int, expected: Int) {
+              assertEquals(expected, square(input))
+          }

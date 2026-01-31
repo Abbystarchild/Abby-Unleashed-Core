@@ -1,0 +1,504 @@
+# Python Mastery Knowledge Base
+# Comprehensive Python expertise for coding agents
+
+python_expertise:
+  version_awareness:
+    current_stable: "3.12"
+    lts_versions: ["3.11", "3.12"]
+    deprecated_patterns:
+      - pattern: "from __future__ import annotations"
+        note: "Default in Python 3.10+, not needed"
+      - pattern: "typing.List, typing.Dict, typing.Set"
+        note: "Use built-in list, dict, set for type hints in 3.9+"
+      - pattern: "asyncio.get_event_loop()"
+        note: "Use asyncio.get_running_loop() in async context"
+
+  # ============ BEST PRACTICES ============
+  best_practices:
+    
+    code_structure:
+      - name: "Use dataclasses for data containers"
+        good: |
+          from dataclasses import dataclass, field
+          
+          @dataclass
+          class User:
+              name: str
+              email: str
+              roles: list[str] = field(default_factory=list)
+        bad: |
+          class User:
+              def __init__(self, name, email, roles=None):
+                  self.name = name
+                  self.email = email
+                  self.roles = roles or []  # Mutable default trap!
+        why: "Dataclasses auto-generate __init__, __repr__, __eq__, reduce boilerplate, and handle mutable defaults safely"
+
+      - name: "Use pathlib instead of os.path"
+        good: |
+          from pathlib import Path
+          
+          config_file = Path(__file__).parent / "config" / "settings.yaml"
+          if config_file.exists():
+              content = config_file.read_text()
+        bad: |
+          import os
+          
+          config_file = os.path.join(os.path.dirname(__file__), "config", "settings.yaml")
+          if os.path.exists(config_file):
+              with open(config_file) as f:
+                  content = f.read()
+        why: "pathlib is more readable, cross-platform, and provides a cleaner API"
+
+      - name: "Use context managers for resource handling"
+        good: |
+          from contextlib import contextmanager
+          
+          @contextmanager
+          def database_connection(url):
+              conn = create_connection(url)
+              try:
+                  yield conn
+              finally:
+                  conn.close()
+          
+          with database_connection(url) as conn:
+              conn.execute(query)
+        bad: |
+          conn = create_connection(url)
+          conn.execute(query)
+          conn.close()  # Never reached if execute() raises!
+        why: "Context managers guarantee cleanup even when exceptions occur"
+
+      - name: "Use enumerate instead of range(len())"
+        good: |
+          for idx, item in enumerate(items):
+              print(f"{idx}: {item}")
+        bad: |
+          for i in range(len(items)):
+              print(f"{i}: {items[i]}")
+        why: "enumerate is more Pythonic, faster, and less error-prone"
+
+      - name: "Use f-strings for string formatting"
+        good: |
+          name = "Alice"
+          age = 30
+          message = f"Hello, {name}! You are {age} years old."
+          # Debug with = sign (Python 3.8+)
+          print(f"{name=}, {age=}")  # Outputs: name='Alice', age=30
+        bad: |
+          message = "Hello, %s! You are %d years old." % (name, age)
+          message = "Hello, {}! You are {} years old.".format(name, age)
+        why: "f-strings are faster, more readable, and support expressions"
+
+    # Performance optimizations
+    performance:
+      - name: "Use generators for large data processing"
+        good: |
+          def process_large_file(filepath):
+              with open(filepath) as f:
+                  for line in f:  # Iterator, not loading all into memory
+                      yield process_line(line)
+          
+          # Or generator expression
+          results = (x * 2 for x in range(1_000_000))
+        bad: |
+          def process_large_file(filepath):
+              with open(filepath) as f:
+                  lines = f.readlines()  # Loads entire file into memory!
+              return [process_line(line) for line in lines]
+        why: "Generators use O(1) memory regardless of data size"
+
+      - name: "Use sets for membership testing"
+        good: |
+          valid_statuses = {'active', 'pending', 'approved'}
+          if status in valid_statuses:  # O(1) lookup
+              process(status)
+        bad: |
+          valid_statuses = ['active', 'pending', 'approved']
+          if status in valid_statuses:  # O(n) lookup
+              process(status)
+        why: "Set lookup is O(1) vs O(n) for lists. Critical for large collections."
+
+      - name: "Use dict.get() with defaults"
+        good: |
+          value = data.get('key', default_value)
+          # Or for nested access
+          value = data.get('outer', {}).get('inner', default)
+        bad: |
+          if 'key' in data:
+              value = data['key']
+          else:
+              value = default_value
+        why: "More concise, single dictionary lookup instead of two"
+
+      - name: "Use collections.Counter for counting"
+        good: |
+          from collections import Counter
+          
+          word_counts = Counter(words)
+          most_common = word_counts.most_common(10)
+        bad: |
+          word_counts = {}
+          for word in words:
+              if word in word_counts:
+                  word_counts[word] += 1
+              else:
+                  word_counts[word] = 1
+        why: "Counter is optimized in C, handles missing keys, provides useful methods"
+
+      - name: "Use functools.lru_cache for memoization"
+        good: |
+          from functools import lru_cache
+          
+          @lru_cache(maxsize=128)
+          def expensive_computation(n):
+              # Results are cached automatically
+              return sum(i ** 2 for i in range(n))
+        bad: |
+          _cache = {}
+          def expensive_computation(n):
+              if n not in _cache:
+                  _cache[n] = sum(i ** 2 for i in range(n))
+              return _cache[n]
+        why: "lru_cache is thread-safe, has size limits, and is implemented in C"
+
+      - name: "Use __slots__ for memory-efficient classes"
+        good: |
+          class Point:
+              __slots__ = ['x', 'y']
+              def __init__(self, x, y):
+                  self.x = x
+                  self.y = y
+        note: "Reduces memory usage by ~40% for classes with many instances. Cannot add attributes dynamically."
+        when_to_use: "Many instances of a class with fixed attributes"
+
+    # Type hints best practices
+    type_hints:
+      - name: "Use modern type hint syntax (3.10+)"
+        good: |
+          def process(items: list[str] | None = None) -> dict[str, int]:
+              items = items or []
+              return {item: len(item) for item in items}
+        bad: |
+          from typing import List, Dict, Optional, Union
+          
+          def process(items: Optional[List[str]] = None) -> Dict[str, int]:
+              items = items or []
+              return {item: len(item) for item in items}
+        why: "Built-in generics and union syntax are cleaner (3.9+ and 3.10+)"
+
+      - name: "Use TypeVar for generic functions"
+        good: |
+          from typing import TypeVar
+          
+          T = TypeVar('T')
+          
+          def first(items: list[T]) -> T | None:
+              return items[0] if items else None
+        why: "Preserves type information through function calls"
+
+      - name: "Use Protocol for structural subtyping"
+        good: |
+          from typing import Protocol
+          
+          class Drawable(Protocol):
+              def draw(self) -> None: ...
+          
+          def render(item: Drawable) -> None:
+              item.draw()  # Any class with draw() method works
+        why: "Duck typing with type safety - no inheritance required"
+
+  # ============ ANTI-PATTERNS TO AVOID ============
+  anti_patterns:
+    
+    critical_mistakes:
+      - name: "Mutable default arguments"
+        bad: |
+          def add_item(item, items=[]):  # DANGEROUS!
+              items.append(item)
+              return items
+          
+          # add_item(1) returns [1]
+          # add_item(2) returns [1, 2]  # Unexpected!
+        good: |
+          def add_item(item, items=None):
+              if items is None:
+                  items = []
+              items.append(item)
+              return items
+        severity: "CRITICAL - causes subtle, hard-to-debug issues"
+
+      - name: "Bare except clauses"
+        bad: |
+          try:
+              do_something()
+          except:  # Catches EVERYTHING including KeyboardInterrupt!
+              pass
+        good: |
+          try:
+              do_something()
+          except Exception as e:
+              logger.error(f"Error: {e}")
+              # Or specific exceptions
+          except (ValueError, KeyError) as e:
+              handle_specific_error(e)
+        severity: "HIGH - hides bugs, catches system exits"
+
+      - name: "Using == for None comparison"
+        bad: |
+          if value == None:
+              do_something()
+        good: |
+          if value is None:
+              do_something()
+        why: "'is' is faster and cannot be overridden by __eq__"
+
+      - name: "Modifying list while iterating"
+        bad: |
+          for item in items:
+              if should_remove(item):
+                  items.remove(item)  # Skips elements!
+        good: |
+          items = [item for item in items if not should_remove(item)]
+          # Or iterate over a copy
+          for item in items[:]:
+              if should_remove(item):
+                  items.remove(item)
+        severity: "HIGH - causes silent data corruption"
+
+      - name: "String concatenation in loops"
+        bad: |
+          result = ""
+          for item in items:
+              result += str(item)  # Creates new string each time O(n²)
+        good: |
+          result = "".join(str(item) for item in items)  # O(n)
+        why: "String join is O(n), concatenation is O(n²)"
+
+    subtle_issues:
+      - name: "Late binding in closures"
+        bad: |
+          functions = []
+          for i in range(3):
+              functions.append(lambda: i)
+          
+          # All return 2! (last value of i)
+          [f() for f in functions]  # [2, 2, 2]
+        good: |
+          functions = []
+          for i in range(3):
+              functions.append(lambda i=i: i)  # Capture current value
+          
+          [f() for f in functions]  # [0, 1, 2]
+        severity: "MEDIUM - common source of bugs in callbacks"
+
+      - name: "Using 'is' for integer comparison"
+        bad: |
+          if x is 256:  # Works
+              pass
+          if x is 257:  # May fail! CPython caches -5 to 256
+              pass
+        good: |
+          if x == 256:
+              pass
+        why: "Integer interning is implementation-specific"
+
+      - name: "Circular imports"
+        bad: |
+          # module_a.py
+          from module_b import func_b
+          def func_a(): ...
+          
+          # module_b.py  
+          from module_a import func_a  # ImportError!
+          def func_b(): ...
+        good: |
+          # Import inside function, or restructure modules
+          def func_b():
+              from module_a import func_a
+              return func_a()
+          # Or use TYPE_CHECKING for type hints
+          from typing import TYPE_CHECKING
+          if TYPE_CHECKING:
+              from module_a import TypeA
+        severity: "MEDIUM - causes ImportError at runtime"
+
+  # ============ ADVANCED TECHNIQUES ============
+  advanced_techniques:
+    
+    async_patterns:
+      - name: "Proper async context manager"
+        example: |
+          from contextlib import asynccontextmanager
+          
+          @asynccontextmanager
+          async def async_database():
+              conn = await create_async_connection()
+              try:
+                  yield conn
+              finally:
+                  await conn.close()
+          
+          async with async_database() as conn:
+              await conn.execute(query)
+
+      - name: "Concurrent task execution"
+        example: |
+          import asyncio
+          
+          async def fetch_all(urls):
+              async with aiohttp.ClientSession() as session:
+                  tasks = [fetch_one(session, url) for url in urls]
+                  return await asyncio.gather(*tasks, return_exceptions=True)
+          
+          # With semaphore for rate limiting
+          async def fetch_with_limit(urls, max_concurrent=10):
+              semaphore = asyncio.Semaphore(max_concurrent)
+              async def limited_fetch(url):
+                  async with semaphore:
+                      return await fetch_one(url)
+              return await asyncio.gather(*[limited_fetch(url) for url in urls])
+
+      - name: "Async generator"
+        example: |
+          async def async_file_reader(filepath):
+              async with aiofiles.open(filepath) as f:
+                  async for line in f:
+                      yield line.strip()
+          
+          async for line in async_file_reader("large_file.txt"):
+              process(line)
+
+    metaprogramming:
+      - name: "Class decorators for registration"
+        example: |
+          registry = {}
+          
+          def register(cls):
+              registry[cls.__name__] = cls
+              return cls
+          
+          @register
+          class Handler:
+              pass
+          
+          # registry == {'Handler': <class Handler>}
+
+      - name: "Property with validation"
+        example: |
+          class Temperature:
+              def __init__(self, celsius=0):
+                  self.celsius = celsius
+              
+              @property
+              def celsius(self):
+                  return self._celsius
+              
+              @celsius.setter
+              def celsius(self, value):
+                  if value < -273.15:
+                      raise ValueError("Below absolute zero!")
+                  self._celsius = value
+              
+              @property
+              def fahrenheit(self):
+                  return self._celsius * 9/5 + 32
+
+    testing_patterns:
+      - name: "Pytest fixtures and parametrize"
+        example: |
+          import pytest
+          
+          @pytest.fixture
+          def database():
+              db = create_test_db()
+              yield db
+              db.cleanup()
+          
+          @pytest.mark.parametrize("input,expected", [
+              ("hello", 5),
+              ("", 0),
+              ("   ", 3),
+          ])
+          def test_length(input, expected):
+              assert len(input) == expected
+
+      - name: "Mocking best practices"
+        example: |
+          from unittest.mock import patch, MagicMock
+          
+          # Patch where it's used, not where it's defined
+          @patch('mymodule.requests.get')
+          def test_api_call(mock_get):
+              mock_get.return_value.json.return_value = {"data": "test"}
+              result = mymodule.fetch_data()
+              assert result == {"data": "test"}
+              mock_get.assert_called_once()
+
+  # ============ PROVEN OPTIMIZATIONS ============
+  proven_optimizations:
+    
+    measured_improvements:
+      - name: "Local variable access is faster"
+        technique: |
+          # Slow - global lookup each iteration
+          def slow():
+              for i in range(1000000):
+                  len([1,2,3])  # Global lookup for 'len'
+          
+          # Fast - local lookup
+          def fast():
+              _len = len  # Local reference
+              for i in range(1000000):
+                  _len([1,2,3])
+        improvement: "~20% faster in tight loops"
+        when_to_use: "Hot loops with repeated built-in calls"
+
+      - name: "List comprehension vs map/filter"
+        technique: |
+          # List comp is usually faster and more readable
+          squares = [x**2 for x in range(1000)]
+          
+          # map() can be faster for simple functions
+          squares = list(map(lambda x: x**2, range(1000)))
+          
+          # But built-in functions with map are fastest
+          lengths = list(map(len, strings))  # Faster than [len(s) for s in strings]
+        improvement: "map() with built-ins ~10-15% faster"
+
+      - name: "dict() vs {} literal"
+        technique: |
+          # {} is faster - it's a literal, no function call
+          d = {}  # Faster
+          d = dict()  # Slower - function call overhead
+          
+          # Same for list and tuple
+          l = []  # Faster than list()
+          t = ()  # Faster than tuple()
+        improvement: "~30% faster for empty containers"
+
+      - name: "String methods vs regex for simple cases"
+        technique: |
+          # Simple operations - use string methods
+          text.startswith('http')  # 10x faster than regex
+          text.replace('old', 'new')  # 5x faster than re.sub
+          
+          # Only use regex for complex patterns
+          import re
+          pattern = re.compile(r'\d{3}-\d{4}')  # Compile once!
+          matches = pattern.findall(text)
+        improvement: "String methods 5-10x faster for simple operations"
+
+      - name: "bisect for sorted list operations"
+        technique: |
+          import bisect
+          
+          sorted_list = [1, 3, 5, 7, 9]
+          
+          # O(log n) insertion maintaining sort
+          bisect.insort(sorted_list, 6)  # [1, 3, 5, 6, 7, 9]
+          
+          # O(log n) search
+          idx = bisect.bisect_left(sorted_list, 5)
+        improvement: "O(log n) vs O(n) for list.index() and sorted insert"

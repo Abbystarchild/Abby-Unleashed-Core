@@ -1,0 +1,460 @@
+# General Programming Principles & Anti-Patterns
+# Cross-language expertise for coding agents
+
+general_programming:
+  
+  # ============ UNIVERSAL ANTI-PATTERNS ============
+  anti_patterns:
+    
+    architecture:
+      - name: "God Object / God Class"
+        description: "A class that knows too much or does too much"
+        signs:
+          - "Class with 1000+ lines"
+          - "Class that many other classes depend on"
+          - "Class with methods for unrelated functionality"
+        fix: "Split into focused classes with single responsibility"
+        example_bad: |
+          class Application {
+              def connect_database(self): ...
+              def render_html(self): ...
+              def send_email(self): ...
+              def validate_user(self): ...
+              def calculate_tax(self): ...
+              def generate_report(self): ...
+          }
+        example_good: |
+          class DatabaseConnection: ...
+          class HtmlRenderer: ...
+          class EmailService: ...
+          class UserValidator: ...
+          class TaxCalculator: ...
+          class ReportGenerator: ...
+
+      - name: "Spaghetti Code"
+        description: "Code with complex, tangled control flow"
+        signs:
+          - "Deeply nested conditionals"
+          - "Goto statements or excessive breaks/continues"
+          - "Functions that call each other in circular ways"
+        fix: "Extract methods, use early returns, apply state pattern"
+        example_bad: |
+          def process(data):
+              if data:
+                  if data.valid:
+                      if data.type == 'A':
+                          if data.status == 'new':
+                              # 5 levels deep...
+        example_good: |
+          def process(data):
+              if not data or not data.valid:
+                  return None
+              
+              handler = get_handler(data.type)
+              return handler.process(data)
+
+      - name: "Shotgun Surgery"
+        description: "One change requires modifying many classes"
+        signs:
+          - "Adding a feature requires editing 10+ files"
+          - "Related code is scattered across the codebase"
+        fix: "Group related code together, use polymorphism"
+
+      - name: "Feature Envy"
+        description: "Method uses more from another class than its own"
+        example_bad: |
+          class Order:
+              def calculate_total(self, customer):
+                  discount = customer.loyalty_points / 100
+                  tax_rate = customer.region.tax_rate
+                  shipping = customer.address.calculate_shipping()
+                  # Uses customer more than self!
+        example_good: |
+          class Customer:
+              def get_discount(self): ...
+              def calculate_order_total(self, order): ...
+
+      - name: "Primitive Obsession"
+        description: "Using primitives instead of small objects"
+        example_bad: |
+          def send_email(to_email: str, subject: str, body: str): ...
+          def validate_phone(phone: str): ...  # Just a string!
+        example_good: |
+          @dataclass
+          class Email:
+              address: str
+              def __post_init__(self):
+                  if '@' not in self.address:
+                      raise ValueError("Invalid email")
+          
+          @dataclass
+          class Phone:
+              country_code: str
+              number: str
+              def format(self) -> str: ...
+
+    code_smells:
+      - name: "Magic Numbers/Strings"
+        bad: |
+          if user.age >= 18:
+              if user.status == 3:
+                  charge(user, amount * 0.08)
+        good: |
+          MINIMUM_AGE = 18
+          STATUS_ACTIVE = 3
+          TAX_RATE = 0.08
+          
+          if user.age >= MINIMUM_AGE:
+              if user.status == STATUS_ACTIVE:
+                  charge(user, amount * TAX_RATE)
+
+      - name: "Dead Code"
+        description: "Code that is never executed"
+        examples:
+          - "Unreachable code after return/throw"
+          - "Unused variables, functions, classes"
+          - "Commented-out code"
+        fix: "Delete it. Version control remembers."
+
+      - name: "Duplicate Code"
+        principle: "DRY - Don't Repeat Yourself"
+        signs:
+          - "Copy-pasted code blocks"
+          - "Similar methods with slight variations"
+        fix: "Extract common code into functions, use inheritance/composition"
+        caveat: "Don't over-DRY - some duplication is OK if code evolves differently"
+
+      - name: "Long Parameter List"
+        bad: |
+          def create_user(name, email, age, address, city, 
+                         state, zip, phone, company, title):
+        good: |
+          @dataclass
+          class Address:
+              street: str
+              city: str
+              state: str
+              zip_code: str
+          
+          @dataclass
+          class UserData:
+              name: str
+              email: str
+              age: int
+              address: Address
+              phone: str
+          
+          def create_user(data: UserData): ...
+
+      - name: "Boolean Blindness"
+        bad: |
+          process_order(order, True, False, True)  # What do these mean?
+        good: |
+          process_order(
+              order,
+              send_notification=True,
+              apply_discount=False,
+              priority_shipping=True
+          )
+          # Or use enums
+          process_order(order, Notification.SEND, Shipping.PRIORITY)
+
+  # ============ SOLID PRINCIPLES ============
+  solid_principles:
+    
+    single_responsibility:
+      principle: "A class should have only one reason to change"
+      bad: |
+        class User:
+            def save_to_database(self): ...
+            def render_html(self): ...
+            def send_email(self): ...
+      good: |
+        class User: ...  # Just data
+        class UserRepository:
+            def save(self, user): ...
+        class UserPresenter:
+            def to_html(self, user): ...
+        class EmailService:
+            def send_to_user(self, user, message): ...
+
+    open_closed:
+      principle: "Open for extension, closed for modification"
+      bad: |
+        def calculate_area(shape):
+            if shape.type == 'circle':
+                return 3.14 * shape.radius ** 2
+            elif shape.type == 'rectangle':
+                return shape.width * shape.height
+            # Must modify this function for every new shape!
+      good: |
+        class Shape(ABC):
+            @abstractmethod
+            def area(self) -> float: ...
+        
+        class Circle(Shape):
+            def area(self) -> float:
+                return 3.14 * self.radius ** 2
+        
+        class Rectangle(Shape):
+            def area(self) -> float:
+                return self.width * self.height
+        # New shapes just add classes, don't modify existing code
+
+    liskov_substitution:
+      principle: "Subtypes must be substitutable for their base types"
+      bad: |
+        class Rectangle:
+            def set_width(self, w): self.width = w
+            def set_height(self, h): self.height = h
+        
+        class Square(Rectangle):
+            def set_width(self, w):
+                self.width = w
+                self.height = w  # Violates LSP!
+      good: |
+        class Shape(ABC):
+            @abstractmethod
+            def area(self) -> float: ...
+        
+        class Rectangle(Shape): ...
+        class Square(Shape): ...  # Not a subtype of Rectangle
+
+    interface_segregation:
+      principle: "Clients shouldn't depend on interfaces they don't use"
+      bad: |
+        class Worker(ABC):
+            @abstractmethod
+            def work(self): ...
+            @abstractmethod
+            def eat(self): ...  # Robots don't eat!
+      good: |
+        class Workable(ABC):
+            @abstractmethod
+            def work(self): ...
+        
+        class Eatable(ABC):
+            @abstractmethod
+            def eat(self): ...
+        
+        class Human(Workable, Eatable): ...
+        class Robot(Workable): ...
+
+    dependency_inversion:
+      principle: "Depend on abstractions, not concretions"
+      bad: |
+        class UserService:
+            def __init__(self):
+                self.db = MySQLDatabase()  # Concrete dependency!
+      good: |
+        class UserService:
+            def __init__(self, db: Database):  # Abstraction
+                self.db = db
+        
+        # Can inject any Database implementation
+        service = UserService(MySQLDatabase())
+        service = UserService(PostgresDatabase())
+        service = UserService(InMemoryDatabase())  # For tests
+
+  # ============ CLEAN CODE PRINCIPLES ============
+  clean_code:
+    
+    naming:
+      principles:
+        - "Use intention-revealing names"
+        - "Avoid disinformation"
+        - "Make meaningful distinctions"
+        - "Use pronounceable names"
+        - "Use searchable names"
+        - "Avoid encodings (Hungarian notation)"
+      examples:
+        bad: |
+          d = 0  # elapsed time in days
+          l = []  # list of what?
+          getUserInfo() vs getUser()  # What's the difference?
+          XYZControllerForHandlingStrings  # Too long
+        good: |
+          elapsed_days = 0
+          active_users = []
+          get_user()  # Clear
+          StringHandler  # Concise
+
+    functions:
+      principles:
+        - "Should be small (< 20 lines ideal)"
+        - "Do one thing"
+        - "One level of abstraction"
+        - "Descriptive names"
+        - "Few arguments (3 or less)"
+        - "No side effects"
+        - "Command-query separation"
+      example_bad: |
+        def process_and_save_user_then_send_email_if_new(user_data, db, email_service, is_new):
+            # Does too many things!
+      example_good: |
+        def create_user(data: UserData) -> User: ...
+        def save_user(user: User, db: Database): ...
+        def send_welcome_email(user: User): ...
+        
+        # Compose
+        user = create_user(data)
+        save_user(user, db)
+        if is_new:
+            send_welcome_email(user)
+
+    comments:
+      good_comments:
+        - "Legal comments (copyright)"
+        - "Explanation of intent"
+        - "Warning of consequences"
+        - "TODO comments"
+        - "Documentation for public APIs"
+      bad_comments:
+        - "Redundant (code already clear)"
+        - "Misleading"
+        - "Commented-out code"
+        - "Noise comments"
+      example: |
+        # BAD - redundant
+        i += 1  # Increment i
+        
+        # BAD - commented-out code
+        # old_process(data)
+        
+        # GOOD - explains WHY, not WHAT
+        # Using insertion sort here because n < 10 and it's
+        # faster than quicksort for small arrays
+        insertion_sort(small_list)
+
+    error_handling:
+      principles:
+        - "Use exceptions, not error codes"
+        - "Don't return null"
+        - "Don't pass null"
+        - "Fail fast"
+        - "Provide context with exceptions"
+      example: |
+        # BAD
+        def get_user(id):
+            user = db.find(id)
+            if user is None:
+                return None  # Caller must check!
+        
+        # GOOD
+        def get_user(id) -> User:
+            user = db.find(id)
+            if user is None:
+                raise UserNotFoundError(f"User {id} not found")
+            return user
+        
+        # Or use Optional types explicitly
+        def find_user(id) -> Optional[User]:
+            return db.find(id)  # Caller knows to check
+
+  # ============ TESTING PRINCIPLES ============
+  testing:
+    
+    test_structure:
+      arrange_act_assert: |
+        def test_user_creation():
+            # Arrange - set up test data
+            user_data = UserData(name="Alice", email="alice@test.com")
+            
+            # Act - perform the action
+            user = create_user(user_data)
+            
+            # Assert - verify the result
+            assert user.name == "Alice"
+            assert user.id is not None
+
+    test_principles:
+      - name: "FIRST"
+        meaning: |
+          Fast - Tests should run quickly
+          Independent - Tests shouldn't depend on each other
+          Repeatable - Same result every time
+          Self-validating - Pass or fail, no manual inspection
+          Timely - Written before/with production code
+
+      - name: "Test behavior, not implementation"
+        bad: |
+          def test_user_uses_list_internally():
+              user = User()
+              assert isinstance(user._items, list)  # Testing internal!
+        good: |
+          def test_user_can_add_items():
+              user = User()
+              user.add_item("book")
+              assert "book" in user.get_items()
+
+      - name: "One assertion concept per test"
+        note: "Multiple asserts OK if testing one concept"
+        example: |
+          def test_user_creation():
+              user = create_user(valid_data)
+              
+              # Multiple asserts, one concept: user was created correctly
+              assert user.id is not None
+              assert user.name == valid_data.name
+              assert user.created_at is not None
+
+    test_anti_patterns:
+      - name: "Test interdependence"
+        problem: "Test B requires Test A to run first"
+        fix: "Each test sets up its own state"
+
+      - name: "Testing private methods"
+        problem: "Brittle tests tied to implementation"
+        fix: "Test through public interface"
+
+      - name: "Excessive mocking"
+        problem: "Tests don't verify real behavior"
+        fix: "Mock at boundaries (DB, network), not internal classes"
+
+      - name: "Slow tests"
+        problem: "Developers skip running tests"
+        fix: "Mock slow dependencies, parallelize, use test DB"
+
+  # ============ PERFORMANCE PRINCIPLES ============
+  performance:
+    
+    rules:
+      - name: "Don't optimize prematurely"
+        quote: "Premature optimization is the root of all evil - Donald Knuth"
+        approach: |
+          1. Make it work
+          2. Make it right
+          3. Make it fast (only if needed, with profiling)
+
+      - name: "Measure before optimizing"
+        tools:
+          python: "cProfile, line_profiler, memory_profiler"
+          javascript: "Chrome DevTools, Lighthouse"
+          general: "APM tools (DataDog, New Relic)"
+
+      - name: "Optimize the right thing"
+        principle: "90% of time is spent in 10% of code"
+        approach: "Profile to find hotspots, optimize those"
+
+    common_issues:
+      - name: "N+1 query problem"
+        bad: |
+          # 1 query for users, N queries for orders
+          users = db.query("SELECT * FROM users")
+          for user in users:
+              orders = db.query(f"SELECT * FROM orders WHERE user_id = {user.id}")
+        good: |
+          # 1 query with JOIN, or batch query
+          users_with_orders = db.query("""
+              SELECT u.*, o.* FROM users u
+              LEFT JOIN orders o ON u.id = o.user_id
+          """)
+
+      - name: "Loading too much data"
+        fix: "Pagination, lazy loading, SELECT only needed columns"
+
+      - name: "String concatenation in loops"
+        fix: "Use StringBuilder (Java), join() (Python), array push + join (JS)"
+
+      - name: "Synchronous when async possible"
+        fix: "Parallelize I/O operations, use async/await"

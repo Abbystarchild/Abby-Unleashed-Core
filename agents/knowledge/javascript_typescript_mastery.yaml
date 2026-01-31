@@ -1,0 +1,507 @@
+# JavaScript/TypeScript Mastery Knowledge Base
+# Comprehensive JS/TS expertise for coding agents
+
+javascript_typescript_expertise:
+  
+  # ============ TYPESCRIPT BEST PRACTICES ============
+  typescript:
+    
+    type_system:
+      - name: "Prefer interfaces over types for objects"
+        good: |
+          // Interfaces can be extended and merged
+          interface User {
+            id: number;
+            name: string;
+          }
+          
+          interface Admin extends User {
+            permissions: string[];
+          }
+          
+          // Declaration merging
+          interface User {
+            email: string;  // Added to User
+          }
+        when_type: |
+          // Use type for unions, intersections, primitives
+          type Status = 'pending' | 'active' | 'inactive';
+          type ID = string | number;
+          type UserWithMeta = User & { metadata: Record<string, unknown> };
+
+      - name: "Use const assertions"
+        good: |
+          // as const makes literal types
+          const config = {
+            api: 'https://api.example.com',
+            timeout: 5000,
+            retries: 3
+          } as const;
+          
+          // Type is { readonly api: "https://..."; readonly timeout: 5000; ... }
+          
+          const ROLES = ['admin', 'user', 'guest'] as const;
+          type Role = typeof ROLES[number];  // 'admin' | 'user' | 'guest'
+        bad: |
+          const config = {
+            api: 'https://api.example.com',  // Type is just 'string'
+          };
+
+      - name: "Use discriminated unions"
+        good: |
+          type Result<T> = 
+            | { success: true; data: T }
+            | { success: false; error: string };
+          
+          function handle<T>(result: Result<T>) {
+            if (result.success) {
+              // TypeScript knows result.data exists
+              console.log(result.data);
+            } else {
+              // TypeScript knows result.error exists
+              console.error(result.error);
+            }
+          }
+
+      - name: "Use unknown instead of any"
+        good: |
+          function parseJSON(json: string): unknown {
+            return JSON.parse(json);
+          }
+          
+          const data = parseJSON('{"name": "Alice"}');
+          // Must narrow type before using
+          if (isUser(data)) {
+            console.log(data.name);  // Safe
+          }
+        bad: |
+          function parseJSON(json: string): any {
+            return JSON.parse(json);
+          }
+          
+          const data = parseJSON('{"name": "Alice"}');
+          console.log(data.name);  // No type checking!
+
+      - name: "Utility types mastery"
+        examples: |
+          // Partial - all properties optional
+          type PartialUser = Partial<User>;
+          
+          // Required - all properties required
+          type RequiredConfig = Required<Config>;
+          
+          // Pick/Omit - select/exclude properties
+          type UserPreview = Pick<User, 'id' | 'name'>;
+          type PublicUser = Omit<User, 'password' | 'ssn'>;
+          
+          // Record - typed object
+          type UserMap = Record<string, User>;
+          
+          // ReturnType/Parameters
+          type FetchReturn = ReturnType<typeof fetch>;
+          type FetchParams = Parameters<typeof fetch>;
+          
+          // Extract/Exclude
+          type OnlyStrings = Extract<string | number | boolean, string>;
+
+  # ============ MODERN JAVASCRIPT ============
+  modern_javascript:
+    
+    async_patterns:
+      - name: "Async/await best practices"
+        good: |
+          // Parallel execution
+          async function fetchAll(urls: string[]) {
+            const results = await Promise.all(
+              urls.map(url => fetch(url).then(r => r.json()))
+            );
+            return results;
+          }
+          
+          // With error handling per request
+          async function fetchAllSafe(urls: string[]) {
+            const results = await Promise.allSettled(
+              urls.map(url => fetch(url).then(r => r.json()))
+            );
+            return results.map(r => 
+              r.status === 'fulfilled' ? r.value : null
+            );
+          }
+        bad: |
+          // Sequential - slow!
+          async function fetchAll(urls: string[]) {
+            const results = [];
+            for (const url of urls) {
+              results.push(await fetch(url).then(r => r.json()));
+            }
+            return results;
+          }
+
+      - name: "Proper error handling"
+        good: |
+          async function fetchUser(id: string): Promise<User | null> {
+            try {
+              const response = await fetch(`/api/users/${id}`);
+              
+              if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+              }
+              
+              return await response.json();
+            } catch (error) {
+              if (error instanceof Error) {
+                console.error('Fetch failed:', error.message);
+              }
+              return null;
+            }
+          }
+
+      - name: "AbortController for cancellation"
+        example: |
+          async function fetchWithTimeout(url: string, ms: number) {
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), ms);
+            
+            try {
+              const response = await fetch(url, {
+                signal: controller.signal
+              });
+              return await response.json();
+            } finally {
+              clearTimeout(timeout);
+            }
+          }
+          
+          // React useEffect cleanup
+          useEffect(() => {
+            const controller = new AbortController();
+            
+            fetch('/api/data', { signal: controller.signal })
+              .then(r => r.json())
+              .then(setData);
+            
+            return () => controller.abort();
+          }, []);
+
+    immutability:
+      - name: "Spread operator for immutable updates"
+        good: |
+          // Object update
+          const updatedUser = { ...user, name: 'New Name' };
+          
+          // Nested update
+          const updatedState = {
+            ...state,
+            user: {
+              ...state.user,
+              address: {
+                ...state.user.address,
+                city: 'New City'
+              }
+            }
+          };
+          
+          // Array operations
+          const added = [...items, newItem];
+          const removed = items.filter(i => i.id !== idToRemove);
+          const updated = items.map(i => 
+            i.id === id ? { ...i, name: 'Updated' } : i
+          );
+        bad: |
+          user.name = 'New Name';  // Mutation!
+          items.push(newItem);      // Mutation!
+          items.splice(index, 1);   // Mutation!
+
+      - name: "Object.freeze for constants"
+        example: |
+          const CONFIG = Object.freeze({
+            API_URL: 'https://api.example.com',
+            TIMEOUT: 5000,
+            // Note: only shallow freeze
+          });
+          
+          // Deep freeze
+          function deepFreeze<T>(obj: T): Readonly<T> {
+            Object.keys(obj as object).forEach(key => {
+              const value = (obj as any)[key];
+              if (typeof value === 'object' && value !== null) {
+                deepFreeze(value);
+              }
+            });
+            return Object.freeze(obj);
+          }
+
+  # ============ ANTI-PATTERNS ============
+  anti_patterns:
+    
+    critical:
+      - name: "Floating promises"
+        bad: |
+          function save() {
+            saveToDatabase();  // Promise not awaited!
+          }
+          
+          // Or in event handlers
+          button.onclick = async () => {
+            await doSomething();  // Uncaught errors!
+          };
+        good: |
+          async function save() {
+            await saveToDatabase();
+          }
+          
+          // Or explicitly handle
+          button.onclick = () => {
+            doSomething().catch(console.error);
+          };
+
+      - name: "== instead of ==="
+        bad: |
+          if (value == null) { }   // Matches null AND undefined
+          if (value == 0) { }      // '' == 0 is true!
+        good: |
+          if (value === null || value === undefined) { }
+          // Or use nullish check
+          if (value == null) { }  // This specific case is OK
+          
+          if (value === 0) { }  // Explicit
+
+      - name: "for...in on arrays"
+        bad: |
+          const arr = ['a', 'b', 'c'];
+          for (const i in arr) {
+            console.log(i);  // '0', '1', '2' - strings, not numbers!
+            // Also iterates inherited properties!
+          }
+        good: |
+          for (const item of arr) {
+            console.log(item);  // 'a', 'b', 'c'
+          }
+          
+          // Or with index
+          arr.forEach((item, index) => {
+            console.log(index, item);
+          });
+
+      - name: "Type assertions abuse"
+        bad: |
+          const user = JSON.parse(data) as User;  // No validation!
+          const element = document.getElementById('x') as HTMLInputElement;
+        good: |
+          // Runtime validation
+          function isUser(obj: unknown): obj is User {
+            return (
+              typeof obj === 'object' &&
+              obj !== null &&
+              'id' in obj &&
+              'name' in obj
+            );
+          }
+          
+          const parsed = JSON.parse(data);
+          if (isUser(parsed)) {
+            // Now safely typed as User
+          }
+          
+          // Or use Zod/Yup for schema validation
+          const UserSchema = z.object({
+            id: z.number(),
+            name: z.string(),
+          });
+          const user = UserSchema.parse(JSON.parse(data));
+
+    performance:
+      - name: "Creating functions in render"
+        bad: |
+          // React - creates new function every render
+          function Component() {
+            return <button onClick={() => doSomething()}>Click</button>;
+          }
+        good: |
+          function Component() {
+            const handleClick = useCallback(() => {
+              doSomething();
+            }, []);
+            
+            return <button onClick={handleClick}>Click</button>;
+          }
+        note: "Only matters for expensive child re-renders or effects"
+
+      - name: "Large bundle imports"
+        bad: |
+          import _ from 'lodash';  // Imports entire library!
+          const result = _.get(obj, 'a.b.c');
+        good: |
+          import get from 'lodash/get';  // Tree-shakeable
+          const result = get(obj, 'a.b.c');
+          
+          // Or native alternative
+          const result = obj?.a?.b?.c;
+
+  # ============ REACT PATTERNS ============
+  react_patterns:
+    
+    hooks:
+      - name: "Custom hooks for reusability"
+        example: |
+          function useLocalStorage<T>(key: string, initial: T) {
+            const [value, setValue] = useState<T>(() => {
+              const stored = localStorage.getItem(key);
+              return stored ? JSON.parse(stored) : initial;
+            });
+            
+            useEffect(() => {
+              localStorage.setItem(key, JSON.stringify(value));
+            }, [key, value]);
+            
+            return [value, setValue] as const;
+          }
+          
+          // Usage
+          const [theme, setTheme] = useLocalStorage('theme', 'dark');
+
+      - name: "useEffect cleanup"
+        good: |
+          useEffect(() => {
+            const controller = new AbortController();
+            
+            fetch('/api/data', { signal: controller.signal })
+              .then(r => r.json())
+              .then(setData)
+              .catch(e => {
+                if (e.name !== 'AbortError') throw e;
+              });
+            
+            return () => controller.abort();  // Cleanup!
+          }, []);
+          
+          // Event listeners
+          useEffect(() => {
+            const handler = (e: KeyboardEvent) => { ... };
+            window.addEventListener('keydown', handler);
+            return () => window.removeEventListener('keydown', handler);
+          }, []);
+        bad: |
+          useEffect(() => {
+            fetch('/api/data')  // No cleanup - can set state on unmounted!
+              .then(r => r.json())
+              .then(setData);
+          }, []);
+
+      - name: "Memoization correctly"
+        example: |
+          // useMemo for expensive calculations
+          const sortedItems = useMemo(() => {
+            return [...items].sort((a, b) => a.name.localeCompare(b.name));
+          }, [items]);  // Only recalculate when items change
+          
+          // useCallback for stable function references
+          const handleSubmit = useCallback((data: FormData) => {
+            api.submit(data);
+          }, []);  // Stable reference
+          
+          // React.memo for component memoization
+          const ExpensiveList = React.memo(({ items }: Props) => {
+            return items.map(item => <Item key={item.id} {...item} />);
+          });
+        note: "Don't over-memoize - adds overhead. Profile first!"
+
+    state_management:
+      - name: "Colocation - state close to usage"
+        principle: |
+          1. Start with local state (useState)
+          2. Lift to nearest common ancestor when shared
+          3. Use context for "global" (theme, auth, locale)
+          4. Use external store only for complex cross-cutting state
+
+      - name: "Reducer for complex state"
+        example: |
+          type State = {
+            items: Item[];
+            loading: boolean;
+            error: string | null;
+          };
+          
+          type Action =
+            | { type: 'FETCH_START' }
+            | { type: 'FETCH_SUCCESS'; items: Item[] }
+            | { type: 'FETCH_ERROR'; error: string };
+          
+          function reducer(state: State, action: Action): State {
+            switch (action.type) {
+              case 'FETCH_START':
+                return { ...state, loading: true, error: null };
+              case 'FETCH_SUCCESS':
+                return { ...state, loading: false, items: action.items };
+              case 'FETCH_ERROR':
+                return { ...state, loading: false, error: action.error };
+            }
+          }
+          
+          const [state, dispatch] = useReducer(reducer, initialState);
+
+  # ============ NODE.JS PATTERNS ============
+  nodejs:
+    
+    patterns:
+      - name: "Proper async error handling"
+        good: |
+          // Express with async/await
+          app.get('/users/:id', async (req, res, next) => {
+            try {
+              const user = await userService.find(req.params.id);
+              res.json(user);
+            } catch (error) {
+              next(error);  // Pass to error handler
+            }
+          });
+          
+          // Or use wrapper
+          const asyncHandler = (fn: Function) => (req, res, next) =>
+            Promise.resolve(fn(req, res, next)).catch(next);
+          
+          app.get('/users/:id', asyncHandler(async (req, res) => {
+            const user = await userService.find(req.params.id);
+            res.json(user);
+          }));
+
+      - name: "Graceful shutdown"
+        example: |
+          const server = app.listen(3000);
+          
+          const shutdown = async () => {
+            console.log('Shutting down gracefully...');
+            
+            server.close(() => {
+              console.log('HTTP server closed');
+            });
+            
+            await database.close();
+            await cache.quit();
+            
+            process.exit(0);
+          };
+          
+          process.on('SIGTERM', shutdown);
+          process.on('SIGINT', shutdown);
+
+      - name: "Stream processing"
+        example: |
+          import { pipeline } from 'stream/promises';
+          import { createReadStream, createWriteStream } from 'fs';
+          import { createGzip } from 'zlib';
+          
+          await pipeline(
+            createReadStream('input.txt'),
+            createGzip(),
+            createWriteStream('input.txt.gz')
+          );
+          
+          // Transform stream
+          import { Transform } from 'stream';
+          
+          const upperCase = new Transform({
+            transform(chunk, encoding, callback) {
+              callback(null, chunk.toString().toUpperCase());
+            }
+          });

@@ -1,0 +1,476 @@
+# Security Best Practices Knowledge Base
+# Critical security expertise for coding agents
+
+security_expertise:
+  
+  # ============ OWASP TOP 10 (2021) ============
+  owasp_top_10:
+    
+    A01_broken_access_control:
+      rank: 1
+      description: "Restrictions on authenticated users aren't enforced"
+      attacks:
+        - "Modifying URL/API parameter to access other users' data"
+        - "Elevation of privilege (user to admin)"
+        - "CORS misconfiguration"
+        - "Force browsing to authenticated pages"
+      
+      examples:
+        bad: |
+          # Direct object reference without authorization check
+          @app.get("/users/{user_id}/profile")
+          def get_profile(user_id: int):
+              return db.get_user(user_id)  # Any user can access any profile!
+        
+        good: |
+          @app.get("/users/{user_id}/profile")
+          def get_profile(user_id: int, current_user: User = Depends(get_current_user)):
+              if user_id != current_user.id and not current_user.is_admin:
+                  raise HTTPException(403, "Access denied")
+              return db.get_user(user_id)
+      
+      prevention:
+        - "Deny by default, explicitly grant access"
+        - "Implement proper access control checks"
+        - "Log access control failures"
+        - "Rate limit API to minimize automated attacks"
+        - "Disable web server directory listing"
+
+    A02_cryptographic_failures:
+      rank: 2
+      description: "Failures related to cryptography leading to data exposure"
+      
+      examples:
+        bad_storage: |
+          # Storing passwords in plain text
+          user.password = request.password  # NEVER!
+          
+          # Using weak hashing
+          user.password = md5(request.password)  # Easily cracked
+          user.password = sha1(request.password)  # Also weak
+        
+        good_storage: |
+          # Use bcrypt, argon2, or scrypt
+          import bcrypt
+          
+          # Hashing
+          salt = bcrypt.gensalt(rounds=12)
+          hashed = bcrypt.hashpw(password.encode(), salt)
+          
+          # Verification
+          if bcrypt.checkpw(password.encode(), stored_hash):
+              # Password matches
+        
+        bad_transmission: |
+          # HTTP for sensitive data
+          requests.post("http://api.example.com/login", data=creds)
+        
+        good_transmission: |
+          # Always HTTPS
+          requests.post("https://api.example.com/login", data=creds)
+      
+      prevention:
+        - "Classify data by sensitivity"
+        - "Don't store sensitive data unnecessarily"
+        - "Encrypt all data in transit (TLS 1.2+)"
+        - "Encrypt all sensitive data at rest"
+        - "Use strong, modern algorithms (AES-256, RSA-2048+)"
+        - "Disable caching for sensitive responses"
+
+    A03_injection:
+      rank: 3
+      description: "Untrusted data sent to interpreter as part of command/query"
+      types:
+        - "SQL injection"
+        - "NoSQL injection"
+        - "OS command injection"
+        - "LDAP injection"
+      
+      examples:
+        sql_injection_bad: |
+          # String concatenation - VULNERABLE
+          query = f"SELECT * FROM users WHERE id = {user_input}"
+          cursor.execute(query)
+          
+          # If user_input = "1; DROP TABLE users; --"
+          # Executes: SELECT * FROM users WHERE id = 1; DROP TABLE users; --
+        
+        sql_injection_good: |
+          # Parameterized query - SAFE
+          query = "SELECT * FROM users WHERE id = ?"
+          cursor.execute(query, (user_input,))
+          
+          # Or ORM
+          user = session.query(User).filter(User.id == user_input).first()
+        
+        command_injection_bad: |
+          import os
+          filename = request.args.get('file')
+          os.system(f"cat {filename}")  # If filename = "; rm -rf /"
+        
+        command_injection_good: |
+          import subprocess
+          filename = request.args.get('file')
+          # Validate filename
+          if not filename.isalnum():
+              raise ValueError("Invalid filename")
+          # Use list form (no shell)
+          subprocess.run(['cat', filename], check=True)
+      
+      prevention:
+        - "Use parameterized queries / prepared statements"
+        - "Use ORM frameworks"
+        - "Validate and sanitize all input"
+        - "Escape special characters"
+        - "Avoid dynamic queries"
+        - "Use LIMIT to prevent mass disclosure"
+
+    A04_insecure_design:
+      rank: 4
+      description: "Missing or ineffective security controls in design"
+      
+      examples:
+        - problem: "No rate limiting on password reset"
+          attack: "Brute force password reset tokens"
+          fix: "Rate limit requests, use long random tokens"
+        
+        - problem: "Security questions for account recovery"
+          attack: "Social engineering, public info lookup"
+          fix: "Use 2FA, email verification"
+        
+        - problem: "Storing credit cards for 'convenience'"
+          risk: "Data breach exposes all cards"
+          fix: "Use payment processor tokens (Stripe, etc.)"
+      
+      prevention:
+        - "Threat modeling during design"
+        - "Security requirements upfront"
+        - "Secure development lifecycle"
+        - "Principle of least privilege"
+        - "Defense in depth"
+
+    A05_security_misconfiguration:
+      rank: 5
+      description: "Missing or incorrect security settings"
+      
+      common_issues:
+        - "Default credentials not changed"
+        - "Unnecessary features enabled"
+        - "Error messages reveal too much"
+        - "Security headers missing"
+        - "Software out of date"
+      
+      examples:
+        bad_error: |
+          # Exposes internal details
+          except Exception as e:
+              return {"error": str(e), "stack": traceback.format_exc()}
+        
+        good_error: |
+          # Generic error to user, log details
+          except Exception as e:
+              logger.error(f"Error: {e}", exc_info=True)
+              return {"error": "An error occurred"}, 500
+        
+        security_headers: |
+          # Essential HTTP security headers
+          response.headers['X-Content-Type-Options'] = 'nosniff'
+          response.headers['X-Frame-Options'] = 'DENY'
+          response.headers['X-XSS-Protection'] = '1; mode=block'
+          response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
+          response.headers['Content-Security-Policy'] = "default-src 'self'"
+
+    A06_vulnerable_components:
+      rank: 6
+      description: "Using components with known vulnerabilities"
+      
+      prevention:
+        - "Remove unused dependencies"
+        - "Inventory all components and versions"
+        - "Monitor CVE databases"
+        - "Only get components from official sources"
+        - "Automated dependency scanning in CI/CD"
+      
+      tools: |
+        # Python
+        pip-audit
+        safety check
+        
+        # JavaScript
+        npm audit
+        yarn audit
+        snyk test
+        
+        # Docker
+        trivy image myimage
+        docker scan myimage
+
+    A07_auth_failures:
+      rank: 7
+      description: "Authentication and session management flaws"
+      
+      examples:
+        session_bad: |
+          # Predictable session IDs
+          session_id = f"user_{user.id}"  # Easily guessable!
+        
+        session_good: |
+          # Cryptographically random session ID
+          import secrets
+          session_id = secrets.token_urlsafe(32)
+        
+        password_policy_bad: |
+          if len(password) >= 8:
+              return True  # Weak!
+        
+        password_policy_good: |
+          import re
+          def validate_password(password: str) -> bool:
+              if len(password) < 12:
+                  return False
+              # Check against common passwords list
+              if password in common_passwords:
+                  return False
+              return True
+          
+          # Better: use NIST guidelines
+          # - Minimum 8 chars (12+ recommended)
+          # - Allow all printable ASCII + unicode
+          # - Check against breach databases (haveibeenpwned)
+          # - No composition rules (uppercase, special char)
+      
+      prevention:
+        - "Multi-factor authentication"
+        - "Don't ship with default credentials"
+        - "Implement weak password checks"
+        - "Limit failed login attempts"
+        - "Secure session management"
+        - "Use secure, random session IDs"
+
+    A08_integrity_failures:
+      rank: 8
+      description: "Code/data integrity not verified"
+      
+      examples:
+        bad_deserialization: |
+          # DANGEROUS - arbitrary code execution
+          import pickle
+          data = pickle.loads(user_input)  # NEVER with untrusted data!
+          
+          # Also dangerous
+          import yaml
+          data = yaml.load(user_input)  # Use yaml.safe_load()
+        
+        good_deserialization: |
+          # Safe alternatives
+          import json
+          data = json.loads(user_input)  # JSON is safe
+          
+          import yaml
+          data = yaml.safe_load(user_input)  # safe_load only
+      
+      prevention:
+        - "Verify digital signatures"
+        - "Ensure libraries from trusted sources"
+        - "Use integrity checks (SRI for CDN)"
+        - "Don't deserialize untrusted data"
+
+    A09_logging_monitoring:
+      rank: 9
+      description: "Insufficient logging and monitoring"
+      
+      what_to_log:
+        - "Authentication attempts (success and failure)"
+        - "Access control failures"
+        - "Input validation failures"
+        - "Security-relevant events"
+      
+      what_not_to_log:
+        - "Passwords (even hashed)"
+        - "Credit card numbers"
+        - "Session tokens"
+        - "Personal data (GDPR)"
+      
+      example: |
+        import logging
+        
+        security_logger = logging.getLogger('security')
+        
+        def login(username: str, password: str):
+            user = authenticate(username, password)
+            if user:
+                security_logger.info(
+                    f"Successful login",
+                    extra={'user_id': user.id, 'ip': request.remote_addr}
+                )
+            else:
+                security_logger.warning(
+                    f"Failed login attempt for username",
+                    extra={'username': username, 'ip': request.remote_addr}
+                )
+
+    A10_ssrf:
+      rank: 10
+      description: "Server-Side Request Forgery"
+      
+      example_bad: |
+        # User-controlled URL
+        @app.get("/fetch")
+        def fetch_url(url: str):
+            response = requests.get(url)  # Can access internal services!
+            return response.text
+        
+        # Attack: /fetch?url=http://169.254.169.254/latest/meta-data/
+        # Accesses AWS metadata service
+      
+      example_good: |
+        from urllib.parse import urlparse
+        
+        ALLOWED_HOSTS = {'api.example.com', 'cdn.example.com'}
+        
+        @app.get("/fetch")
+        def fetch_url(url: str):
+            parsed = urlparse(url)
+            
+            # Whitelist hosts
+            if parsed.hostname not in ALLOWED_HOSTS:
+                raise HTTPException(400, "Host not allowed")
+            
+            # Block internal IPs
+            try:
+                ip = socket.gethostbyname(parsed.hostname)
+                if ipaddress.ip_address(ip).is_private:
+                    raise HTTPException(400, "Internal addresses not allowed")
+            except socket.error:
+                raise HTTPException(400, "Invalid host")
+            
+            response = requests.get(url, timeout=5)
+            return response.text
+
+  # ============ INPUT VALIDATION ============
+  input_validation:
+    
+    principles:
+      - "Never trust user input"
+      - "Validate on server side (client validation is UX, not security)"
+      - "Whitelist over blacklist"
+      - "Validate type, length, format, range"
+      - "Sanitize for output context"
+    
+    examples:
+      email: |
+        import re
+        from email_validator import validate_email  # Use library
+        
+        def validate_email_input(email: str) -> str:
+            # Basic check
+            if not email or len(email) > 254:
+                raise ValueError("Invalid email length")
+            
+            # Use proper library
+            validated = validate_email(email, check_deliverability=False)
+            return validated.email
+      
+      integer: |
+        def validate_id(value: str) -> int:
+            try:
+                id_val = int(value)
+                if id_val <= 0 or id_val > 2147483647:
+                    raise ValueError("ID out of range")
+                return id_val
+            except (ValueError, TypeError):
+                raise ValueError("Invalid ID format")
+      
+      filename: |
+        import os
+        import re
+        
+        def validate_filename(filename: str) -> str:
+            # Remove path components
+            filename = os.path.basename(filename)
+            
+            # Whitelist allowed characters
+            if not re.match(r'^[\w\-. ]+$', filename):
+                raise ValueError("Invalid filename characters")
+            
+            # Check extension
+            allowed_extensions = {'.txt', '.pdf', '.jpg', '.png'}
+            ext = os.path.splitext(filename)[1].lower()
+            if ext not in allowed_extensions:
+                raise ValueError("File type not allowed")
+            
+            return filename
+
+  # ============ SECRETS MANAGEMENT ============
+  secrets:
+    
+    never_do:
+      - "Hardcode secrets in code"
+      - "Commit secrets to version control"
+      - "Log secrets"
+      - "Pass secrets in URLs"
+      - "Store secrets in client-side code"
+    
+    secure_storage:
+      development: |
+        # Use .env files (NOT committed)
+        # .gitignore
+        .env
+        .env.*
+        !.env.example
+        
+        # .env.example (committed, no real values)
+        DATABASE_URL=postgres://user:pass@localhost/db
+        API_KEY=your-api-key-here
+      
+      production: |
+        # Environment variables from secure source
+        # AWS Secrets Manager
+        import boto3
+        client = boto3.client('secretsmanager')
+        secret = client.get_secret_value(SecretId='my-secret')
+        
+        # HashiCorp Vault
+        import hvac
+        client = hvac.Client(url='https://vault.example.com')
+        secret = client.secrets.kv.read_secret_version(path='my-secret')
+        
+        # Kubernetes Secrets
+        # Mounted as files or env vars
+    
+    api_keys: |
+      # Rotate regularly
+      # Use least privilege (read-only if possible)
+      # Set expiration
+      # Monitor usage
+      # Have revocation process
+
+  # ============ SECURE CODING CHECKLIST ============
+  checklist:
+    before_coding:
+      - "Identify sensitive data being handled"
+      - "Understand authentication/authorization requirements"
+      - "Plan input validation strategy"
+      - "Consider rate limiting needs"
+    
+    during_coding:
+      - "Use parameterized queries"
+      - "Validate all inputs"
+      - "Encode outputs for context"
+      - "Use HTTPS everywhere"
+      - "Handle errors securely"
+      - "Log security events"
+    
+    before_deploy:
+      - "Run security linters (Bandit, ESLint security)"
+      - "Check dependencies for vulnerabilities"
+      - "Review for hardcoded secrets"
+      - "Test authentication flows"
+      - "Verify security headers"
+      - "Test error handling"
+    
+    post_deploy:
+      - "Monitor for attacks"
+      - "Set up alerts for suspicious activity"
+      - "Have incident response plan"
+      - "Regular security updates"

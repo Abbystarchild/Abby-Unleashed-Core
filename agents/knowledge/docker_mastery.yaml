@@ -1,0 +1,468 @@
+# Docker Mastery Knowledge Base
+# Comprehensive Docker expertise for coding agents
+
+docker_expertise:
+  
+  # ============ DOCKERFILE BEST PRACTICES ============
+  dockerfile_best_practices:
+    
+    image_optimization:
+      - name: "Use multi-stage builds"
+        good: |
+          # Build stage
+          FROM python:3.12-slim AS builder
+          WORKDIR /app
+          COPY requirements.txt .
+          RUN pip install --user -r requirements.txt
+          
+          # Production stage
+          FROM python:3.12-slim
+          WORKDIR /app
+          COPY --from=builder /root/.local /root/.local
+          COPY . .
+          ENV PATH=/root/.local/bin:$PATH
+          CMD ["python", "app.py"]
+        bad: |
+          FROM python:3.12
+          WORKDIR /app
+          COPY . .
+          RUN pip install -r requirements.txt
+          RUN apt-get update && apt-get install -y build-essential
+          CMD ["python", "app.py"]
+        why: "Multi-stage builds reduce final image size by 50-90%, exclude build tools"
+        impact: "Image size: 1.2GB → 150MB typical reduction"
+
+      - name: "Use specific base image tags"
+        good: |
+          FROM python:3.12.1-slim-bookworm
+          # Or use digest for reproducibility
+          FROM python@sha256:abc123...
+        bad: |
+          FROM python:latest
+          FROM python:3
+        why: "'latest' is unpredictable, can break builds. Specific tags ensure reproducibility."
+
+      - name: "Order layers by change frequency"
+        good: |
+          FROM python:3.12-slim
+          
+          # 1. System deps (rarely change)
+          RUN apt-get update && apt-get install -y libpq-dev
+          
+          # 2. Python deps (change sometimes)
+          COPY requirements.txt .
+          RUN pip install -r requirements.txt
+          
+          # 3. Application code (changes frequently)
+          COPY . .
+        bad: |
+          FROM python:3.12-slim
+          COPY . .  # Invalidates cache for EVERYTHING below
+          RUN apt-get update && apt-get install -y libpq-dev
+          RUN pip install -r requirements.txt
+        why: "Docker caches layers. Put rarely-changing layers first to maximize cache hits."
+        impact: "Build time: 5 min → 30 sec for code-only changes"
+
+      - name: "Combine RUN commands"
+        good: |
+          RUN apt-get update && \
+              apt-get install -y --no-install-recommends \
+                  curl \
+                  git \
+                  libpq-dev && \
+              rm -rf /var/lib/apt/lists/*
+        bad: |
+          RUN apt-get update
+          RUN apt-get install -y curl
+          RUN apt-get install -y git
+          RUN apt-get install -y libpq-dev
+        why: "Each RUN creates a layer. Combining reduces layers and image size."
+        impact: "Fewer layers = smaller image, faster pulls"
+
+      - name: "Use .dockerignore"
+        example: |
+          # .dockerignore
+          .git
+          .gitignore
+          __pycache__
+          *.pyc
+          .env
+          .venv
+          venv/
+          node_modules/
+          .pytest_cache
+          *.md
+          !README.md
+          Dockerfile
+          docker-compose*.yml
+          .coverage
+          htmlcov/
+        why: "Reduces build context, speeds up builds, prevents secrets from leaking"
+
+    security_hardening:
+      - name: "Don't run as root"
+        good: |
+          FROM python:3.12-slim
+          
+          # Create non-root user
+          RUN groupadd -r appgroup && useradd -r -g appgroup appuser
+          
+          WORKDIR /app
+          COPY --chown=appuser:appgroup . .
+          
+          USER appuser
+          CMD ["python", "app.py"]
+        bad: |
+          FROM python:3.12-slim
+          WORKDIR /app
+          COPY . .
+          CMD ["python", "app.py"]  # Runs as root!
+        why: "Root in container = root escape vulnerabilities. Always use non-root."
+        severity: "CRITICAL security issue"
+
+      - name: "Don't store secrets in images"
+        bad: |
+          ENV API_KEY=sk-secret123
+          COPY .env /app/.env
+          RUN echo "password" > /app/secrets.txt
+        good: |
+          # Use build-time secrets (BuildKit)
+          RUN --mount=type=secret,id=api_key \
+              cat /run/secrets/api_key > /tmp/key && \
+              ./configure --key=$(cat /tmp/key) && \
+              rm /tmp/key
+          
+          # Or use runtime environment variables
+          # docker run -e API_KEY=$API_KEY myimage
+        why: "Secrets in images persist in layers, even if 'deleted'. Anyone with image access gets secrets."
+
+      - name: "Use read-only filesystem"
+        example: |
+          # docker-compose.yml
+          services:
+            app:
+              image: myapp
+              read_only: true
+              tmpfs:
+                - /tmp
+                - /var/run
+        why: "Prevents runtime modifications, limits attack surface"
+
+      - name: "Scan images for vulnerabilities"
+        tools: |
+          # Built-in Docker scan
+          docker scan myimage
+          
+          # Trivy (recommended)
+          trivy image myimage
+          
+          # Snyk
+          snyk container test myimage
+        best_practice: "Integrate scanning into CI/CD pipeline, fail on HIGH/CRITICAL"
+
+  # ============ DOCKER COMPOSE BEST PRACTICES ============
+  compose_best_practices:
+    
+    structure:
+      - name: "Use named volumes for persistence"
+        good: |
+          services:
+            db:
+              image: postgres:15
+              volumes:
+                - postgres_data:/var/lib/postgresql/data
+          
+          volumes:
+            postgres_data:
+        bad: |
+          services:
+            db:
+              image: postgres:15
+              volumes:
+                - ./data:/var/lib/postgresql/data  # Permissions issues!
+        why: "Named volumes handle permissions correctly, are managed by Docker"
+
+      - name: "Use environment files"
+        good: |
+          services:
+            app:
+              env_file:
+                - .env.common
+                - .env.${ENVIRONMENT:-development}
+              environment:
+                - DEBUG=${DEBUG:-false}
+        note: "Never commit .env files with secrets to git"
+
+      - name: "Define healthchecks"
+        good: |
+          services:
+            api:
+              image: myapi
+              healthcheck:
+                test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+                interval: 30s
+                timeout: 10s
+                retries: 3
+                start_period: 40s
+              depends_on:
+                db:
+                  condition: service_healthy
+            
+            db:
+              image: postgres:15
+              healthcheck:
+                test: ["CMD-SHELL", "pg_isready -U postgres"]
+                interval: 10s
+                timeout: 5s
+                retries: 5
+        why: "Healthchecks ensure dependencies are truly ready, not just started"
+
+      - name: "Use profiles for optional services"
+        example: |
+          services:
+            app:
+              image: myapp
+            
+            debug-tools:
+              image: debug-utils
+              profiles:
+                - debug
+            
+            monitoring:
+              image: prometheus
+              profiles:
+                - monitoring
+          
+          # Usage:
+          # docker compose up                    # Only app
+          # docker compose --profile debug up   # app + debug-tools
+        why: "Keeps compose file DRY, allows selective service启动"
+
+    networking:
+      - name: "Use custom networks"
+        good: |
+          services:
+            frontend:
+              networks:
+                - frontend
+            
+            api:
+              networks:
+                - frontend
+                - backend
+            
+            db:
+              networks:
+                - backend
+          
+          networks:
+            frontend:
+            backend:
+              internal: true  # No external access
+        why: "Isolates services, db not accessible from frontend"
+
+      - name: "Don't expose ports unnecessarily"
+        good: |
+          services:
+            api:
+              ports:
+                - "8080:8080"  # Only API exposed
+            
+            db:
+              # No ports exposed - only accessible via network
+              expose:
+                - "5432"
+        bad: |
+          services:
+            db:
+              ports:
+                - "5432:5432"  # Database exposed to host!
+        why: "Exposed ports are security risks. Internal services don't need host ports."
+
+  # ============ ANTI-PATTERNS ============
+  anti_patterns:
+    
+    critical:
+      - name: "ADD vs COPY confusion"
+        bad: |
+          ADD app.tar.gz /app/  # Unexpected extraction!
+          ADD https://example.com/file.txt /app/  # Downloads at build time
+        good: |
+          COPY app.tar.gz /app/  # Predictable - just copies
+          # For downloads, use curl/wget for better caching control
+          RUN curl -o /app/file.txt https://example.com/file.txt
+        why: "ADD has magic behavior (extraction, URL fetching). COPY is predictable."
+
+      - name: "Using ENTRYPOINT wrong"
+        bad: |
+          ENTRYPOINT python app.py  # Shell form - no signal handling!
+        good: |
+          ENTRYPOINT ["python", "app.py"]  # Exec form - proper signals
+          
+          # Or with script for flexibility
+          COPY entrypoint.sh /
+          ENTRYPOINT ["/entrypoint.sh"]
+          CMD ["python", "app.py"]
+        why: "Shell form wraps in /bin/sh, breaks signal propagation (graceful shutdown)"
+
+      - name: "Not handling PID 1 zombie reaping"
+        problem: "Container process runs as PID 1, doesn't reap zombies"
+        solutions: |
+          # Option 1: Use tini
+          FROM python:3.12-slim
+          RUN apt-get update && apt-get install -y tini
+          ENTRYPOINT ["/usr/bin/tini", "--"]
+          CMD ["python", "app.py"]
+          
+          # Option 2: Docker's built-in init
+          # docker run --init myimage
+          
+          # Option 3: In compose
+          services:
+            app:
+              init: true
+        why: "Without init, zombie processes accumulate, eventually exhaust PID space"
+
+      - name: "Ignoring build cache"
+        bad: |
+          COPY . .
+          RUN pip install -r requirements.txt  # Re-runs even if only code changed
+        good: |
+          COPY requirements.txt .
+          RUN pip install -r requirements.txt
+          COPY . .
+        impact: "Proper cache usage: 10x faster builds"
+
+    performance:
+      - name: "Not using BuildKit"
+        enable: |
+          # Enable BuildKit
+          export DOCKER_BUILDKIT=1
+          
+          # Or in docker-compose
+          # COMPOSE_DOCKER_CLI_BUILD=1 docker compose build
+        benefits:
+          - "Parallel build stages"
+          - "Better caching"
+          - "Build secrets support"
+          - "SSH forwarding for private repos"
+
+      - name: "Large build context"
+        diagnose: |
+          # Check build context size
+          docker build . 2>&1 | head -5
+          # "Sending build context to Docker daemon  2.5GB" = TOO BIG
+        fix: "Use .dockerignore, build from subdirectory, or use COPY with specific files"
+
+  # ============ PRODUCTION PATTERNS ============
+  production_patterns:
+    
+    logging:
+      best_practice: |
+        # Log to stdout/stderr, not files
+        import logging
+        import sys
+        
+        logging.basicConfig(
+            stream=sys.stdout,
+            level=logging.INFO,
+            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+        )
+      why: "Docker captures stdout/stderr. File logs are lost when container dies."
+      aggregation: "Use docker logging drivers to send to ELK, Loki, CloudWatch, etc."
+
+    graceful_shutdown:
+      example: |
+        import signal
+        import sys
+        
+        def handle_sigterm(signum, frame):
+            print("Received SIGTERM, shutting down gracefully...")
+            # Cleanup connections, finish current requests
+            cleanup()
+            sys.exit(0)
+        
+        signal.signal(signal.SIGTERM, handle_sigterm)
+      compose: |
+        services:
+          app:
+            stop_grace_period: 30s  # Time before SIGKILL
+      why: "Allows in-flight requests to complete, connections to close cleanly"
+
+    resource_limits:
+      compose: |
+        services:
+          app:
+            deploy:
+              resources:
+                limits:
+                  cpus: '2'
+                  memory: 1G
+                reservations:
+                  cpus: '0.5'
+                  memory: 256M
+      why: "Prevents runaway containers from killing host, enables proper scheduling"
+
+    restart_policies:
+      example: |
+        services:
+          app:
+            restart: unless-stopped
+            # Or for swarm/kubernetes-like behavior
+            deploy:
+              restart_policy:
+                condition: on-failure
+                delay: 5s
+                max_attempts: 3
+                window: 120s
+      policies:
+        - "no: Never restart (for one-off tasks)"
+        - "always: Always restart (can cause restart loops)"
+        - "on-failure: Only on non-zero exit (good for services)"
+        - "unless-stopped: Like always, but respects manual stop"
+
+  # ============ DEBUGGING ============
+  debugging:
+    
+    commands:
+      - name: "Inspect running container"
+        commands: |
+          # Shell into running container
+          docker exec -it container_name /bin/bash
+          
+          # Run as root (if needed)
+          docker exec -u 0 -it container_name /bin/bash
+          
+          # View logs
+          docker logs -f --tail 100 container_name
+          
+          # Inspect container details
+          docker inspect container_name
+          
+          # Resource usage
+          docker stats container_name
+
+      - name: "Debug image layers"
+        commands: |
+          # View image history
+          docker history myimage
+          
+          # Explore image filesystem
+          docker run -it --rm myimage /bin/sh
+          
+          # Use dive for layer analysis
+          dive myimage
+
+      - name: "Network debugging"
+        commands: |
+          # List networks
+          docker network ls
+          
+          # Inspect network
+          docker network inspect bridge
+          
+          # Test connectivity between containers
+          docker exec container1 ping container2
+          
+          # Debug DNS
+          docker exec container1 nslookup other_service

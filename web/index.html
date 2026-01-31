@@ -612,8 +612,29 @@
             recognition.onerror = (event) => {
                 console.error('Speech recognition error:', event.error);
                 isRecording = false;
+                
+                let errorMsg = 'Speech error: ' + event.error;
+                switch (event.error) {
+                    case 'not-allowed':
+                        errorMsg = '🚫 Mic access denied. Check browser permissions.';
+                        break;
+                    case 'no-speech':
+                        errorMsg = '🔇 No speech detected. Try again.';
+                        break;
+                    case 'network':
+                        errorMsg = '🌐 Network error. Check your connection.';
+                        break;
+                    case 'audio-capture':
+                        errorMsg = '🎤 No microphone found.';
+                        break;
+                    case 'aborted':
+                        errorMsg = 'Listening stopped.';
+                        break;
+                }
+                
+                document.getElementById('transcriptText').textContent = errorMsg;
                 updateVoiceUI('error');
-                setTimeout(() => updateVoiceUI('ready'), 2000);
+                setTimeout(() => updateVoiceUI('ready'), 3000);
             };
             
             recognition.onend = () => {
@@ -714,7 +735,9 @@
         
         async function toggleRecording() {
             if (!recognition) {
-                alert('Speech recognition is not supported in your browser. Try Chrome or Safari.');
+                const msg = 'Speech recognition is not supported in your browser.\n\nTry:\n• Chrome (desktop or Android)\n• Safari (iOS/Mac)\n• Edge\n\nNote: Must use HTTPS or localhost for mic access.';
+                alert(msg);
+                document.getElementById('transcriptText').textContent = 'Speech not supported - use text chat instead';
                 return;
             }
             
@@ -724,10 +747,26 @@
                 recognition.stop();
             } else {
                 try {
+                    // Check microphone permission first
+                    const permissionStatus = await navigator.permissions.query({ name: 'microphone' }).catch(() => null);
+                    if (permissionStatus && permissionStatus.state === 'denied') {
+                        alert('Microphone access is blocked.\n\nPlease allow microphone access in your browser settings.');
+                        updateVoiceUI('error');
+                        document.getElementById('transcriptText').textContent = 'Mic blocked - check browser settings';
+                        return;
+                    }
+                    
                     await startAudioVisualization();
                     recognition.start();
                 } catch (e) {
                     console.error('Failed to start recognition:', e);
+                    let errorMsg = 'Error: ' + e.message;
+                    if (e.name === 'NotAllowedError') {
+                        errorMsg = 'Mic access denied. Allow microphone in browser settings.';
+                    } else if (e.name === 'NotFoundError') {
+                        errorMsg = 'No microphone found. Check your device.';
+                    }
+                    document.getElementById('transcriptText').textContent = errorMsg;
                     updateVoiceUI('error');
                 }
             }
