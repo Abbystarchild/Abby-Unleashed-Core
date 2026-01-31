@@ -116,7 +116,7 @@ class VADDetector:
         
         # Simple energy-based detection using mean absolute value (faster than RMS)
         energy = np.mean(np.abs(audio))
-        return energy > 0.01  # Threshold for energy
+        return bool(energy > 0.01)  # Threshold for energy
     
     def get_speech_segments(
         self,
