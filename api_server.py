@@ -16,7 +16,36 @@ logger = logging.getLogger(__name__)
 
 # Initialize Flask app
 app = Flask(__name__, static_folder='web', static_url_path='')
-CORS(app)  # Enable CORS for mobile access
+
+# Enable CORS with restrictions for local network security
+CORS(app, resources={
+    r"/api/*": {
+        "origins": [
+            "http://localhost:*",
+            "http://127.0.0.1:*",
+            "http://192.168.*.*:*",
+            "http://10.*.*.*:*",
+            "http://172.16.*.*:*",  # Common private network ranges
+            "http://172.17.*.*:*",
+            "http://172.18.*.*:*",
+            "http://172.19.*.*:*",
+            "http://172.20.*.*:*",
+            "http://172.21.*.*:*",
+            "http://172.22.*.*:*",
+            "http://172.23.*.*:*",
+            "http://172.24.*.*:*",
+            "http://172.25.*.*:*",
+            "http://172.26.*.*:*",
+            "http://172.27.*.*:*",
+            "http://172.28.*.*:*",
+            "http://172.29.*.*:*",
+            "http://172.30.*.*:*",
+            "http://172.31.*.*:*"
+        ],
+        "methods": ["GET", "POST"],
+        "allow_headers": ["Content-Type"]
+    }
+})
 
 # Global Abby instance
 abby: Optional[AbbyUnleashed] = None

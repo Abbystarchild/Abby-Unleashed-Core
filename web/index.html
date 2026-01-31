@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <title>Abby Unleashed Mobile</title>
     <style>
@@ -81,12 +81,50 @@
             } catch { document.getElementById('status').className = 'status off'; }
         }, 10000);
         
-        function add(txt, user=false) {
-            const d = document.createElement('div');
-            d.className = 'msg' + (user ? ' user' : '');
-            d.innerHTML = `<div class="avatar">${user?'U':'A'}</div><div class="content">${txt}</div>`;
-            document.getElementById('msgs').appendChild(d);
-            d.scrollIntoView({behavior:'smooth'});
+        function addMessage(content, role = 'assistant') {
+            const messages = document.getElementById('messages');
+            const div = document.createElement('div');
+            div.className = `message ${role}`;
+            
+            // Create elements safely to prevent XSS
+            const avatar = document.createElement('div');
+            avatar.className = 'message-avatar';
+            avatar.textContent = role === 'user' ? 'U' : 'A';
+            
+            const contentDiv = document.createElement('div');
+            contentDiv.className = 'message-content';
+            
+            const textDiv = document.createElement('div');
+            textDiv.textContent = content; // Use textContent for security
+            
+            contentDiv.appendChild(textDiv);
+            div.appendChild(avatar);
+            div.appendChild(contentDiv);
+            messages.appendChild(div);
+            messages.scrollTop = messages.scrollHeight;
+        }
+        
+        function addMessage(content, role = 'assistant') {
+            const messages = document.getElementById('messages');
+            const div = document.createElement('div');
+            div.className = `message ${role}`;
+            
+            // Create elements safely to prevent XSS
+            const avatar = document.createElement('div');
+            avatar.className = 'message-avatar';
+            avatar.textContent = role === 'user' ? 'U' : 'A';
+            
+            const contentDiv = document.createElement('div');
+            contentDiv.className = 'message-content';
+            
+            const textDiv = document.createElement('div');
+            textDiv.textContent = content; // Use textContent for security
+            
+            contentDiv.appendChild(textDiv);
+            div.appendChild(avatar);
+            div.appendChild(contentDiv);
+            messages.appendChild(div);
+            messages.scrollTop = messages.scrollHeight;
         }
         
         async function send() {
@@ -95,11 +133,11 @@
             const txt = inp.value.trim();
             if (!txt) return;
             
-            add(txt, true);
+            addMessage(txt, 'user');
             inp.value = '';
             busy = true;
             document.getElementById('sendBtn').disabled = true;
-            add('⏳ Processing...');
+            addMessage('⏳ Processing...', 'assistant');
             
             try {
                 const r = await fetch('/api/task', {
@@ -109,10 +147,10 @@
                 });
                 const res = await r.json();
                 document.getElementById('msgs').lastChild.remove();
-                add(res.output || res.error || 'Done!');
+                addMessage(res.output || res.error || 'Done!', 'assistant');
             } catch(e) {
                 document.getElementById('msgs').lastChild.remove();
-                add('❌ Error: ' + e.message);
+                addMessage('❌ Error: ' + e.message, 'assistant');
             } finally {
                 busy = false;
                 document.getElementById('sendBtn').disabled = false;

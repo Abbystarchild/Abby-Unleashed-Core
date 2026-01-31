@@ -93,16 +93,14 @@ class PathConfig(BaseModel):
         """Validate and sanitize file path"""
         # Resolve to absolute path
         p = Path(v).resolve()
+        base_dir = Path.cwd().resolve()
         
-        # Check for path traversal attempts
+        # Check for path traversal - ensure path is within base directory
         try:
-            # Ensure path doesn't escape intended directory
-            p.relative_to(Path.cwd())
+            p.relative_to(base_dir)
         except ValueError:
-            # Allow absolute paths but check for suspicious patterns
-            suspicious = ['..', '~', '$']
-            if any(pattern in str(p) for pattern in suspicious):
-                raise ValueError(f"Suspicious path pattern detected: {v}")
+            # Path is outside base directory
+            raise ValueError(f"Path is outside allowed directory: {v}")
         
         return str(p)
     

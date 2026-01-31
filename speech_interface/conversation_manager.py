@@ -155,8 +155,8 @@ class ConversationManager:
         if status:
             logger.warning(f"Audio status: {status}")
         
-        # Flatten once and add to queue (avoid duplicate copy)
-        audio_data = indata.flatten()
+        # Make a copy to ensure data integrity (flatten returns a view)
+        audio_data = indata.flatten().copy()
         self.audio_queue.put(audio_data)
     
     def _processing_thread(self):
