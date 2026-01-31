@@ -99,12 +99,42 @@ Creates agents dynamically based on task requirements.
 5. Create agent with DNA + personality
 6. Save new persona to library
 
+### 7. Task Engine (Phase 2)
+
+A complete system for breaking down complex tasks into manageable subtasks with dependency management.
+
+**Location**: `task_engine/`
+
+**Components**:
+- **TaskAnalyzer**: Analyzes task complexity, identifies domains, determines if decomposition is needed
+- **TaskDecomposer**: Breaks complex tasks into subtasks using domain-specific strategies
+- **DependencyMapper**: Creates directed acyclic graph (DAG) of task dependencies
+- **ExecutionPlanner**: Generates optimized execution plans with parallel execution support
+
+**Features**:
+- Automatic complexity detection (simple, medium, complex)
+- Domain identification (development, devops, data, research, etc.)
+- Recursive task breakdown
+- Cycle detection in dependencies
+- Parallel execution identification
+- Critical path calculation
+- Progress tracking
+
 ## Data Flow
 
 ```
 User Task
     ↓
-Task Analysis
+Task Analysis (TaskAnalyzer)
+    ↓
+    ├─→ Simple Task? → Direct Execution
+    └─→ Complex Task? → Task Decomposition
+            ↓
+Task Decomposition (TaskDecomposer)
+    ↓
+Dependency Mapping (DependencyMapper)
+    ↓
+Execution Planning (ExecutionPlanner)
     ↓
 Persona Library Check
     ↓
@@ -133,6 +163,13 @@ agents/                      # Core agent system
 ├── agent_factory.py        # Agent creation
 └── clarification_protocol.py
 
+task_engine/                # Task decomposition system
+├── __init__.py
+├── task_analyzer.py        # Task analysis and classification
+├── decomposer.py           # Recursive task breakdown
+├── dependency_mapper.py    # Dependency graph (DAG)
+└── execution_planner.py    # Execution planning
+
 personality/                 # Personality system
 ├── __init__.py
 └── brain_clone.py          # Personality loader
@@ -159,12 +196,14 @@ config/                     # Configuration
 tests/                      # Test suite
 ├── test_agent_dna.py
 ├── test_agents.py
-└── test_persona_library.py
+├── test_persona_library.py
+└── test_task_engine.py
 
 examples/                   # Example scripts
 ├── create_web_scraper.py
 ├── persona_library_demo.py
-└── agent_factory_demo.py
+├── agent_factory_demo.py
+└── task_engine_demo.py
 ```
 
 ## Design Principles
@@ -212,15 +251,6 @@ examples/                   # Example scripts
 3. Update configuration as needed
 
 ## Future Architecture
-
-### Phase 2: Task Engine
-```
-task_engine/
-├── task_analyzer.py
-├── decomposer.py           # Recursive breakdown
-├── dependency_mapper.py    # Task DAG
-└── execution_planner.py
-```
 
 ### Phase 3: Coordination
 ```

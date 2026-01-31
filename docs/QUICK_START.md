@@ -109,6 +109,9 @@ python examples/persona_library_demo.py
 
 # Web scraper example
 python examples/create_web_scraper.py
+
+# Task engine demo (NEW!)
+python examples/task_engine_demo.py
 ```
 
 ## Running Tests
@@ -212,10 +215,17 @@ python examples/agent_factory_demo.py
 ✅ Example personas
 ✅ Comprehensive tests
 
+## What's Working (Phase 2)
+
+✅ Task decomposition engine
+✅ Task analyzer (complexity, domain detection)
+✅ Task decomposer (recursive breakdown)
+✅ Dependency mapper (DAG, cycle detection)
+✅ Execution planner (parallel execution, critical path)
+
 ## What's Coming
 
 🚧 Speech interface (STT, TTS, VAD)
-🚧 Task decomposition engine
 🚧 Agent coordination system
 🚧 Memory systems
 🚧 Learning systems
