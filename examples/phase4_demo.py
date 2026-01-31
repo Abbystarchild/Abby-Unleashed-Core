@@ -9,7 +9,6 @@ Demonstrates the new Phase 4 features:
 - Delegation optimization (learning from experience)
 """
 import tempfile
-import shutil
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
@@ -115,10 +114,8 @@ def demo_long_term_memory():
     console = Console()
     console.print(Panel.fit("💾 Long-Term Memory Demo", style="bold magenta"))
     
-    # Create temporary storage
-    temp_dir = tempfile.mkdtemp()
-    
-    try:
+    # Create temporary storage using context manager
+    with tempfile.TemporaryDirectory() as temp_dir:
         # Initialize long-term memory
         ltm = LongTermMemory(storage_path=temp_dir)
         
@@ -175,10 +172,6 @@ def demo_long_term_memory():
         console.print(f"\n[dim]Total tasks recorded: {stats['total_tasks']}[/dim]")
         console.print(f"[dim]Success rate: {stats['success_rate']:.1%}[/dim]")
         console.print(f"[dim]Total learnings: {stats['total_learnings']}[/dim]\n")
-    
-    finally:
-        # Cleanup
-        shutil.rmtree(temp_dir, ignore_errors=True)
 
 
 def demo_outcome_evaluator():
