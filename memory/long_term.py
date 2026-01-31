@@ -25,15 +25,17 @@ class LongTermMemory:
     - Learnings and patterns
     """
     
-    def __init__(self, storage_path: str = "memory/storage"):
+    def __init__(self, storage_path: str = "memory/storage", max_items: int = 10000):
         """
         Initialize long-term memory
         
         Args:
             storage_path: Path to storage directory
+            max_items: Maximum items per collection before archival (performance)
         """
         self.storage_path = Path(storage_path)
         self.storage_path.mkdir(parents=True, exist_ok=True)
+        self.max_items = max_items
         
         self.conversations_file = self.storage_path / "conversations.json"
         self.tasks_file = self.storage_path / "tasks.json"
@@ -87,6 +89,7 @@ class LongTermMemory:
         }
         
         self.conversations.append(conversation)
+        self._auto_archive(self.conversations, self.conversations_file, "conversations")
         self._save_json(self.conversations_file, self.conversations)
         
         logger.debug(f"Stored conversation: {conversation_id}")
@@ -169,6 +172,7 @@ class LongTermMemory:
         }
         
         self.tasks.append(outcome)
+        self._auto_archive(self.tasks, self.tasks_file, "tasks")
         self._save_json(self.tasks_file, self.tasks)
         
         logger.debug(f"Stored task outcome: {task_id}")
@@ -230,6 +234,7 @@ class LongTermMemory:
         }
         
         self.learnings.append(learning)
+        self._auto_archive(self.learnings, self.learnings_file, "learnings")
         self._save_json(self.learnings_file, self.learnings)
         
         logger.debug(f"Stored learning: {learning_type}")
@@ -279,6 +284,31 @@ class LongTermMemory:
             "total_learnings": len(self.learnings),
             "storage_path": str(self.storage_path)
         }
+    
+    def _auto_archive(self, collection: List[Any], filepath: Path, name: str):
+        """
+        Automatically archive old items if collection exceeds max_items
+        
+        Args:
+            collection: The collection to check
+            filepath: File path for this collection
+            name: Name of the collection for logging
+        """
+        if len(collection) > self.max_items:
+            # Archive oldest 20% of items
+            archive_count = int(self.max_items * 0.2)
+            archive_items = collection[:archive_count]
+            
+            # Save to archive file
+            archive_file = filepath.parent / f"{filepath.stem}_archive_{datetime.now().strftime('%Y%m')}.json"
+            existing_archive = self._load_json(archive_file, [])
+            existing_archive.extend(archive_items)
+            self._save_json(archive_file, existing_archive)
+            
+            # Remove archived items from main collection
+            del collection[:archive_count]
+            
+            logger.info(f"Archived {archive_count} {name} to {archive_file.name}")
     
     def clear_all(self, confirm: bool = False):
         """

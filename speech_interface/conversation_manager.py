@@ -57,6 +57,10 @@ class ConversationManager:
         self.is_listening = False
         self.audio_queue = queue.Queue()
         
+        # Thread safety for wake word state
+        self._state_lock = threading.Lock()
+        self._wake_word_active = False
+        
         # Initialize components
         self.stt = STTEngine(model_size=stt_model)
         self.tts = TTSEngine(voice=tts_voice, sample_rate=sample_rate)
@@ -151,13 +155,15 @@ class ConversationManager:
         if status:
             logger.warning(f"Audio status: {status}")
         
-        # Add audio to queue
-        self.audio_queue.put(indata.copy().flatten())
+        # Flatten once and add to queue (avoid duplicate copy)
+        audio_data = indata.flatten()
+        self.audio_queue.put(audio_data)
     
     def _processing_thread(self):
         """Thread for processing audio and handling conversation"""
-        audio_buffer = np.array([], dtype=np.float32)
-        wake_word_active = False
+        # Pre-allocate buffer with reasonable max size (10 seconds)
+        max_buffer_size = self.sample_rate * 10
+        audio_buffer = []
         
         while self.is_listening:
             try:
@@ -165,23 +171,34 @@ class ConversationManager:
                 audio_chunk = self.audio_queue.get(timeout=1)
                 
                 # Check for wake word if not already active
-                if not wake_word_active:
+                with self._state_lock:
+                    is_active = self._wake_word_active
+                
+                if not is_active:
                     if self.wake_word_detector.detect(audio_chunk):
                         logger.info("Wake word detected!")
-                        wake_word_active = True
+                        with self._state_lock:
+                            self._wake_word_active = True
                         self._speak("Yes, how can I help you?")
-                        audio_buffer = np.array([], dtype=np.float32)
+                        audio_buffer.clear()
                     continue
                 
                 # Detect voice activity
                 if self.vad.detect(audio_chunk):
-                    audio_buffer = np.concatenate([audio_buffer, audio_chunk])
+                    audio_buffer.append(audio_chunk)
+                    # Prevent unbounded growth
+                    if sum(len(chunk) for chunk in audio_buffer) > max_buffer_size:
+                        logger.warning("Audio buffer overflow, truncating")
+                        audio_buffer = audio_buffer[-5:]  # Keep last 5 chunks
                 
                 else:
                     # Silence detected - process accumulated audio
                     if len(audio_buffer) > 0:
+                        # Concatenate once
+                        full_audio = np.concatenate(audio_buffer)
+                        
                         # Transcribe
-                        text = self.stt.transcribe(audio_buffer)
+                        text = self.stt.transcribe(full_audio)
                         
                         if text:
                             logger.info(f"User said: {text}")
@@ -195,8 +212,9 @@ class ConversationManager:
                                 self._speak(response)
                         
                         # Reset buffer and wake word state
-                        audio_buffer = np.array([], dtype=np.float32)
-                        wake_word_active = False
+                        audio_buffer.clear()
+                        with self._state_lock:
+                            self._wake_word_active = False
             
             except queue.Empty:
                 continue
