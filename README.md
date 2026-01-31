@@ -6,7 +6,7 @@
 
 Abby Unleashed is a fully-functional, offline-capable AI orchestration system that serves as a digital clone. It combines:
 
-- **Real-time speech-to-speech interface** (PersonaPlex-inspired)
+- **Real-time speech-to-speech interface** (PersonaPlex integrated ✅)
 - **Dynamic multi-agent orchestration** with recursive task decomposition
 - **Personality cloning system** (your "brain clone")
 - **Reusable persona library** with 5-element agent DNA
@@ -14,6 +14,13 @@ Abby Unleashed is a fully-functional, offline-capable AI orchestration system th
 - **100% offline operation** using Ollama + local speech models
 
 ## Features
+
+✅ **PersonaPlex Voice Interface**
+- Real-time speech-to-speech interaction
+- Wake word detection ("Hey Abby")
+- Voice Activity Detection (VAD)
+- Natural text-to-speech synthesis
+- Offline speech recognition with Whisper
 
 ✅ **5-Element Agent DNA Framework**
 - Role + Seniority
@@ -81,10 +88,16 @@ ollama pull qwen2.5:latest
 python cli.py text
 ```
 
-#### Voice Mode
+#### Voice Mode (PersonaPlex)
 ```bash
 python cli.py voice
 ```
+
+**Voice Mode Features:**
+- Say "Hey Abby" to activate listening
+- Natural conversation flow with voice responses
+- Automatic speech detection
+- Real-time transcription and processing
 
 #### Direct Task Execution
 ```bash
@@ -100,6 +113,12 @@ Abby-Unleashed-Core/
 │   ├── base_agent.py         # Base agent class
 │   ├── agent_factory.py      # Agent creation
 │   └── clarification_protocol.py
+├── speech_interface/          # PersonaPlex integration
+│   ├── stt_engine.py         # Speech-to-text (Whisper)
+│   ├── tts_engine.py         # Text-to-speech (Piper)
+│   ├── vad_detector.py       # Voice activity detection
+│   ├── wake_word.py          # Wake word detection
+│   └── conversation_manager.py # Conversation orchestration
 ├── task_engine/              # Task decomposition and planning
 │   ├── task_analyzer.py      # Task analysis and classification
 │   ├── decomposer.py         # Recursive task breakdown
@@ -250,8 +269,16 @@ print(f"Can parallelize: {plan['can_parallelize']}")
   - [x] Dependency mapper (DAG creation, cycle detection)
   - [x] Execution planner (parallel execution, critical path)
 
+### ✅ Completed (Phase 3)
+- [x] PersonaPlex Speech Interface Integration
+  - [x] Speech-to-text engine (faster-whisper)
+  - [x] Text-to-speech engine (piper-tts)
+  - [x] Voice activity detection (silero-vad)
+  - [x] Wake word detection (pvporcupine)
+  - [x] Conversation manager (real-time flow)
+  - [x] Voice mode CLI integration
+
 ### 🚧 In Progress
-- [ ] Speech interface (STT, TTS, VAD)
 - [ ] Agent coordination system
 - [ ] Memory systems
 - [ ] Learning systems

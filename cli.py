@@ -155,14 +155,75 @@ class AbbyUnleashed:
                 console.print(f"[red]Error: {e}[/red]\n")
     
     def start_voice_interface(self):
-        """Start voice interface - placeholder for now"""
+        """Start PersonaPlex-inspired voice interface"""
         from rich.console import Console
+        from speech_interface import ConversationManager
+        import os
+        
         console = Console()
         
-        console.print("[yellow]Voice interface not yet implemented.[/yellow]")
-        console.print("[dim]Falling back to text interface...[/dim]\n")
+        console.print(f"\n[bold green]🎙️  {self.brain_clone.get_greeting()}[/bold green]")
+        console.print("[bold cyan]PersonaPlex Voice Mode Activated[/bold cyan]\n")
         
-        self.start_text_interface()
+        try:
+            # Get configuration
+            stt_model = os.getenv("STT_MODEL", "base.en")
+            tts_voice = os.getenv("TTS_VOICE", "en_US-amy-medium")
+            wake_word = os.getenv("WAKE_WORD", "hey abby")
+            wake_word_key = os.getenv("PORCUPINE_ACCESS_KEY", None)
+            
+            # Initialize conversation manager
+            console.print("[dim]Initializing speech components...[/dim]")
+            conversation_manager = ConversationManager(
+                stt_model=stt_model,
+                tts_voice=tts_voice,
+                wake_word=wake_word,
+                wake_word_key=wake_word_key
+            )
+            
+            # Initialize components
+            if not conversation_manager.initialize():
+                console.print("[yellow]Some speech components unavailable.[/yellow]")
+                console.print("[yellow]Falling back to text interface...[/yellow]\n")
+                self.start_text_interface()
+                return
+            
+            # Set task executor
+            def task_executor(text: str) -> str:
+                result = self.execute_task(text)
+                if result.get("status") == "clarification_needed":
+                    return "\n".join(result["questions"])
+                elif result.get("status") == "error":
+                    return f"Error: {result.get('error')}"
+                else:
+                    return result.get('output', 'Task completed!')
+            
+            conversation_manager.set_task_executor(task_executor)
+            
+            # Start listening
+            console.print(f"[green]✓[/green] Speech components initialized")
+            console.print(f"[dim]Wake word: '{wake_word}'[/dim]")
+            console.print("[dim]Press Ctrl+C to exit[/dim]\n")
+            
+            if conversation_manager.start_listening():
+                console.print("[bold green]🎧 Listening...[/bold green]\n")
+                
+                # Keep running
+                try:
+                    import time
+                    while True:
+                        time.sleep(1)
+                except KeyboardInterrupt:
+                    pass
+            
+            # Cleanup
+            conversation_manager.cleanup()
+            console.print(f"\n[bold green]{self.brain_clone.get_completed()} Goodbye![/bold green]\n")
+        
+        except Exception as e:
+            console.print(f"[red]Voice interface error: {e}[/red]")
+            console.print("[yellow]Falling back to text interface...[/yellow]\n")
+            self.start_text_interface()
     
     def get_stats(self) -> Dict[str, Any]:
         """
