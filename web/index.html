@@ -1049,6 +1049,123 @@
             color: var(--text-muted);
         }
         
+        /* Visual Awareness Toggle */
+        .vision-toggle {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0.75rem;
+            background: var(--surface);
+            border-radius: 0.5rem;
+            margin-bottom: 1rem;
+        }
+        
+        .vision-toggle-label {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-weight: 600;
+        }
+        
+        .vision-toggle-label .icon { font-size: 1.25rem; }
+        
+        .toggle-switch {
+            position: relative;
+            width: 50px;
+            height: 26px;
+        }
+        
+        .toggle-switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+        
+        .toggle-slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #374151;
+            transition: .3s;
+            border-radius: 34px;
+        }
+        
+        .toggle-slider:before {
+            position: absolute;
+            content: "";
+            height: 20px;
+            width: 20px;
+            left: 3px;
+            bottom: 3px;
+            background-color: white;
+            transition: .3s;
+            border-radius: 50%;
+        }
+        
+        input:checked + .toggle-slider {
+            background-color: #22c55e;
+        }
+        
+        input:checked + .toggle-slider:before {
+            transform: translateX(24px);
+        }
+        
+        /* Vision status indicator */
+        .vision-status {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem 1rem;
+            background: var(--surface);
+            border-radius: 0.5rem;
+            font-size: 0.85rem;
+            margin-bottom: 1rem;
+        }
+        
+        .vision-status .icon { animation: pulse 2s infinite; }
+        
+        .vision-status.watching { color: #22c55e; }
+        .vision-status.not-watching { color: var(--text-muted); }
+        
+        /* Face detection boxes in live feed */
+        .face-box.live {
+            display: block;
+            transition: all 0.1s;
+        }
+        
+        .face-label {
+            position: absolute;
+            bottom: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0,0,0,0.8);
+            color: white;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            white-space: nowrap;
+            margin-bottom: 4px;
+        }
+        
+        .expression-badge {
+            position: absolute;
+            top: -8px;
+            right: -8px;
+            background: var(--primary);
+            padding: 2px 6px;
+            border-radius: 10px;
+            font-size: 0.7rem;
+        }
+        
+        /* Camera button active state */
+        #cameraBtn.watching {
+            background: #22c55e !important;
+            animation: pulse 2s infinite;
+        }
+
         /* Responsive */
         @media (max-width: 400px) {
             .main-avatar { width: 120px; height: 120px; font-size: 3rem; }
@@ -1160,14 +1277,33 @@
     <div class="modal" id="cameraModal">
         <div class="modal-content camera-modal">
             <div class="modal-header">
-                <h2>📷 Let Abby See You</h2>
+                <h2>�️ Abby's Eyes</h2>
                 <button class="close-btn" onclick="closeCameraModal()">✕</button>
             </div>
+            
+            <!-- Visual Awareness Toggle -->
+            <div class="vision-toggle">
+                <div class="vision-toggle-label">
+                    <span class="icon">👁️</span>
+                    <span>Continuous Watching</span>
+                </div>
+                <label class="toggle-switch">
+                    <input type="checkbox" id="visionToggle" onchange="toggleVisualAwareness()">
+                    <span class="toggle-slider"></span>
+                </label>
+            </div>
+            
+            <!-- Vision Status -->
+            <div class="vision-status not-watching" id="visionStatus">
+                <span class="icon">⏸️</span>
+                <span id="visionStatusText">Not watching</span>
+            </div>
+            
             <div class="camera-container">
                 <video id="cameraPreview" autoplay playsinline muted></video>
                 <canvas id="cameraCanvas" style="display: none;"></canvas>
                 <div class="camera-overlay" id="cameraOverlay">
-                    <div class="face-box" id="faceBox"></div>
+                    <!-- Face boxes will be drawn here dynamically -->
                 </div>
             </div>
             <div class="camera-status" id="cameraStatus">Camera initializing...</div>
@@ -1217,6 +1353,13 @@
         let richDisplayOpen = false;
         let audioUnlocked = false;  // Mobile audio requires user interaction first
         let audioPlayer = null;
+        
+        // Visual Awareness State
+        let visualAwarenessActive = false;  // Continuous watching mode
+        let visionInterval = null;          // Frame analysis interval
+        let cameraStream = null;            // Camera stream reference
+        let lastSeenPeople = [];            // Track who was visible
+        let visualContext = '';             // Current visual context for Abby
         
         // ============ MOBILE AUDIO UNLOCK ============
         // Mobile browsers require a user interaction before audio can play
@@ -1466,6 +1609,12 @@
                 const payload = { task: text };
                 if (currentSession?.session_id) {
                     payload.session_id = currentSession.session_id;
+                }
+                
+                // Inject visual context if watching (LOCAL processing)
+                if (visualAwarenessActive && visualContext) {
+                    payload.visual_context = visualContext;
+                    console.log('👁️ Injecting visual context into text chat');
                 }
                 
                 const response = await fetch('/api/task', {
@@ -1788,6 +1937,12 @@
                 const payload = { transcript: text, speak: true };
                 if (currentSession?.session_id) {
                     payload.session_id = currentSession.session_id;
+                }
+                
+                // Inject visual context if watching (LOCAL processing)
+                if (visualAwarenessActive && visualContext) {
+                    payload.visual_context = visualContext;
+                    console.log('👁️ Injecting visual context:', visualContext);
                 }
                 
                 console.log('📤 Sending to API:', payload);
@@ -2448,11 +2603,21 @@
             const modal = document.getElementById('cameraModal');
             modal.classList.remove('active');
             
-            // Stop camera
+            // If visual awareness is active, keep camera running in background
+            if (visualAwarenessActive) {
+                console.log('📷 Camera modal closed but visual awareness continues');
+                return;  // Don't stop the camera
+            }
+            
+            // Stop camera only if not watching
             if (cameraStream) {
                 cameraStream.getTracks().forEach(track => track.stop());
                 cameraStream = null;
             }
+            
+            // Clear face boxes
+            const overlay = document.getElementById('cameraOverlay');
+            if (overlay) overlay.innerHTML = '';
         }
         
         function captureFrame() {
@@ -2609,6 +2774,251 @@
             } catch (e) {
                 list.innerHTML = '<em>Could not load faces</em>';
             }
+        }
+        
+        // ============ CONTINUOUS VISUAL AWARENESS (LOCAL PROCESSING) ============
+        
+        async function toggleVisualAwareness() {
+            const toggle = document.getElementById('visionToggle');
+            const cameraBtn = document.getElementById('cameraBtn');
+            
+            if (toggle.checked) {
+                await startVisualAwareness();
+                cameraBtn.classList.add('watching');
+            } else {
+                stopVisualAwareness();
+                cameraBtn.classList.remove('watching');
+            }
+        }
+        
+        async function startVisualAwareness() {
+            if (visualAwarenessActive) return;
+            
+            const statusDiv = document.getElementById('visionStatus');
+            const statusText = document.getElementById('visionStatusText');
+            
+            // Make sure camera is running
+            if (!cameraStream) {
+                await openCameraModal();
+            }
+            
+            visualAwarenessActive = true;
+            statusDiv.className = 'vision-status watching';
+            statusText.textContent = 'Watching... (local processing)';
+            document.getElementById('visionStatus').querySelector('.icon').textContent = '👁️';
+            
+            console.log('👁️ Visual awareness STARTED - all processing is LOCAL');
+            
+            // Start periodic frame analysis
+            visionInterval = setInterval(analyzeCurrentFrame, 2000);  // Every 2 seconds
+            
+            // Do first analysis immediately
+            analyzeCurrentFrame();
+        }
+        
+        function stopVisualAwareness() {
+            if (!visualAwarenessActive) return;
+            
+            visualAwarenessActive = false;
+            
+            if (visionInterval) {
+                clearInterval(visionInterval);
+                visionInterval = null;
+            }
+            
+            const statusDiv = document.getElementById('visionStatus');
+            const statusText = document.getElementById('visionStatusText');
+            statusDiv.className = 'vision-status not-watching';
+            statusText.textContent = 'Not watching';
+            document.getElementById('visionStatus').querySelector('.icon').textContent = '⏸️';
+            
+            // Clear face boxes
+            const overlay = document.getElementById('cameraOverlay');
+            overlay.innerHTML = '';
+            
+            // Clear context
+            visualContext = '';
+            lastSeenPeople = [];
+            
+            console.log('👁️ Visual awareness STOPPED');
+        }
+        
+        async function analyzeCurrentFrame() {
+            if (!visualAwarenessActive || !cameraStream) return;
+            
+            try {
+                const imageData = captureFrame();
+                
+                const response = await fetch('/api/vision/analyze', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ image: imageData })
+                });
+                
+                const result = await response.json();
+                
+                if (result.error) {
+                    console.warn('Vision analysis error:', result.error);
+                    return;
+                }
+                
+                // Update face boxes overlay
+                updateFaceBoxes(result.faces || []);
+                
+                // Update status
+                const statusText = document.getElementById('visionStatusText');
+                const statusDiv = document.getElementById('visionStatus');
+                
+                if (result.faces_detected > 0) {
+                    const names = result.faces.map(f => f.name).filter(n => n !== 'Unknown');
+                    const unknownCount = result.faces.filter(f => f.name === 'Unknown').length;
+                    
+                    let text = '';
+                    if (names.length > 0) {
+                        text = `Seeing: ${names.join(', ')}`;
+                        if (unknownCount > 0) text += ` + ${unknownCount} unknown`;
+                    } else {
+                        text = `Seeing ${unknownCount} face${unknownCount > 1 ? 's' : ''} (not recognized)`;
+                    }
+                    
+                    // Add expression info
+                    for (const face of result.faces) {
+                        if (face.name !== 'Unknown' && face.expression?.mood) {
+                            text += ` • ${face.name}: ${getExpressionEmoji(face.expression.mood)}`;
+                        }
+                    }
+                    
+                    statusText.textContent = text;
+                    statusDiv.className = 'vision-status watching';
+                } else {
+                    statusText.textContent = 'Watching... (no one visible)';
+                }
+                
+                // Track entries/exits
+                const currentPeople = result.people_present || [];
+                const newPeople = currentPeople.filter(p => !lastSeenPeople.includes(p) && p !== 'Unknown');
+                const leftPeople = lastSeenPeople.filter(p => !currentPeople.includes(p) && p !== 'Unknown');
+                
+                // Announce arrivals (but don't interrupt conversation)
+                if (newPeople.length > 0 && !isBusy) {
+                    console.log('👋 New people appeared:', newPeople);
+                    // Update user identity if we recognize them
+                    if (newPeople.length === 1 && currentUserId === 'unknown') {
+                        const arrivedUser = newPeople[0].toLowerCase().replace(/[^a-z0-9]/g, '_');
+                        // Don't auto-switch, just notify
+                        document.getElementById('cameraStatus').textContent = 
+                            `👋 Hi ${newPeople[0]}! I see you.`;
+                    }
+                }
+                
+                if (leftPeople.length > 0 && !isBusy) {
+                    console.log('👋 People left:', leftPeople);
+                }
+                
+                lastSeenPeople = currentPeople;
+                
+                // Store visual context for conversations
+                visualContext = result.faces_detected > 0 ? 
+                    `[Visual context: ${getVisualDescription(result)}]` : '';
+                
+            } catch (e) {
+                console.warn('Frame analysis error:', e);
+            }
+        }
+        
+        function updateFaceBoxes(faces) {
+            const overlay = document.getElementById('cameraOverlay');
+            const video = document.getElementById('cameraPreview');
+            
+            // Clear existing boxes
+            overlay.innerHTML = '';
+            
+            if (!video.videoWidth) return;
+            
+            const scaleX = overlay.clientWidth / video.videoWidth;
+            const scaleY = overlay.clientHeight / video.videoHeight;
+            
+            for (const face of faces) {
+                const loc = face.location;
+                if (!loc) continue;
+                
+                // Create face box (mirror horizontally to match video)
+                const box = document.createElement('div');
+                box.className = `face-box live ${face.name === 'Unknown' ? 'unknown' : ''}`;
+                
+                // Calculate mirrored position
+                const mirroredLeft = video.videoWidth - loc.right;
+                const mirroredRight = video.videoWidth - loc.left;
+                
+                box.style.left = `${mirroredLeft * scaleX}px`;
+                box.style.top = `${loc.top * scaleY}px`;
+                box.style.width = `${(mirroredRight - mirroredLeft) * scaleX}px`;
+                box.style.height = `${(loc.bottom - loc.top) * scaleY}px`;
+                box.style.display = 'block';
+                
+                // Add name label
+                const label = document.createElement('div');
+                label.className = 'face-label';
+                label.textContent = face.name !== 'Unknown' ? 
+                    `${face.name} ${getExpressionEmoji(face.expression?.mood)}` : 
+                    '?';
+                box.appendChild(label);
+                
+                // Add confidence badge for known faces
+                if (face.name !== 'Unknown' && face.confidence > 0) {
+                    const badge = document.createElement('div');
+                    badge.className = 'expression-badge';
+                    badge.textContent = `${Math.round(face.confidence * 100)}%`;
+                    box.appendChild(badge);
+                }
+                
+                overlay.appendChild(box);
+            }
+        }
+        
+        function getExpressionEmoji(mood) {
+            const moods = {
+                'happy': '😊',
+                'smiling': '😊',
+                'tired': '😴',
+                'surprised': '😮',
+                'neutral': '😐'
+            };
+            return moods[mood] || '';
+        }
+        
+        function getVisualDescription(analysis) {
+            const parts = [];
+            
+            const names = (analysis.faces || []).filter(f => f.name !== 'Unknown').map(f => f.name);
+            const unknownCount = (analysis.faces || []).filter(f => f.name === 'Unknown').length;
+            
+            if (names.length > 0) {
+                parts.push(`I can see ${names.join(' and ')}`);
+            }
+            if (unknownCount > 0) {
+                parts.push(`${unknownCount} unrecognized person${unknownCount > 1 ? 's' : ''}`);
+            }
+            
+            // Expressions
+            for (const face of analysis.faces || []) {
+                if (face.expression?.smiling) {
+                    parts.push(`${face.name} is smiling`);
+                }
+            }
+            
+            // Looking at camera
+            const looking = (analysis.faces || []).filter(f => f.looking_at_camera).map(f => f.name);
+            if (looking.length > 0) {
+                parts.push(`${looking.join(' and ')} ${looking.length === 1 ? 'is' : 'are'} looking at me`);
+            }
+            
+            return parts.join('. ');
+        }
+        
+        // Get visual context for injection into conversations
+        function getVisualContextForConversation() {
+            return visualContext;
         }
         
         // Initialize face recognition check

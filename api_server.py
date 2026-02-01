@@ -337,6 +337,80 @@ def identify_face():
         return jsonify({'error': str(e)}), 500
 
 
+# ===== Visual Awareness Endpoints (LOCAL processing only) =====
+
+@app.route('/api/vision/status', methods=['GET'])
+def vision_status():
+    """
+    Get current visual awareness status.
+    Shows what Abby currently "sees".
+    """
+    try:
+        from presence.visual_awareness import get_visual_awareness
+        vision = get_visual_awareness()
+        return jsonify(vision.get_status())
+    except Exception as e:
+        logger.error(f"Vision status error: {e}")
+        return jsonify({'error': str(e), 'available': False})
+
+
+@app.route('/api/vision/analyze', methods=['POST'])
+def vision_analyze():
+    """
+    Analyze a camera frame for faces, expressions, and scene context.
+    ALL processing is LOCAL - no external APIs.
+    
+    POST body:
+        image: Base64 encoded image (with or without data: prefix)
+        
+    Returns:
+        faces_detected: Number of faces found
+        faces: Array of face info with identity, expression, position
+        people_present: Names of recognized people
+        scene: Basic scene info (lighting, etc)
+    """
+    try:
+        from presence.visual_awareness import get_visual_awareness
+        vision = get_visual_awareness()
+        
+        data = request.get_json()
+        if not data or 'image' not in data:
+            return jsonify({'error': 'Image required'}), 400
+        
+        result = vision.analyze_frame(data['image'])
+        return jsonify(result)
+    
+    except Exception as e:
+        logger.error(f"Vision analyze error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/vision/context', methods=['GET'])
+def vision_context():
+    """
+    Get natural language description of what Abby sees.
+    Used to inject visual awareness into conversations.
+    
+    Returns:
+        context: String describing what Abby sees
+        faces_visible: Number of faces currently visible
+    """
+    try:
+        from presence.visual_awareness import get_visual_awareness
+        vision = get_visual_awareness()
+        
+        return jsonify({
+            'context': vision.get_visual_context(),
+            'faces_visible': len(vision.current_faces),
+            'people_present': [f['name'] for f in vision.current_faces],
+            'last_analysis': vision.last_analysis
+        })
+    
+    except Exception as e:
+        logger.error(f"Vision context error: {e}")
+        return jsonify({'error': str(e), 'context': ''})
+
+
 @app.route('/api/presence/active', methods=['GET'])
 def list_active_sessions():
     """List all active sessions (for admin/debug)"""
@@ -376,7 +450,7 @@ def get_user_context():
 
 @app.route('/api/task', methods=['POST'])
 def execute_task():
-    """Execute a task with user presence awareness"""
+    """Execute a task with user presence and visual awareness"""
     try:
         data = request.get_json()
         
@@ -387,6 +461,7 @@ def execute_task():
         context = data.get('context', {})
         use_orchestrator = data.get('use_orchestrator', True)
         session_id = data.get('session_id')
+        visual_context = data.get('visual_context', '')  # From camera/vision system
         
         # Inject user presence context if we have a session
         if session_id:
@@ -394,6 +469,12 @@ def execute_task():
             user_context = tracker.get_user_context(session_id)
             context['user_presence'] = user_context
             context['user_prompt_addition'] = tracker.get_system_prompt_addition(session_id)
+        
+        # Add visual context if provided (LOCAL processing)
+        if visual_context:
+            existing_prompt = context.get('user_prompt_addition', '')
+            context['user_prompt_addition'] = f"{existing_prompt}\n\n{visual_context}" if existing_prompt else visual_context
+            logger.info(f"Task visual context: {visual_context[:100]}...")
         
         # Execute task
         abby_instance = get_abby()
@@ -1734,13 +1815,14 @@ def realtime_settings():
 def realtime_conversation():
     """
     Process a conversation turn with rich display + voice summary.
-    Now with user presence awareness!
+    Now with user presence awareness and visual context!
     
     Request:
         {
             "transcript": "user's speech transcript",
             "speak": true,  // whether to synthesize voice
-            "session_id": "optional session for presence"
+            "session_id": "optional session for presence",
+            "visual_context": "[Visual context: I can see John...]"  // from camera
         }
     
     Response:
@@ -1768,6 +1850,7 @@ def realtime_conversation():
         transcript = data['transcript'].strip()
         speak = data.get('speak', True)
         session_id = data.get('session_id')
+        visual_context = data.get('visual_context', '')  # From camera/vision system
         
         if not transcript:
             return jsonify({'error': 'Empty transcript'}), 400
@@ -1779,6 +1862,12 @@ def realtime_conversation():
             tracker = get_user_tracker_instance()
             user_context = tracker.get_user_context(session_id)
             user_prompt_addition = tracker.get_system_prompt_addition(session_id)
+        
+        # Add visual context to prompt addition if provided (LOCAL processing)
+        if visual_context:
+            visual_note = f"\n\n{visual_context}"
+            user_prompt_addition = user_prompt_addition + visual_note if user_prompt_addition else visual_note
+            logger.info(f"Visual context injected: {visual_context[:100]}...")
         
         rtc = get_realtime_conversation()
         if not rtc:
