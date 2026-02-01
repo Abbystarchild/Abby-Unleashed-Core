@@ -28,6 +28,13 @@ import tempfile
 from pathlib import Path
 from typing import Optional, Dict, Any, Generator, Callable, TYPE_CHECKING
 
+# Load environment variables
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
 if TYPE_CHECKING:
     import numpy as np
 
