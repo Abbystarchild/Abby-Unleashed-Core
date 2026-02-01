@@ -359,6 +359,30 @@ Remember:
             workspace = context.get("workspace", self.task_planner.workspace_path)
             if workspace:
                 base_prompt += f"\n\nCurrent workspace: {workspace}"
+            
+            # Add user presence context if available
+            # This tells Abby WHO she's talking to and how to customize her response
+            if context.get("user_prompt_addition"):
+                base_prompt += f"\n\n{context['user_prompt_addition']}"
+                logger.debug(f"Added user presence context for: {context.get('user_presence', {}).get('display_name', 'unknown')}")
+            
+            # Special handling if talking to the boyfriend - detect and handle chaos
+            user_presence = context.get("user_presence", {})
+            if user_presence.get("user_id") == "boyfriend":
+                try:
+                    from presence.chaos_handler import get_boyfriend_handler
+                    bf_handler = get_boyfriend_handler()
+                    chaos_result = bf_handler.process_input(task)
+                    
+                    if chaos_result.get("is_chaotic"):
+                        # Add chaos-specific guidance to the prompt
+                        base_prompt += f"\n\n=== CHAOS DETECTED ({chaos_result['chaos_category']}) ==="
+                        base_prompt += f"\nAdvice: {chaos_result['advice']}"
+                        if chaos_result.get("suggested_response"):
+                            base_prompt += f"\nExample response style: \"{chaos_result['suggested_response']}\""
+                        logger.info(f"Boyfriend chaos detected: {chaos_result['chaos_category']} (confidence: {chaos_result['confidence']:.2f})")
+                except Exception as e:
+                    logger.warning(f"Chaos handler error: {e}")
 
             # Add user message to history
             self.conversation_history.append({

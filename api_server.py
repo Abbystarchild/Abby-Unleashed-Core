@@ -1,6 +1,7 @@
 """
 Web API Server for Abby Unleashed
 Enables mobile and remote access to the AI system
+With user presence awareness - knows who she's talking to!
 """
 import logging
 import os
@@ -15,6 +16,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from cli import AbbyUnleashed
+from presence.user_tracker import get_user_tracker, UserTracker
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +57,18 @@ CORS(app, resources={
 abby: Optional[AbbyUnleashed] = None
 abby_lock = threading.Lock()
 
+# Global user tracker instance
+user_tracker: Optional[UserTracker] = None
+
+
+def get_user_tracker_instance() -> UserTracker:
+    """Get or initialize UserTracker instance (thread-safe)"""
+    global user_tracker
+    with abby_lock:
+        if user_tracker is None:
+            user_tracker = get_user_tracker()
+        return user_tracker
+
 
 def get_abby():
     """Get or initialize Abby instance (thread-safe)"""
@@ -92,9 +106,133 @@ def health():
         }), 500
 
 
+# ============== PRESENCE & IDENTITY APIs ==============
+# Track who's connected and customize Abby's responses
+
+@app.route('/api/presence/session', methods=['POST'])
+def create_or_get_session():
+    """
+    Create or retrieve a session for the connected user.
+    Call this when the web app first loads.
+    
+    Returns session_id and available users for identification.
+    """
+    try:
+        tracker = get_user_tracker_instance()
+        
+        # Get connection info
+        ip_address = request.remote_addr
+        user_agent = request.headers.get('User-Agent', '')
+        
+        # Check if client already has a session
+        data = request.get_json() or {}
+        existing_session_id = data.get('session_id')
+        
+        # Get or create session
+        session = tracker.get_or_create_session(
+            session_id=existing_session_id,
+            ip_address=ip_address,
+            user_agent=user_agent
+        )
+        
+        return jsonify({
+            'session_id': session.session_id,
+            'user_id': session.user_id,
+            'display_name': session.display_name,
+            'device': session.device_info,
+            'available_users': tracker.list_available_users(),
+            'greeting': tracker.get_greeting(session.session_id) if session.user_id != 'unknown' else None,
+            'is_identified': session.user_id != 'unknown'
+        })
+    
+    except Exception as e:
+        logger.error(f"Session creation error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/presence/identify', methods=['POST'])
+def identify_user():
+    """
+    Identify who is using this session.
+    
+    POST body:
+        session_id: The current session ID
+        user_id: The user to identify as (e.g., 'organic_abby', 'boyfriend')
+    """
+    try:
+        data = request.get_json()
+        
+        if not data or 'session_id' not in data or 'user_id' not in data:
+            return jsonify({'error': 'session_id and user_id required'}), 400
+        
+        tracker = get_user_tracker_instance()
+        result = tracker.identify_user(data['session_id'], data['user_id'])
+        
+        if result.get('success'):
+            logger.info(f"User identified: {result['display_name']} ({result['user_id']})")
+            return jsonify(result)
+        else:
+            return jsonify(result), 400
+    
+    except Exception as e:
+        logger.error(f"User identification error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/presence/users', methods=['GET'])
+def list_available_users():
+    """List available user profiles that can be selected"""
+    try:
+        tracker = get_user_tracker_instance()
+        return jsonify({
+            'users': tracker.list_available_users()
+        })
+    
+    except Exception as e:
+        logger.error(f"List users error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/presence/active', methods=['GET'])
+def list_active_sessions():
+    """List all active sessions (for admin/debug)"""
+    try:
+        tracker = get_user_tracker_instance()
+        return jsonify({
+            'sessions': tracker.list_active_sessions()
+        })
+    
+    except Exception as e:
+        logger.error(f"List sessions error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/presence/context', methods=['POST'])
+def get_user_context():
+    """
+    Get the full context for a session.
+    Useful for debugging or showing user info.
+    """
+    try:
+        data = request.get_json() or {}
+        session_id = data.get('session_id')
+        
+        if not session_id:
+            return jsonify({'error': 'session_id required'}), 400
+        
+        tracker = get_user_tracker_instance()
+        context = tracker.get_user_context(session_id)
+        
+        return jsonify(context)
+    
+    except Exception as e:
+        logger.error(f"Get context error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/api/task', methods=['POST'])
 def execute_task():
-    """Execute a task"""
+    """Execute a task with user presence awareness"""
     try:
         data = request.get_json()
         
@@ -104,6 +242,14 @@ def execute_task():
         task = data['task']
         context = data.get('context', {})
         use_orchestrator = data.get('use_orchestrator', True)
+        session_id = data.get('session_id')
+        
+        # Inject user presence context if we have a session
+        if session_id:
+            tracker = get_user_tracker_instance()
+            user_context = tracker.get_user_context(session_id)
+            context['user_presence'] = user_context
+            context['user_prompt_addition'] = tracker.get_system_prompt_addition(session_id)
         
         # Execute task
         abby_instance = get_abby()
@@ -1119,11 +1265,12 @@ def output_mode():
 @app.route('/api/enhanced/task', methods=['POST'])
 def enhanced_task():
     """
-    Process a task with parallel output.
+    Process a task with parallel output and user presence awareness.
     
     POST body:
         task: User's task/question
         conversation_id: Optional conversation ID
+        session_id: Optional session ID for user presence
         output_mode: Optional override (display, voice, both, summary)
         speak: Whether to return voice audio (default: based on mode)
     
@@ -1131,6 +1278,7 @@ def enhanced_task():
         display: Full text for display
         voice_text: Text that will be spoken (if any)
         voice_audio: Base64 audio (if speak=true)
+        user_context: Current user identity info
     """
     try:
         data = request.get_json()
@@ -1140,11 +1288,26 @@ def enhanced_task():
         
         task = data['task']
         conversation_id = data.get('conversation_id', 'default')
+        session_id = data.get('session_id')
         output_mode = data.get('output_mode')
         speak = data.get('speak', True)
         
+        # Get user presence context
+        user_context = None
+        user_prompt_addition = ""
+        if session_id:
+            tracker = get_user_tracker_instance()
+            user_context = tracker.get_user_context(session_id)
+            user_prompt_addition = tracker.get_system_prompt_addition(session_id)
+        
         # Get enhanced server
         server = get_enhanced_server()
+        
+        # Inject user context into the server's personality if available
+        if user_prompt_addition:
+            # Store original and add user context temporarily
+            # This affects how Abby responds
+            server._user_context = user_prompt_addition
         
         # Set mode if specified
         if output_mode:
@@ -1162,7 +1325,7 @@ def enhanced_task():
         asyncio.set_event_loop(loop)
         try:
             result = loop.run_until_complete(
-                server.process_task(task, conversation_id)
+                server.process_task(task, conversation_id, user_context=user_context)
             )
         finally:
             loop.close()
@@ -1174,6 +1337,14 @@ def enhanced_task():
             'voice_mode': result['voice_mode'],
             'status': result['result'].get('status', 'completed')
         }
+        
+        # Add user context to response if available
+        if user_context:
+            response['user_context'] = {
+                'user_id': user_context.get('user_id'),
+                'display_name': user_context.get('display_name'),
+                'relationship': user_context.get('relationship')
+            }
         
         # Synthesize voice if requested
         if speak and result['voice']:
@@ -1399,11 +1570,13 @@ def realtime_settings():
 def realtime_conversation():
     """
     Process a conversation turn with rich display + voice summary.
+    Now with user presence awareness!
     
     Request:
         {
             "transcript": "user's speech transcript",
-            "speak": true  // whether to synthesize voice
+            "speak": true,  // whether to synthesize voice
+            "session_id": "optional session for presence"
         }
     
     Response:
@@ -1418,7 +1591,8 @@ def realtime_conversation():
             "voice_text": "summary for speech",
             "voice_audio": "base64 mp3 audio",
             "full_text": "complete unabridged response",
-            "processing_time": 1.23
+            "processing_time": 1.23,
+            "user_context": {...}  // if session provided
         }
     """
     try:
@@ -1429,9 +1603,18 @@ def realtime_conversation():
         
         transcript = data['transcript'].strip()
         speak = data.get('speak', True)
+        session_id = data.get('session_id')
         
         if not transcript:
             return jsonify({'error': 'Empty transcript'}), 400
+        
+        # Get user presence context if session provided
+        user_context = None
+        user_prompt_addition = ""
+        if session_id:
+            tracker = get_user_tracker_instance()
+            user_context = tracker.get_user_context(session_id)
+            user_prompt_addition = tracker.get_system_prompt_addition(session_id)
         
         rtc = get_realtime_conversation()
         if not rtc:
@@ -1442,13 +1625,23 @@ def realtime_conversation():
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
-            result = loop.run_until_complete(rtc.process_transcript(transcript))
+            result = loop.run_until_complete(
+                rtc.process_transcript(transcript, user_context=user_context, user_prompt_addition=user_prompt_addition)
+            )
         finally:
             loop.close()
         
         # Remove voice_audio if not requested
         if not speak and 'voice_audio' in result:
             del result['voice_audio']
+        
+        # Add user context to response if available
+        if user_context:
+            result['user_context'] = {
+                'user_id': user_context.get('user_id'),
+                'display_name': user_context.get('display_name'),
+                'relationship': user_context.get('relationship')
+            }
         
         return jsonify(result)
         

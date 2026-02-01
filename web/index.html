@@ -67,6 +67,151 @@
             font-weight: 600;
         }
         
+        /* User Identity Selector */
+        .user-selector {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        .user-select-btn {
+            background: var(--surface-light);
+            border: 2px solid var(--primary);
+            color: var(--text);
+            padding: 0.4rem 0.8rem;
+            border-radius: 1.5rem;
+            font-size: 0.8rem;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+            transition: all 0.2s;
+        }
+        
+        .user-select-btn:hover {
+            background: var(--primary);
+            transform: scale(1.02);
+        }
+        
+        .user-select-btn.identified {
+            background: linear-gradient(135deg, var(--success), #059669);
+            border-color: var(--success);
+        }
+        
+        .user-modal {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.8);
+            z-index: 2000;
+            align-items: center;
+            justify-content: center;
+            padding: 1rem;
+        }
+        
+        .user-modal.active {
+            display: flex;
+        }
+        
+        .user-modal-content {
+            background: var(--surface);
+            border-radius: 1rem;
+            padding: 1.5rem;
+            max-width: 400px;
+            width: 100%;
+            animation: modalIn 0.2s ease;
+        }
+        
+        @keyframes modalIn {
+            from { opacity: 0; transform: scale(0.9); }
+            to { opacity: 1; transform: scale(1); }
+        }
+        
+        .user-modal h2 {
+            margin-bottom: 1rem;
+            font-size: 1.2rem;
+            text-align: center;
+        }
+        
+        .user-modal-subtitle {
+            color: var(--text-muted);
+            font-size: 0.9rem;
+            text-align: center;
+            margin-bottom: 1.5rem;
+        }
+        
+        .user-option {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            padding: 1rem;
+            background: var(--bg);
+            border-radius: 0.75rem;
+            margin-bottom: 0.75rem;
+            cursor: pointer;
+            transition: all 0.2s;
+            border: 2px solid transparent;
+        }
+        
+        .user-option:hover {
+            border-color: var(--primary);
+            transform: translateX(4px);
+        }
+        
+        .user-option.selected {
+            border-color: var(--success);
+            background: rgba(16, 185, 129, 0.1);
+        }
+        
+        .user-option-icon {
+            width: 48px;
+            height: 48px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, var(--primary), #8b5cf6);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+        }
+        
+        .user-option.organic .user-option-icon {
+            background: linear-gradient(135deg, #ec4899, #f472b6);
+        }
+        
+        .user-option.boyfriend .user-option-icon {
+            background: linear-gradient(135deg, #f59e0b, #fbbf24);
+        }
+        
+        .user-option-info {
+            flex: 1;
+        }
+        
+        .user-option-name {
+            font-weight: 600;
+            margin-bottom: 0.25rem;
+        }
+        
+        .user-option-desc {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+        }
+        
+        .user-modal-close {
+            margin-top: 1rem;
+            width: 100%;
+            padding: 0.75rem;
+            background: var(--surface-light);
+            border: none;
+            color: var(--text);
+            border-radius: 0.5rem;
+            cursor: pointer;
+            font-size: 0.9rem;
+        }
+        
+        .user-modal-close:hover {
+            background: var(--primary);
+        }
+        
         .voice-mode-btn {
             background: linear-gradient(135deg, var(--primary), #8b5cf6);
             border: none;
@@ -722,15 +867,21 @@
                 <div class="status-dot" id="statusDot"></div>
                 <h1>Abby</h1>
             </div>
-            <button class="voice-mode-btn" onclick="enterVoiceMode()">
-                <span>🎤</span> Voice Mode
-            </button>
+            <div class="user-selector">
+                <button class="user-select-btn" id="userSelectBtn" onclick="openUserModal()">
+                    <span id="userIcon">👤</span>
+                    <span id="userName">Who's this?</span>
+                </button>
+                <button class="voice-mode-btn" onclick="enterVoiceMode()">
+                    <span>🎤</span> Voice
+                </button>
+            </div>
         </div>
         
         <div class="messages" id="messages">
             <div class="msg">
                 <div class="avatar">A</div>
-                <div class="content">👋 Hey! I'm Abby. How can I help you today?</div>
+                <div class="content" id="welcomeMsg">👋 Hey! I'm Abby. How can I help you today?</div>
             </div>
         </div>
         
@@ -985,10 +1136,16 @@
             document.getElementById('sendBtn').disabled = true;
             
             try {
+                // Include session_id for user presence awareness
+                const payload = { task: text };
+                if (currentSession?.session_id) {
+                    payload.session_id = currentSession.session_id;
+                }
+                
                 const response = await fetch('/api/task', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ task: text })
+                    body: JSON.stringify(payload)
                 });
                 const result = await response.json();
                 addMessage(result.output || result.error || 'Done!', 'assistant');
@@ -1234,11 +1391,17 @@
             hideDisplayPreview();
             
             try {
+                // Build payload with session for presence awareness
+                const payload = { transcript: text, speak: true };
+                if (currentSession?.session_id) {
+                    payload.session_id = currentSession.session_id;
+                }
+                
                 // Use realtime conversation API for rich content
                 const response = await fetch('/api/realtime/conversation', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ transcript: text, speak: true })
+                    body: JSON.stringify(payload)
                 });
                 const result = await response.json();
                 
@@ -1624,6 +1787,165 @@
                 speechSynthesis.getVoices();
             };
         }
+        
+        // ============ USER IDENTITY / PRESENCE ============
+        let currentSession = null;
+        let availableUsers = [];
+        let currentUserId = 'unknown';
+        
+        async function initSession() {
+            try {
+                // Try to get existing session from localStorage
+                const existingSessionId = localStorage.getItem('abby_session_id');
+                
+                const response = await fetch('/api/presence/session', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ session_id: existingSessionId })
+                });
+                
+                const data = await response.json();
+                currentSession = data;
+                availableUsers = data.available_users || [];
+                currentUserId = data.user_id;
+                
+                // Save session ID for persistence
+                localStorage.setItem('abby_session_id', data.session_id);
+                
+                // Update UI
+                updateUserDisplay();
+                
+                // If already identified, show greeting
+                if (data.is_identified && data.greeting) {
+                    document.getElementById('welcomeMsg').textContent = data.greeting;
+                }
+                
+                console.log('Session initialized:', data.session_id, 'User:', data.display_name);
+            } catch (e) {
+                console.error('Failed to init session:', e);
+            }
+        }
+        
+        function updateUserDisplay() {
+            const btn = document.getElementById('userSelectBtn');
+            const icon = document.getElementById('userIcon');
+            const name = document.getElementById('userName');
+            
+            if (currentUserId === 'unknown') {
+                icon.textContent = '👤';
+                name.textContent = "Who's this?";
+                btn.classList.remove('identified');
+            } else if (currentUserId === 'organic_abby') {
+                icon.textContent = '💕';
+                name.textContent = 'Organic Abby';
+                btn.classList.add('identified');
+            } else if (currentUserId === 'boyfriend') {
+                icon.textContent = '🔥';
+                name.textContent = 'The Boyfriend';
+                btn.classList.add('identified');
+            } else {
+                icon.textContent = '✨';
+                name.textContent = currentSession?.display_name || 'User';
+                btn.classList.add('identified');
+            }
+        }
+        
+        function openUserModal() {
+            const modal = document.getElementById('userModal');
+            modal.classList.add('active');
+            renderUserOptions();
+        }
+        
+        function closeUserModal() {
+            document.getElementById('userModal').classList.remove('active');
+        }
+        
+        function renderUserOptions() {
+            const container = document.getElementById('userOptions');
+            container.innerHTML = '';
+            
+            // Hardcoded known users with descriptions
+            const knownUsers = [
+                { 
+                    id: 'organic_abby', 
+                    name: 'Organic Abby', 
+                    desc: 'The creator, the original, the real deal 💕',
+                    icon: '👸',
+                    class: 'organic'
+                },
+                { 
+                    id: 'boyfriend', 
+                    name: 'The Boyfriend', 
+                    desc: 'Chaos incarnate, but we love him 🔥',
+                    icon: '😈',
+                    class: 'boyfriend'
+                }
+            ];
+            
+            knownUsers.forEach(user => {
+                const div = document.createElement('div');
+                div.className = `user-option ${user.class} ${currentUserId === user.id ? 'selected' : ''}`;
+                div.onclick = () => selectUser(user.id);
+                div.innerHTML = `
+                    <div class="user-option-icon">${user.icon}</div>
+                    <div class="user-option-info">
+                        <div class="user-option-name">${user.name}</div>
+                        <div class="user-option-desc">${user.desc}</div>
+                    </div>
+                `;
+                container.appendChild(div);
+            });
+        }
+        
+        async function selectUser(userId) {
+            if (!currentSession) return;
+            
+            try {
+                const response = await fetch('/api/presence/identify', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        session_id: currentSession.session_id,
+                        user_id: userId
+                    })
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    currentUserId = userId;
+                    currentSession.user_id = userId;
+                    currentSession.display_name = result.display_name;
+                    
+                    updateUserDisplay();
+                    closeUserModal();
+                    
+                    // Show greeting
+                    if (result.greeting) {
+                        addMessage(result.greeting, 'assistant');
+                    }
+                } else {
+                    console.error('Failed to identify:', result.error);
+                }
+            } catch (e) {
+                console.error('Failed to select user:', e);
+            }
+        }
+        
+        // Initialize session on page load
+        document.addEventListener('DOMContentLoaded', () => {
+            initSession();
+        });
     </script>
+    
+    <!-- User Selection Modal -->
+    <div class="user-modal" id="userModal">
+        <div class="user-modal-content">
+            <h2>👋 Who's there?</h2>
+            <p class="user-modal-subtitle">Let me know who I'm talking to so I can personalize our chat!</p>
+            <div id="userOptions"></div>
+            <button class="user-modal-close" onclick="closeUserModal()">Maybe Later</button>
+        </div>
+    </div>
 </body>
 </html>

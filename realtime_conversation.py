@@ -386,10 +386,15 @@ class RealtimeConversation:
         
         return vad_result
     
-    async def process_transcript(self, transcript: str) -> dict:
+    async def process_transcript(self, transcript: str, user_context: dict = None, user_prompt_addition: str = "") -> dict:
         """
         Process a transcript (from STT) and generate response.
         Returns structured response with display content and voice text.
+        
+        Args:
+            transcript: The user's transcribed speech
+            user_context: Optional user presence context (who is speaking)
+            user_prompt_addition: Optional prompt addition for user-specific behavior
         """
         if not transcript.strip():
             return {'error': 'Empty transcript'}
@@ -409,11 +414,11 @@ class RealtimeConversation:
             self.on_transcript(transcript)
         
         try:
-            # Get response from Abby
+            # Get response from Abby (with user context if provided)
             if self.on_response_start:
                 self.on_response_start()
             
-            full_response = await self._get_abby_response(transcript)
+            full_response = await self._get_abby_response(transcript, user_context, user_prompt_addition)
             
             # Generate rich display content
             display_content = self.content_generator.parse_response(full_response)
@@ -480,13 +485,28 @@ class RealtimeConversation:
         else:
             self._set_state(ConversationState.WAITING)
     
-    async def _get_abby_response(self, user_input: str) -> str:
-        """Get response from Abby."""
+    async def _get_abby_response(self, user_input: str, user_context: dict = None, user_prompt_addition: str = "") -> str:
+        """
+        Get response from Abby.
+        
+        Args:
+            user_input: The user's message
+            user_context: Optional user presence context for personalization
+            user_prompt_addition: Optional system prompt addition for user-specific behavior
+        """
         if self.abby:
-            # Use Abby's task execution
+            # Build context with user presence info
+            context = {}
+            if user_context:
+                context['user_presence'] = user_context
+            if user_prompt_addition:
+                context['user_prompt_addition'] = user_prompt_addition
+            
+            # Use Abby's task execution with user context
             result = await asyncio.to_thread(
                 self.abby.execute_task,
-                user_input
+                user_input,
+                context
             )
             return result.get('output', str(result))
         else:
