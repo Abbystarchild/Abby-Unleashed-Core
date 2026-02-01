@@ -71,9 +71,23 @@ class LocalSpeechRecognizer:
     """
     Real-time speech recognition using Vosk.
     Completely offline - no internet required!
+    
+    Features:
+    - Noise reduction (filters out TV, background chatter)
+    - Voice Activity Detection (only processes when you're speaking)
+    - Works in noisy environments
     """
     
-    def __init__(self, sample_rate=16000):
+    def __init__(self, sample_rate=16000, noise_reduce=True, vad_enabled=True, vad_aggressiveness=2):
+        """
+        Initialize speech recognizer with noise reduction.
+        
+        Args:
+            sample_rate: Audio sample rate (16000 recommended)
+            noise_reduce: Enable background noise reduction
+            vad_enabled: Enable Voice Activity Detection
+            vad_aggressiveness: VAD aggressiveness (0-3, higher = more aggressive filtering)
+        """
         self.sample_rate = sample_rate
         self.model = get_vosk_model()
         self.recognizer = None
@@ -83,14 +97,116 @@ class LocalSpeechRecognizer:
         self.partial_callback = None
         self._listen_thread = None
         
+        # Noise reduction settings
+        self.noise_reduce = noise_reduce
+        self.noise_profile = None  # Will be learned from initial silence
+        self._noise_samples = []
+        self._noise_profile_ready = False
+        
+        # VAD settings
+        self.vad_enabled = vad_enabled
+        self.vad = None
+        self.vad_aggressiveness = vad_aggressiveness
+        self._speech_frames = []
+        self._silence_frames = 0
+        self._is_speaking = False
+        self._min_speech_frames = 3  # Minimum frames to consider as speech
+        self._max_silence_frames = 15  # Frames of silence before ending utterance
+        
+        # Initialize VAD
+        if vad_enabled:
+            try:
+                import webrtcvad
+                self.vad = webrtcvad.Vad(vad_aggressiveness)
+                logger.info(f"VAD enabled (aggressiveness: {vad_aggressiveness})")
+            except ImportError:
+                logger.warning("webrtcvad not available - VAD disabled")
+                self.vad_enabled = False
+        
         if self.model:
             from vosk import KaldiRecognizer
             self.recognizer = KaldiRecognizer(self.model, self.sample_rate)
             self.recognizer.SetWords(True)
+        
+        logger.info(f"Speech recognizer initialized (noise_reduce={noise_reduce}, vad={vad_enabled})")
     
     @property
     def is_available(self):
         return self.model is not None and self.recognizer is not None
+    
+    def _reduce_noise(self, audio_data):
+        """Apply noise reduction to audio"""
+        if not self.noise_reduce:
+            return audio_data
+        
+        try:
+            import numpy as np
+            import noisereduce as nr
+            
+            # Convert bytes to numpy array
+            audio_np = np.frombuffer(audio_data, dtype=np.int16).astype(np.float32) / 32768.0
+            
+            # Build noise profile from first few chunks (assumed to be ambient noise)
+            if not self._noise_profile_ready:
+                self._noise_samples.append(audio_np)
+                if len(self._noise_samples) >= 5:  # ~0.5 seconds of noise profile
+                    self.noise_profile = np.concatenate(self._noise_samples)
+                    self._noise_profile_ready = True
+                    logger.info("Noise profile captured - noise reduction active")
+                return audio_data  # Return original until profile is ready
+            
+            # Apply noise reduction
+            reduced = nr.reduce_noise(
+                y=audio_np, 
+                sr=self.sample_rate,
+                y_noise=self.noise_profile,
+                prop_decrease=0.8,  # Reduce noise by 80%
+                stationary=True  # TV/constant noise is stationary
+            )
+            
+            # Convert back to int16 bytes
+            reduced_int16 = (reduced * 32768).astype(np.int16)
+            return reduced_int16.tobytes()
+            
+        except Exception as e:
+            logger.warning(f"Noise reduction failed: {e}")
+            return audio_data
+    
+    def _is_speech(self, audio_chunk):
+        """Check if audio chunk contains speech using VAD"""
+        if not self.vad_enabled or self.vad is None:
+            return True  # Assume speech if VAD disabled
+        
+        try:
+            # VAD requires 10, 20, or 30ms frames at specific sample rates
+            # For 16kHz, 20ms = 320 samples = 640 bytes
+            frame_duration_ms = 20
+            frame_size = int(self.sample_rate * frame_duration_ms / 1000) * 2  # *2 for int16
+            
+            # Check each frame in the chunk
+            speech_frames = 0
+            total_frames = 0
+            
+            for i in range(0, len(audio_chunk) - frame_size, frame_size):
+                frame = audio_chunk[i:i + frame_size]
+                if len(frame) == frame_size:
+                    try:
+                        if self.vad.is_speech(frame, self.sample_rate):
+                            speech_frames += 1
+                        total_frames += 1
+                    except:
+                        pass
+            
+            # Consider it speech if more than 30% of frames contain speech
+            if total_frames > 0:
+                speech_ratio = speech_frames / total_frames
+                return speech_ratio > 0.3
+            
+            return False
+            
+        except Exception as e:
+            logger.warning(f"VAD check failed: {e}")
+            return True  # Assume speech on error
     
     def start_listening(self, on_result=None, on_partial=None):
         """Start listening to microphone"""
@@ -146,23 +262,55 @@ class LocalSpeechRecognizer:
             self.is_listening = False
     
     def _process_audio_loop(self):
-        """Process audio queue and run recognition"""
+        """Process audio queue with noise reduction and VAD"""
         while self.is_listening:
             try:
                 data = self.audio_queue.get(timeout=0.5)
                 
-                if self.recognizer.AcceptWaveform(data):
-                    # Final result
-                    result = json.loads(self.recognizer.Result())
-                    text = result.get('text', '').strip()
-                    if text and self.result_callback:
-                        self.result_callback(text)
+                # Apply noise reduction
+                if self.noise_reduce:
+                    data = self._reduce_noise(data)
+                
+                # Check for speech using VAD
+                is_speech = self._is_speech(data)
+                
+                if is_speech:
+                    self._silence_frames = 0
+                    if not self._is_speaking:
+                        self._is_speaking = True
+                        logger.debug("Speech started")
+                    
+                    # Process with Vosk
+                    if self.recognizer.AcceptWaveform(data):
+                        # Final result
+                        result = json.loads(self.recognizer.Result())
+                        text = result.get('text', '').strip()
+                        if text and self.result_callback:
+                            self.result_callback(text)
+                    else:
+                        # Partial result
+                        partial = json.loads(self.recognizer.PartialResult())
+                        text = partial.get('partial', '').strip()
+                        if text and self.partial_callback:
+                            self.partial_callback(text)
                 else:
-                    # Partial result
-                    partial = json.loads(self.recognizer.PartialResult())
-                    text = partial.get('partial', '').strip()
-                    if text and self.partial_callback:
-                        self.partial_callback(text)
+                    # Silence detected
+                    if self._is_speaking:
+                        self._silence_frames += 1
+                        
+                        # Still process to catch trailing words
+                        self.recognizer.AcceptWaveform(data)
+                        
+                        if self._silence_frames >= self._max_silence_frames:
+                            # End of utterance
+                            self._is_speaking = False
+                            logger.debug("Speech ended")
+                            
+                            # Get final result
+                            result = json.loads(self.recognizer.FinalResult())
+                            text = result.get('text', '').strip()
+                            if text and self.result_callback:
+                                self.result_callback(text)
                         
             except queue.Empty:
                 continue
@@ -191,7 +339,12 @@ def get_speech_recognizer() -> LocalSpeechRecognizer:
     global _speech_recognizer
     
     if _speech_recognizer is None:
-        _speech_recognizer = LocalSpeechRecognizer()
+        # Create with noise reduction and VAD enabled by default
+        _speech_recognizer = LocalSpeechRecognizer(
+            noise_reduce=True,
+            vad_enabled=True,
+            vad_aggressiveness=2  # 0-3, higher = more aggressive filtering
+        )
     
     return _speech_recognizer
 
@@ -211,7 +364,49 @@ def register_speech_routes(app):
         return jsonify({
             'available': recognizer.is_available,
             'listening': recognizer.is_listening,
+            'noise_reduce': recognizer.noise_reduce,
+            'vad_enabled': recognizer.vad_enabled,
+            'noise_profile_ready': recognizer._noise_profile_ready,
             'model': str(MODEL_PATH) if MODEL_PATH.exists() else None
+        })
+    
+    @app.route('/api/speech/settings', methods=['POST'])
+    def speech_settings():
+        """
+        Update speech recognition settings.
+        
+        JSON body:
+        - noise_reduce: bool - Enable/disable noise reduction
+        - vad_aggressiveness: int (0-3) - VAD sensitivity (higher = filters more)
+        - reset_noise_profile: bool - Reset and recapture noise profile
+        """
+        recognizer = get_speech_recognizer()
+        data = request.get_json() or {}
+        
+        if 'noise_reduce' in data:
+            recognizer.noise_reduce = bool(data['noise_reduce'])
+            logger.info(f"Noise reduction: {recognizer.noise_reduce}")
+        
+        if 'vad_aggressiveness' in data:
+            agg = max(0, min(3, int(data['vad_aggressiveness'])))
+            if recognizer.vad:
+                import webrtcvad
+                recognizer.vad = webrtcvad.Vad(agg)
+                recognizer.vad_aggressiveness = agg
+                logger.info(f"VAD aggressiveness: {agg}")
+        
+        if data.get('reset_noise_profile'):
+            recognizer._noise_samples = []
+            recognizer._noise_profile_ready = False
+            recognizer.noise_profile = None
+            logger.info("Noise profile reset - will recapture from ambient sound")
+        
+        return jsonify({
+            'success': True,
+            'noise_reduce': recognizer.noise_reduce,
+            'vad_enabled': recognizer.vad_enabled,
+            'vad_aggressiveness': recognizer.vad_aggressiveness,
+            'noise_profile_ready': recognizer._noise_profile_ready
         })
     
     @app.route('/api/speech/recognize', methods=['POST'])
@@ -290,7 +485,7 @@ def register_speech_routes(app):
         })
     
     @app.route('/api/speech/stream', methods=['GET'])
-    def stream_speech():
+    def local_speech_stream():
         """SSE stream for real-time speech recognition results"""
         recognizer = get_speech_recognizer()
         
