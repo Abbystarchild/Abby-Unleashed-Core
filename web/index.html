@@ -461,6 +461,244 @@
             40% { transform: scale(1); opacity: 1; }
         }
         
+        /* ============ RICH DISPLAY PANEL ============ */
+        .rich-display {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            max-height: 50vh;
+            background: var(--bg-dark);
+            border-top: 1px solid var(--surface-light);
+            overflow-y: auto;
+            transform: translateY(100%);
+            transition: transform 0.3s ease;
+            z-index: 1001;
+            padding: 1rem;
+        }
+        
+        .rich-display.active {
+            transform: translateY(0);
+        }
+        
+        .rich-display-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 1px solid var(--surface-light);
+        }
+        
+        .rich-display-title {
+            font-weight: 600;
+            color: var(--text);
+        }
+        
+        .rich-display-toggle {
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            font-size: 1.5rem;
+            cursor: pointer;
+            padding: 0.25rem;
+        }
+        
+        .rich-content-item {
+            margin-bottom: 1rem;
+            background: var(--surface);
+            border-radius: 0.75rem;
+            overflow: hidden;
+        }
+        
+        .rich-content-item.markdown {
+            padding: 1rem;
+            line-height: 1.6;
+        }
+        
+        .rich-content-item.markdown h1,
+        .rich-content-item.markdown h2,
+        .rich-content-item.markdown h3 {
+            margin-top: 1rem;
+            margin-bottom: 0.5rem;
+        }
+        
+        .rich-content-item.markdown code {
+            background: var(--bg-dark);
+            padding: 0.2rem 0.4rem;
+            border-radius: 0.25rem;
+            font-family: 'Monaco', 'Consolas', monospace;
+            font-size: 0.9em;
+        }
+        
+        .rich-content-item.markdown pre {
+            background: var(--bg-dark);
+            padding: 1rem;
+            border-radius: 0.5rem;
+            overflow-x: auto;
+            margin: 0.5rem 0;
+        }
+        
+        .rich-content-item.markdown pre code {
+            background: none;
+            padding: 0;
+        }
+        
+        .rich-content-item.code {
+            position: relative;
+        }
+        
+        .rich-content-item.code .code-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.5rem 1rem;
+            background: var(--surface-light);
+            font-size: 0.85rem;
+            color: var(--text-muted);
+        }
+        
+        .rich-content-item.code pre {
+            margin: 0;
+            padding: 1rem;
+            overflow-x: auto;
+            font-family: 'Monaco', 'Consolas', monospace;
+            font-size: 0.9rem;
+            line-height: 1.5;
+        }
+        
+        .rich-content-item.code .copy-btn {
+            background: var(--primary);
+            border: none;
+            color: white;
+            padding: 0.25rem 0.5rem;
+            border-radius: 0.25rem;
+            font-size: 0.75rem;
+            cursor: pointer;
+        }
+        
+        .rich-content-item.image img {
+            width: 100%;
+            height: auto;
+            display: block;
+        }
+        
+        .rich-content-item.video {
+            position: relative;
+            padding-bottom: 56.25%;
+            height: 0;
+        }
+        
+        .rich-content-item.video iframe {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            border: none;
+        }
+        
+        .rich-content-item.link {
+            padding: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+        
+        .rich-content-item.link a {
+            color: var(--primary);
+            text-decoration: none;
+        }
+        
+        .rich-content-item.link a:hover {
+            text-decoration: underline;
+        }
+        
+        /* Hot mic indicator */
+        .hot-mic-indicator {
+            position: fixed;
+            top: 1rem;
+            right: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            background: rgba(239, 68, 68, 0.9);
+            color: white;
+            padding: 0.5rem 1rem;
+            border-radius: 2rem;
+            font-size: 0.85rem;
+            font-weight: 500;
+            z-index: 1002;
+            opacity: 0;
+            transform: translateY(-10px);
+            transition: all 0.3s;
+        }
+        
+        .hot-mic-indicator.active {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        
+        .hot-mic-indicator .dot {
+            width: 8px;
+            height: 8px;
+            background: white;
+            border-radius: 50%;
+            animation: hot-mic-pulse 1s ease-in-out infinite;
+        }
+        
+        @keyframes hot-mic-pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
+        
+        /* Mini display preview in voice mode */
+        .display-preview {
+            position: absolute;
+            bottom: 180px;
+            left: 1rem;
+            right: 1rem;
+            max-height: 150px;
+            overflow: hidden;
+            background: var(--surface);
+            border-radius: 1rem;
+            padding: 0.75rem;
+            font-size: 0.85rem;
+            opacity: 0;
+            transform: translateY(20px);
+            transition: all 0.3s;
+        }
+        
+        .display-preview.active {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        
+        .display-preview-text {
+            color: var(--text-muted);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            display: -webkit-box;
+            -webkit-line-clamp: 4;
+            -webkit-box-orient: vertical;
+        }
+        
+        .display-preview-expand {
+            display: flex;
+            justify-content: center;
+            margin-top: 0.5rem;
+        }
+        
+        .display-preview-expand button {
+            background: var(--primary);
+            border: none;
+            color: white;
+            padding: 0.4rem 1rem;
+            border-radius: 1rem;
+            font-size: 0.8rem;
+            cursor: pointer;
+        }
+        
         /* Responsive */
         @media (max-width: 400px) {
             .main-avatar { width: 120px; height: 120px; font-size: 3rem; }
@@ -471,6 +709,12 @@
     </style>
 </head>
 <body>
+    <!-- HOT MIC INDICATOR -->
+    <div class="hot-mic-indicator" id="hotMicIndicator">
+        <div class="dot"></div>
+        <span>Hot Mic Active</span>
+    </div>
+
     <!-- TEXT CHAT MODE -->
     <div id="chatMode">
         <div class="header">
@@ -529,22 +773,43 @@
             </div>
         </div>
         
+        <!-- Display Preview (shows while speaking) -->
+        <div class="display-preview" id="displayPreview">
+            <div class="display-preview-text" id="displayPreviewText"></div>
+            <div class="display-preview-expand">
+                <button onclick="toggleRichDisplay()">📄 View Full Response</button>
+            </div>
+        </div>
+        
         <div class="voice-controls">
-            <button class="secondary-btn" onclick="toggleMute()" id="muteBtn" title="Mute/Unmute">
-                🔊
+            <button class="secondary-btn" onclick="toggleHotMic()" id="hotMicBtn" title="Toggle Hot Mic">
+                🔥
             </button>
             <button class="mic-btn" id="micBtn" onclick="toggleRecording()">
                 🎤
             </button>
-            <button class="secondary-btn" onclick="exitVoiceMode()" title="Back to Chat">
-                💬
+            <button class="secondary-btn" onclick="toggleRichDisplay()" id="displayBtn" title="View Display">
+                📄
             </button>
+        </div>
+    </div>
+    
+    <!-- RICH DISPLAY PANEL -->
+    <div class="rich-display" id="richDisplay">
+        <div class="rich-display-header">
+            <span class="rich-display-title">📄 Full Response</span>
+            <button class="rich-display-toggle" onclick="toggleRichDisplay()">▼</button>
+        </div>
+        <div class="rich-display-content" id="richDisplayContent">
+            <!-- Rich content items rendered here -->
         </div>
     </div>
 
     <script>
         // ============ STATE ============
         let isRecording = false;
+        let wantsToRecord = false;  // User's intent to keep recording (toggle state)
+        let hotMicEnabled = false;  // Hot mic mode (always listening)
         let isMuted = false;
         let isBusy = false;
         let recognition = null;
@@ -552,6 +817,8 @@
         let analyser = null;
         let mediaStream = null;
         let animationFrameId = null;
+        let currentDisplayContent = null;
+        let richDisplayOpen = false;
         
         // ============ INITIALIZATION ============
         document.addEventListener('DOMContentLoaded', () => {
@@ -576,7 +843,7 @@
             }
             
             recognition = new SpeechRecognition();
-            recognition.continuous = false;
+            recognition.continuous = true;  // Keep listening until user toggles off
             recognition.interimResults = true;
             recognition.lang = 'en-US';
             
@@ -602,6 +869,10 @@
                 if (final) {
                     transcriptText.textContent = final;
                     transcriptText.classList.remove('interim');
+                    // Stop recording while processing, then auto-resume if toggle is on
+                    if (wantsToRecord) {
+                        recognition.stop();
+                    }
                     processVoiceInput(final);
                 } else if (interim) {
                     transcriptText.textContent = interim;
@@ -639,10 +910,23 @@
             
             recognition.onend = () => {
                 isRecording = false;
-                if (!isBusy) {
+                stopAudioVisualization();
+                
+                // Auto-restart if toggle is still on and not busy
+                if (wantsToRecord && !isBusy) {
+                    setTimeout(() => {
+                        if (wantsToRecord && !isBusy) {
+                            try {
+                                recognition.start();
+                                startAudioVisualization().catch(() => {});
+                            } catch (e) {
+                                console.warn('Could not restart recognition:', e);
+                            }
+                        }
+                    }, 100);
+                } else if (!isBusy) {
                     updateVoiceUI('ready');
                 }
-                stopAudioVisualization();
             };
         }
         
@@ -726,6 +1010,21 @@
         function exitVoiceMode() {
             document.getElementById('voiceMode').classList.remove('active');
             document.body.style.overflow = '';
+            wantsToRecord = false;  // Reset toggle state
+            
+            // Turn off hot mic if active
+            if (hotMicEnabled) {
+                hotMicEnabled = false;
+                document.getElementById('hotMicBtn').style.background = '';
+                document.getElementById('hotMicBtn').style.borderColor = '';
+                document.getElementById('hotMicIndicator').classList.remove('active');
+            }
+            
+            // Close rich display
+            richDisplayOpen = false;
+            document.getElementById('richDisplay').classList.remove('active');
+            hideDisplayPreview();
+            
             if (isRecording && recognition) {
                 recognition.stop();
             }
@@ -748,9 +1047,15 @@
             
             if (isBusy) return;
             
-            if (isRecording) {
+            if (isRecording || wantsToRecord) {
+                // Toggle OFF - stop recording
+                wantsToRecord = false;
                 recognition.stop();
+                document.getElementById('transcriptText').textContent = '';
+                updateVoiceUI('ready');
             } else {
+                // Toggle ON - start recording
+                wantsToRecord = true;
                 try {
                     // Update UI to show we're trying
                     document.getElementById('transcriptText').textContent = 'Requesting microphone access...';
@@ -768,6 +1073,7 @@
                 } catch (e) {
                     console.error('Failed to start recognition:', e);
                     isRecording = false;
+                    wantsToRecord = false;
                     
                     let errorMsg = 'Error: ' + e.message;
                     if (e.name === 'NotAllowedError' || e.message.includes('not-allowed')) {
@@ -791,39 +1097,235 @@
             }
         }
         
+        // ============ HOT MIC MODE ============
+        function toggleHotMic() {
+            hotMicEnabled = !hotMicEnabled;
+            const hotMicBtn = document.getElementById('hotMicBtn');
+            const indicator = document.getElementById('hotMicIndicator');
+            
+            if (hotMicEnabled) {
+                hotMicBtn.style.background = 'var(--error)';
+                hotMicBtn.style.borderColor = 'var(--error)';
+                indicator.classList.add('active');
+                
+                // Auto-start recording if not already
+                if (!wantsToRecord && !isBusy) {
+                    toggleRecording();
+                }
+            } else {
+                hotMicBtn.style.background = '';
+                hotMicBtn.style.borderColor = '';
+                indicator.classList.remove('active');
+            }
+            
+            // Update server settings
+            fetch('/api/realtime/settings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    hot_mic_enabled: hotMicEnabled,
+                    auto_resume: hotMicEnabled
+                })
+            }).catch(e => console.warn('Could not update hot mic settings:', e));
+        }
+        
+        // ============ RICH DISPLAY ============
+        function toggleRichDisplay() {
+            richDisplayOpen = !richDisplayOpen;
+            const display = document.getElementById('richDisplay');
+            display.classList.toggle('active', richDisplayOpen);
+        }
+        
+        function showDisplayPreview(content) {
+            const preview = document.getElementById('displayPreview');
+            const previewText = document.getElementById('displayPreviewText');
+            
+            // Show first markdown content as preview
+            const markdown = content.find(c => c.type === 'markdown');
+            if (markdown) {
+                // Strip markdown and truncate
+                let text = markdown.content
+                    .replace(/```[\s\S]*?```/g, '[code]')
+                    .replace(/!\[.*?\]\(.*?\)/g, '[image]')
+                    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+                    .replace(/[#*_~`]/g, '')
+                    .trim();
+                previewText.textContent = text.substring(0, 300) + (text.length > 300 ? '...' : '');
+            }
+            
+            preview.classList.add('active');
+            currentDisplayContent = content;
+        }
+        
+        function hideDisplayPreview() {
+            document.getElementById('displayPreview').classList.remove('active');
+        }
+        
+        function renderRichContent(content) {
+            const container = document.getElementById('richDisplayContent');
+            container.innerHTML = '';
+            
+            content.forEach(item => {
+                const div = document.createElement('div');
+                div.className = `rich-content-item ${item.type}`;
+                
+                switch (item.type) {
+                    case 'markdown':
+                        div.innerHTML = renderMarkdown(item.content);
+                        break;
+                        
+                    case 'code':
+                        div.innerHTML = `
+                            <div class="code-header">
+                                <span>${item.language || 'Code'}</span>
+                                <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+                            </div>
+                            <pre><code>${escapeHtml(item.content)}</code></pre>
+                        `;
+                        break;
+                        
+                    case 'image':
+                        div.innerHTML = `<img src="${item.content}" alt="${item.alt_text || 'Image'}" loading="lazy">`;
+                        break;
+                        
+                    case 'video':
+                        div.innerHTML = `<iframe src="${item.content}" allowfullscreen></iframe>`;
+                        break;
+                        
+                    case 'link':
+                        div.innerHTML = `<a href="${item.content}" target="_blank">🔗 ${item.title || item.content}</a>`;
+                        break;
+                }
+                
+                container.appendChild(div);
+            });
+        }
+        
+        function renderMarkdown(text) {
+            // Simple markdown rendering
+            return text
+                .replace(/```(\w+)?\n([\s\S]*?)```/g, '<pre><code>$2</code></pre>')
+                .replace(/`([^`]+)`/g, '<code>$1</code>')
+                .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+                .replace(/\*([^*]+)\*/g, '<em>$1</em>')
+                .replace(/^### (.+)$/gm, '<h3>$1</h3>')
+                .replace(/^## (.+)$/gm, '<h2>$1</h2>')
+                .replace(/^# (.+)$/gm, '<h1>$1</h1>')
+                .replace(/\n/g, '<br>');
+        }
+        
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+        
+        function copyCode(btn) {
+            const code = btn.closest('.rich-content-item').querySelector('code').textContent;
+            navigator.clipboard.writeText(code).then(() => {
+                btn.textContent = 'Copied!';
+                setTimeout(() => btn.textContent = 'Copy', 2000);
+            });
+        }
+        
         async function processVoiceInput(text) {
             isBusy = true;
             updateVoiceUI('thinking');
+            hideDisplayPreview();
             
             try {
-                const response = await fetch('/api/task', {
+                // Use realtime conversation API for rich content
+                const response = await fetch('/api/realtime/conversation', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ task: text })
+                    body: JSON.stringify({ transcript: text, speak: true })
                 });
                 const result = await response.json();
-                const responseText = result.output || result.error || 'I processed your request.';
                 
-                // Also add to chat history
+                if (result.error) {
+                    throw new Error(result.error);
+                }
+                
+                // Add to chat history
                 addMessage(text, 'user');
-                addMessage(responseText, 'assistant');
+                addMessage(result.full_text || result.voice_text, 'assistant');
                 
-                // Speak the response
-                await speakResponse(responseText);
+                // Show rich display content
+                if (result.display_content && result.display_content.length > 0) {
+                    renderRichContent(result.display_content);
+                    showDisplayPreview(result.display_content);
+                }
+                
+                // Speak the voice summary (shorter than full text)
+                const voiceText = result.voice_text || result.full_text;
+                if (result.voice_audio) {
+                    // Use pre-synthesized audio
+                    await playBase64Audio(result.voice_audio);
+                } else {
+                    // Fallback to synthesizing
+                    await speakResponse(voiceText);
+                }
                 
             } catch (e) {
                 console.error('API Error:', e);
                 await speakResponse('Sorry, I encountered an error processing your request.');
             } finally {
                 isBusy = false;
-                updateVoiceUI('ready');
+                
+                // Notify server speaking complete (for hot mic auto-resume)
+                if (hotMicEnabled) {
+                    fetch('/api/realtime/speaking-complete', { method: 'POST' })
+                        .catch(e => console.warn('Could not notify speaking complete:', e));
+                }
+                
+                // Resume listening if toggle is still on
+                if (wantsToRecord || hotMicEnabled) {
+                    updateVoiceUI('listening');
+                    try {
+                        recognition.start();
+                        startAudioVisualization().catch(() => {});
+                    } catch (err) {
+                        console.warn('Could not resume recording:', err);
+                        updateVoiceUI('ready');
+                    }
+                } else {
+                    updateVoiceUI('ready');
+                }
             }
+        }
+        
+        async function playBase64Audio(base64Data) {
+            return new Promise((resolve, reject) => {
+                try {
+                    updateVoiceUI('speaking');
+                    
+                    const audio = new Audio('data:audio/mp3;base64,' + base64Data);
+                    audioPlayer = audio;
+                    
+                    audio.onended = () => {
+                        audioPlayer = null;
+                        resolve();
+                    };
+                    
+                    audio.onerror = (e) => {
+                        audioPlayer = null;
+                        reject(e);
+                    };
+                    
+                    if (!isMuted) {
+                        audio.play();
+                    } else {
+                        resolve();
+                    }
+                } catch (e) {
+                    reject(e);
+                }
+            });
         }
         
         // ============ ELEVENLABS TEXT-TO-SPEECH ============
         let useElevenLabs = true;  // Set to false to use browser TTS
         let elevenLabsConfigured = false;
-        let audioPlayer = null;
         
         // Check ElevenLabs status on load
         async function checkElevenLabsStatus() {
@@ -1080,11 +1582,11 @@
             switch (state) {
                 case 'ready':
                     statusEl.textContent = 'Ready';
-                    labelEl.textContent = 'Tap the mic to speak';
+                    labelEl.textContent = 'Tap mic to start listening';
                     break;
                 case 'listening':
                     statusEl.textContent = 'Listening...';
-                    labelEl.textContent = 'Listening...';
+                    labelEl.textContent = 'Tap mic to stop';
                     micBtn.classList.add('recording');
                     avatar.classList.add('listening');
                     break;

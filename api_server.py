@@ -1331,6 +1331,190 @@ def get_capabilities():
     return jsonify(capabilities)
 
 
+# ============ REALTIME CONVERSATION API ============
+
+def get_realtime_conversation():
+    """Get realtime conversation instance."""
+    try:
+        from realtime_conversation import get_realtime_conversation as get_rtc
+        rtc = get_rtc()
+        rtc.abby = get_abby()
+        return rtc
+    except Exception as e:
+        logger.error(f"Could not get realtime conversation: {e}")
+        return None
+
+
+@app.route('/api/realtime/status', methods=['GET'])
+def realtime_status():
+    """Get realtime conversation status."""
+    try:
+        rtc = get_realtime_conversation()
+        if not rtc:
+            return jsonify({'error': 'Realtime conversation not available'}), 500
+        
+        return jsonify({
+            'state': rtc.state.value,
+            'hot_mic_enabled': rtc.hot_mic_enabled,
+            'auto_resume': rtc.auto_resume_listening,
+            'history_length': len(rtc.conversation_history),
+            'turn_count': rtc.turn_counter
+        })
+    except Exception as e:
+        logger.error(f"Realtime status error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/realtime/settings', methods=['POST'])
+def realtime_settings():
+    """Update realtime conversation settings."""
+    try:
+        data = request.get_json()
+        rtc = get_realtime_conversation()
+        if not rtc:
+            return jsonify({'error': 'Realtime conversation not available'}), 500
+        
+        if 'hot_mic_enabled' in data:
+            rtc.hot_mic_enabled = bool(data['hot_mic_enabled'])
+        if 'auto_resume' in data:
+            rtc.auto_resume_listening = bool(data['auto_resume'])
+        if 'silence_duration' in data:
+            rtc.vad.silence_duration = float(data['silence_duration'])
+        if 'energy_threshold' in data:
+            rtc.vad.energy_threshold = float(data['energy_threshold'])
+        
+        return jsonify({
+            'status': 'updated',
+            'hot_mic_enabled': rtc.hot_mic_enabled,
+            'auto_resume': rtc.auto_resume_listening,
+            'silence_duration': rtc.vad.silence_duration,
+            'energy_threshold': rtc.vad.energy_threshold
+        })
+    except Exception as e:
+        logger.error(f"Realtime settings error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/realtime/conversation', methods=['POST'])
+def realtime_conversation():
+    """
+    Process a conversation turn with rich display + voice summary.
+    
+    Request:
+        {
+            "transcript": "user's speech transcript",
+            "speak": true  // whether to synthesize voice
+        }
+    
+    Response:
+        {
+            "turn_id": "turn_1_...",
+            "transcript": "user's input",
+            "display_content": [
+                {"type": "markdown", "content": "full response..."},
+                {"type": "code", "content": "...", "language": "python"},
+                {"type": "image", "content": "url", "alt_text": "..."}
+            ],
+            "voice_text": "summary for speech",
+            "voice_audio": "base64 mp3 audio",
+            "full_text": "complete unabridged response",
+            "processing_time": 1.23
+        }
+    """
+    try:
+        data = request.get_json()
+        
+        if 'transcript' not in data:
+            return jsonify({'error': 'transcript required'}), 400
+        
+        transcript = data['transcript'].strip()
+        speak = data.get('speak', True)
+        
+        if not transcript:
+            return jsonify({'error': 'Empty transcript'}), 400
+        
+        rtc = get_realtime_conversation()
+        if not rtc:
+            return jsonify({'error': 'Realtime conversation not available'}), 500
+        
+        # Process synchronously (async wrapper)
+        import asyncio
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            result = loop.run_until_complete(rtc.process_transcript(transcript))
+        finally:
+            loop.close()
+        
+        # Remove voice_audio if not requested
+        if not speak and 'voice_audio' in result:
+            del result['voice_audio']
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        logger.error(f"Realtime conversation error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/realtime/history', methods=['GET'])
+def realtime_history():
+    """Get conversation history."""
+    try:
+        rtc = get_realtime_conversation()
+        if not rtc:
+            return jsonify({'error': 'Realtime conversation not available'}), 500
+        
+        return jsonify({
+            'history': rtc.get_conversation_history(),
+            'turn_count': rtc.turn_counter
+        })
+    except Exception as e:
+        logger.error(f"History error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/realtime/history', methods=['DELETE'])
+def clear_realtime_history():
+    """Clear conversation history."""
+    try:
+        rtc = get_realtime_conversation()
+        if not rtc:
+            return jsonify({'error': 'Realtime conversation not available'}), 500
+        
+        rtc.clear_history()
+        return jsonify({'status': 'cleared'})
+    except Exception as e:
+        logger.error(f"Clear history error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/realtime/speaking-complete', methods=['POST'])
+def speaking_complete():
+    """Notify that TTS playback finished (for auto-resume)."""
+    try:
+        rtc = get_realtime_conversation()
+        if not rtc:
+            return jsonify({'error': 'Realtime conversation not available'}), 500
+        
+        import asyncio
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            loop.run_until_complete(rtc.on_speaking_complete())
+        finally:
+            loop.close()
+        
+        return jsonify({
+            'status': 'ok',
+            'new_state': rtc.state.value,
+            'listening': rtc.state.value == 'listening'
+        })
+    except Exception as e:
+        logger.error(f"Speaking complete error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
 def start_server(host: str = '0.0.0.0', port: int = 8080, debug: bool = False):
     """
     Start the web API server
