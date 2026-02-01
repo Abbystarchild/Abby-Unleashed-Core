@@ -1,23 +1,23 @@
 {
   "03af5658856e1835": {
-    "user_id": "organic_abby",
-    "display_name": "Organic Abby",
+    "user_id": "boyfriend",
+    "display_name": "The Boyfriend",
     "device_info": "Android device",
     "connected_at": "2026-01-31T17:47:22.431713",
-    "last_activity": "2026-01-31T18:43:11.636708",
+    "last_activity": "2026-01-31T20:05:12.786344",
     "ip_address": "192.168.254.23",
     "user_agent": "Mozilla/5.0 (Linux; Android 16; SM-F936U1 Build/BP2A.250605.031.A3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.7559.59 Mobile Safari/537.36 OPX/3.1",
-    "message_count": 2
+    "message_count": 4
   },
   "97ffe2c2be417765": {
     "user_id": "organic_abby",
     "display_name": "Organic Abby",
     "device_info": "Windows PC",
     "connected_at": "2026-01-31T18:11:25.070587",
-    "last_activity": "2026-01-31T18:46:59.244992",
+    "last_activity": "2026-01-31T20:04:39.773279",
     "ip_address": "127.0.0.1",
     "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36 OPR/126.0.0.0",
-    "message_count": 3
+    "message_count": 4
   },
   "da3981c74a4a823e": {
     "user_id": "organic_abby",

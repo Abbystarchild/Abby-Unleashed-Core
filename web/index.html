@@ -2631,6 +2631,21 @@
             status.textContent = 'Starting camera...';
             status.className = 'camera-status';
             
+            // Check if camera API is available (requires HTTPS on mobile)
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                const isHTTPS = location.protocol === 'https:';
+                const isLocalhost = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+                
+                if (!isHTTPS && !isLocalhost) {
+                    status.textContent = '🔒 Camera requires HTTPS on mobile. Use localhost or set up HTTPS.';
+                } else {
+                    status.textContent = '❌ Camera not supported in this browser.';
+                }
+                status.className = 'camera-status error';
+                console.error('📷 mediaDevices not available. HTTPS:', isHTTPS, 'Localhost:', isLocalhost);
+                return;
+            }
+            
             try {
                 // Request camera access
                 console.log('📷 Requesting camera access...');
