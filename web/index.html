@@ -1878,23 +1878,54 @@
                 // First unlock audio
                 await unlockAudio();
                 
-                // Try ElevenLabs test
+                // Try ElevenLabs via the enhanced task endpoint (returns proper base64 JSON)
                 if (elevenLabsConfigured) {
-                    transcriptText.textContent = 'Requesting test audio from server...';
-                    const response = await fetch('/api/tts/synthesize', {
+                    transcriptText.textContent = 'Requesting test audio from ElevenLabs...';
+                    
+                    // Use the enhanced/task endpoint which returns proper JSON with base64 audio
+                    const response = await fetch(`${API_BASE}/api/enhanced/task`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ text: 'Hello! Audio test successful. I can hear you!' })
+                        body: JSON.stringify({ 
+                            task: 'Say: Hello! Audio test successful. I can hear you!',
+                            speak: true
+                        })
                     });
                     
                     if (response.ok) {
                         const data = await response.json();
-                        if (data.audio) {
-                            transcriptText.textContent = 'Playing audio...';
-                            await playBase64Audio(data.audio);
-                            transcriptText.textContent = '✅ Audio working! Tap mic to start talking.';
+                        if (data.voice_audio) {
+                            transcriptText.textContent = 'Playing ElevenLabs audio...';
+                            await playBase64Audio(data.voice_audio);
+                            transcriptText.textContent = '✅ ElevenLabs audio working! Tap mic to start talking.';
                             return;
                         }
+                    }
+                    
+                    // Fallback: try raw TTS endpoint with blob handling
+                    transcriptText.textContent = 'Trying direct TTS...';
+                    const ttsResponse = await fetch(`${API_BASE}/api/tts/synthesize`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ text: 'Hello! Audio test successful.' })
+                    });
+                    
+                    if (ttsResponse.ok && ttsResponse.headers.get('content-type')?.includes('audio')) {
+                        const blob = await ttsResponse.blob();
+                        const audioUrl = URL.createObjectURL(blob);
+                        const audio = new Audio(audioUrl);
+                        audioPlayer = audio;
+                        
+                        audio.onended = () => {
+                            URL.revokeObjectURL(audioUrl);
+                            transcriptText.textContent = '✅ Audio working! Tap mic to start talking.';
+                        };
+                        audio.onerror = () => {
+                            transcriptText.textContent = '❌ Audio playback failed';
+                        };
+                        
+                        await audio.play();
+                        return;
                     }
                 }
                 
