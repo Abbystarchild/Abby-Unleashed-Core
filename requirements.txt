@@ -14,6 +14,12 @@ sounddevice>=0.4.6
 pvporcupine>=3.0.0
 pydub>=0.25.0  # For ElevenLabs audio conversion
 
+# Face Recognition (Camera features)
+dlib-bin>=19.0.0  # Pre-built dlib binary (no CMake needed)
+face_recognition>=1.3.0
+opencv-python>=4.8.0
+Pillow>=10.0.0
+
 # LLM & embeddings
 sentence-transformers>=2.2.0
 chromadb>=0.4.0
