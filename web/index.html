@@ -1703,16 +1703,50 @@
             if (data.voice_audio) {
                 console.log('✅ Got audio, length:', data.voice_audio.length);
                 const audio = new Audio('data:audio/mp3;base64,' + data.voice_audio);
+                audio.volume = 1.0;
+                console.log('Audio element created, volume:', audio.volume);
+                audio.oncanplay = () => console.log('✅ Audio can play');
+                audio.onplay = () => console.log('✅ Audio started playing');
                 audio.onended = () => console.log('✅ Audio finished playing');
-                audio.onerror = (e) => console.log('❌ Audio error:', e);
-                await audio.play();
-                return 'Playing audio...';
+                audio.onerror = (e) => console.log('❌ Audio error:', e, audio.error);
+                try {
+                    await audio.play();
+                    console.log('✅ play() succeeded');
+                    return 'Playing audio...';
+                } catch (e) {
+                    console.log('❌ play() failed:', e.name, e.message);
+                    return '❌ Autoplay blocked: ' + e.message;
+                }
             } else {
                 return '❌ No voice_audio in response';
             }
         };
         
-        console.log('🧪 Debug functions available: testMic(), testAPI(), testAudioDirect()');
+        // Test with a simple beep to isolate audio issues
+        window.testBeep = function() {
+            console.log('🧪 Testing basic audio with beep...');
+            try {
+                const ctx = new (window.AudioContext || window.webkitAudioContext)();
+                const oscillator = ctx.createOscillator();
+                const gain = ctx.createGain();
+                oscillator.connect(gain);
+                gain.connect(ctx.destination);
+                oscillator.frequency.value = 440;
+                gain.gain.value = 0.3;
+                oscillator.start();
+                setTimeout(() => {
+                    oscillator.stop();
+                    ctx.close();
+                    console.log('✅ Beep finished');
+                }, 500);
+                return '🔊 You should hear a beep!';
+            } catch (e) {
+                console.log('❌ Beep failed:', e);
+                return '❌ ' + e.message;
+            }
+        };
+        
+        console.log('🧪 Debug functions available: testMic(), testAPI(), testAudioDirect(), testBeep()');
         
         // Check ElevenLabs status on load
         async function checkElevenLabsStatus() {
