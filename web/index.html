@@ -988,10 +988,19 @@
         }
         
         .camera-container video {
-            width: 100%;
-            height: 100%;
+            display: block !important;
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100% !important;
+            height: 100% !important;
             object-fit: cover;
             transform: scaleX(-1); /* Mirror for natural feel */
+            z-index: 1;
+            background: transparent;
+            -webkit-transform: scaleX(-1);
+            opacity: 1 !important;
+            visibility: visible !important;
         }
         
         .camera-overlay {
@@ -1001,6 +1010,7 @@
             right: 0;
             bottom: 0;
             pointer-events: none;
+            z-index: 2;
         }
         
         .face-box {
@@ -1353,7 +1363,7 @@
             </div>
             
             <div class="camera-container">
-                <video id="cameraPreview" autoplay playsinline muted></video>
+                <video id="cameraPreview" autoplay playsinline muted width="640" height="480"></video>
                 <canvas id="cameraCanvas" style="display: none;"></canvas>
                 <div class="camera-overlay" id="cameraOverlay">
                     <!-- Face boxes will be drawn here dynamically -->
@@ -2623,12 +2633,23 @@
             
             try {
                 // Request camera access
+                console.log('📷 Requesting camera access...');
                 cameraStream = await navigator.mediaDevices.getUserMedia({
-                    video: { facingMode: 'user', width: 640, height: 480 }
+                    video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } }
                 });
                 
+                console.log('📷 Got camera stream:', cameraStream);
+                console.log('📷 Video tracks:', cameraStream.getVideoTracks());
+                
                 video.srcObject = cameraStream;
+                
+                // Wait for video to be ready
+                video.onloadedmetadata = () => {
+                    console.log('📷 Video metadata loaded:', video.videoWidth, 'x', video.videoHeight);
+                };
+                
                 await video.play();
+                console.log('📷 Video playing, dimensions:', video.videoWidth, 'x', video.videoHeight);
                 
                 status.textContent = '📷 Camera ready! Let Abby see you.';
                 status.className = 'camera-status success';

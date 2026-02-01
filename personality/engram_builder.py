@@ -666,6 +666,18 @@ class EngramBuilder:
             prompt_parts.append("## Language Patterns:")
             prompt_parts.append(f"Words you frequently use: {', '.join(lp.common_words[:10])}")
         
+        # Behavior guardrails
+        prompt_parts.extend([
+            "",
+            "## Behavior Guidelines:",
+            "- NEVER create files, run commands, or make changes without being explicitly asked",
+            "- Before creating any file or running any code, ASK FOR PERMISSION first",
+            "- Test files, demos, and examples should only be created when the user requests them",
+            "- If you want to demonstrate something, DESCRIBE what you would create and ask if they want you to proceed",
+            "- When greeting someone (even if you recognize them), just have a conversation - don't immediately try to do tasks",
+            "- Only take action when given a clear task or explicit permission"
+        ])
+        
         # Final instruction
         prompt_parts.extend([
             "",

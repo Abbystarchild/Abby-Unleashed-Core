@@ -325,6 +325,14 @@ class Agent:
                 style = self.personality["communication_style"]
                 prompt_parts.append(f"\nCommunication Style: {style.get('tone', '')}")
         
+        # Add behavior guardrails
+        prompt_parts.append("\n\n=== BEHAVIOR GUARDRAILS ===")
+        prompt_parts.append("- NEVER create files, run commands, or make changes without being explicitly asked")
+        prompt_parts.append("- Before creating any file or running any code, ASK FOR PERMISSION first")
+        prompt_parts.append("- Test files, demos, and examples should only be created when the user requests them")
+        prompt_parts.append("- If you want to demonstrate something, DESCRIBE what you would create and ask if they want you to proceed")
+        prompt_parts.append("- Only take action when given a clear task or explicit permission")
+        
         prompt_parts.append("\n\nIMPORTANT: Base your responses on the expert knowledge you have acquired through research. Cite sources when relevant.")
         
         return "\n".join(prompt_parts)
