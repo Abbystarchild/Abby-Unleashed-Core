@@ -644,6 +644,40 @@
             animation: pulse-green 0.5s ease-in-out;
         }
         
+        /* Voice text fallback for when speech recognition doesn't work */
+        .voice-text-fallback {
+            display: flex;
+            gap: 0.5rem;
+            margin-top: 1rem;
+            width: 100%;
+            max-width: 300px;
+        }
+        
+        .voice-text-fallback input {
+            flex: 1;
+            background: var(--surface);
+            border: 1px solid var(--surface-light);
+            border-radius: 1.5rem;
+            padding: 0.6rem 1rem;
+            color: var(--text);
+            font-size: 0.9rem;
+        }
+        
+        .voice-text-fallback input::placeholder {
+            color: var(--text-muted);
+        }
+        
+        .voice-text-fallback button {
+            background: var(--primary);
+            border: none;
+            color: white;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            cursor: pointer;
+            font-size: 1rem;
+        }
+
         @keyframes pulse-green {
             0%, 100% { color: #22c55e; }
             50% { color: #4ade80; }
@@ -1617,6 +1651,11 @@
                 </div>
                 <span>Thinking...</span>
             </div>
+            <!-- Text input fallback for when voice doesn't work -->
+            <div class="voice-text-fallback" id="voiceTextFallback">
+                <input type="text" id="voiceTextInput" placeholder="Type here if voice isn't working..." autocomplete="off">
+                <button onclick="sendVoiceText()">➤</button>
+            </div>
         </div>
         
         <!-- Display Preview (shows while speaking) -->
@@ -1976,10 +2015,18 @@
                 // Update UI to show text-only mode
                 const transcriptText = document.getElementById('transcriptText');
                 if (transcriptText) {
-                    transcriptText.textContent = 'Voice not supported on this browser - use text chat';
+                    transcriptText.textContent = '⚠️ Voice not supported - use text chat or try Chrome';
+                }
+                // Show a more visible warning on mobile
+                const voiceStatus = document.getElementById('voiceStatus');
+                if (voiceStatus) {
+                    voiceStatus.textContent = '❌ Voice N/A';
+                    voiceStatus.style.color = '#ef4444';
                 }
                 return;
             }
+            
+            console.log('🎤 Initializing Web Speech API...');
             
             recognition = new SpeechRecognition();
             recognition.continuous = true;  // Keep listening until user toggles off
@@ -2822,18 +2869,47 @@
         // Call these from browser console (F12) to test individual components
         window.testMic = function() {
             console.log('🧪 Testing microphone...');
-            const sr = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            if (!SpeechRecognition) {
+                console.log('❌ SpeechRecognition API not available in this browser');
+                return 'Speech Recognition not supported - try Chrome on desktop/Android or Safari on iOS';
+            }
+            const sr = new SpeechRecognition();
             sr.onstart = () => console.log('✅ Mic started');
             sr.onaudiostart = () => console.log('✅ Audio capture working');
             sr.onspeechstart = () => console.log('✅ Speech detected!');
             sr.onresult = (e) => console.log('✅ Got result:', e.results[0][0].transcript);
-            sr.onerror = (e) => console.log('❌ Mic error:', e.error);
+            sr.onerror = (e) => console.log('❌ Mic error:', e.error, e);
             sr.onend = () => console.log('🛑 Mic stopped');
             sr.start();
             setTimeout(() => sr.stop(), 5000);
             return 'Listening for 5 seconds... speak now!';
         };
         
+        // Send text from voice mode fallback input
+        async function sendVoiceText() {
+            const input = document.getElementById('voiceTextInput');
+            const text = input.value.trim();
+            if (!text) return;
+            
+            input.value = '';
+            document.getElementById('transcriptText').textContent = '✅ "' + text + '"';
+            await processVoiceInput(text);
+        }
+        
+        // Enter key support for voice text input
+        document.addEventListener('DOMContentLoaded', () => {
+            const voiceTextInput = document.getElementById('voiceTextInput');
+            if (voiceTextInput) {
+                voiceTextInput.addEventListener('keypress', (e) => {
+                    if (e.key === 'Enter') {
+                        e.preventDefault();
+                        sendVoiceText();
+                    }
+                });
+            }
+        });
+
         window.testAPI = async function() {
             console.log('🧪 Testing API...');
             const r = await fetch('/api/realtime/conversation', {
