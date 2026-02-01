@@ -730,6 +730,134 @@
             border-color: var(--primary);
         }
         
+        /* Mic Settings Modal */
+        .mic-settings-modal {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.85);
+            z-index: 3000;
+            align-items: center;
+            justify-content: center;
+            padding: 1rem;
+        }
+        
+        .mic-settings-modal.active {
+            display: flex;
+        }
+        
+        .mic-settings-content {
+            background: var(--surface);
+            border-radius: 1rem;
+            padding: 1.5rem;
+            max-width: 400px;
+            width: 100%;
+            animation: modalIn 0.2s ease;
+        }
+        
+        .mic-settings-content h3 {
+            margin-bottom: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        .mic-device-list {
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        
+        .mic-device-option {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 0.75rem;
+            background: var(--bg);
+            border-radius: 0.5rem;
+            margin-bottom: 0.5rem;
+            cursor: pointer;
+            border: 2px solid transparent;
+            transition: all 0.2s;
+        }
+        
+        .mic-device-option:hover {
+            border-color: var(--primary);
+        }
+        
+        .mic-device-option.selected {
+            border-color: var(--success);
+            background: rgba(16, 185, 129, 0.1);
+        }
+        
+        .mic-device-option .device-icon {
+            font-size: 1.5rem;
+        }
+        
+        .mic-device-option .device-info {
+            flex: 1;
+        }
+        
+        .mic-device-option .device-name {
+            font-weight: 500;
+            font-size: 0.9rem;
+        }
+        
+        .mic-device-option .device-id {
+            font-size: 0.7rem;
+            color: var(--text-muted);
+            font-family: monospace;
+        }
+        
+        .mic-settings-footer {
+            margin-top: 1rem;
+            display: flex;
+            gap: 0.5rem;
+        }
+        
+        .mic-settings-footer button {
+            flex: 1;
+            padding: 0.75rem;
+            border-radius: 0.5rem;
+            border: none;
+            cursor: pointer;
+            font-weight: 500;
+        }
+        
+        .mic-settings-footer .apply-btn {
+            background: var(--primary);
+            color: white;
+        }
+        
+        .mic-settings-footer .cancel-btn {
+            background: var(--surface-light);
+            color: var(--text);
+        }
+        
+        .mic-test-indicator {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            margin-top: 1rem;
+            padding: 0.5rem;
+            background: var(--bg);
+            border-radius: 0.5rem;
+        }
+        
+        .mic-test-indicator .level-bar {
+            flex: 1;
+            height: 8px;
+            background: var(--surface-light);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        
+        .mic-test-indicator .level-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--success), #fbbf24, var(--error));
+            width: 0%;
+            transition: width 0.05s;
+        }
+
         /* Audio Visualizer */
         .audio-visualizer {
             position: absolute;
@@ -1515,6 +1643,34 @@
             <button class="secondary-btn" onclick="toggleCamera()" id="cameraBtn" title="Camera - Let Abby see you">
                 📷
             </button>
+            <button class="secondary-btn" onclick="openMicSettings()" id="micSettingsBtn" title="Mic Settings">
+                ⚙️
+            </button>
+        </div>
+    </div>
+    
+    <!-- MIC SETTINGS MODAL -->
+    <div class="mic-settings-modal" id="micSettingsModal">
+        <div class="mic-settings-content">
+            <h3>🎤 Microphone Settings</h3>
+            <p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 1rem;">
+                Select which microphone to use for voice input
+            </p>
+            <div class="mic-device-list" id="micDeviceList">
+                <div style="color: var(--text-muted); padding: 1rem; text-align: center;">
+                    Loading devices...
+                </div>
+            </div>
+            <div class="mic-test-indicator">
+                <span>🎤 Level:</span>
+                <div class="level-bar">
+                    <div class="level-fill" id="micLevelFill"></div>
+                </div>
+            </div>
+            <div class="mic-settings-footer">
+                <button class="cancel-btn" onclick="closeMicSettings()">Cancel</button>
+                <button class="apply-btn" onclick="applyMicSettings()">Apply</button>
+            </div>
         </div>
     </div>
     
@@ -1599,6 +1755,12 @@
         let audioUnlocked = false;  // Mobile audio requires user interaction first
         let audioPlayer = null;
         
+        // Mic Settings State
+        let selectedMicDeviceId = localStorage.getItem('selectedMicDeviceId') || null;
+        let micTestStream = null;
+        let micTestAnalyser = null;
+        let micTestAnimationId = null;
+        
         // Visual Awareness State
         let visualAwarenessActive = false;  // Continuous watching mode
         let visionInterval = null;          // Frame analysis interval
@@ -1633,6 +1795,149 @@
             }
         }
         
+        // ============ MIC SETTINGS ============
+        async function openMicSettings() {
+            const modal = document.getElementById('micSettingsModal');
+            modal.classList.add('active');
+            
+            // Enumerate audio devices
+            await enumerateMicDevices();
+            
+            // Start mic level testing
+            startMicLevelTest();
+        }
+        
+        function closeMicSettings() {
+            const modal = document.getElementById('micSettingsModal');
+            modal.classList.remove('active');
+            
+            // Stop mic test
+            stopMicLevelTest();
+        }
+        
+        async function enumerateMicDevices() {
+            const listEl = document.getElementById('micDeviceList');
+            
+            try {
+                // First request mic permission to get device labels
+                await navigator.mediaDevices.getUserMedia({ audio: true })
+                    .then(stream => stream.getTracks().forEach(t => t.stop()));
+                
+                const devices = await navigator.mediaDevices.enumerateDevices();
+                const audioInputs = devices.filter(d => d.kind === 'audioinput');
+                
+                if (audioInputs.length === 0) {
+                    listEl.innerHTML = '<div style="color: var(--error); padding: 1rem; text-align: center;">No microphones found</div>';
+                    return;
+                }
+                
+                listEl.innerHTML = audioInputs.map((device, i) => {
+                    const isSelected = selectedMicDeviceId === device.deviceId || 
+                        (!selectedMicDeviceId && device.deviceId === 'default');
+                    const label = device.label || `Microphone ${i + 1}`;
+                    const shortId = device.deviceId.substring(0, 8) + '...';
+                    
+                    return `
+                        <div class="mic-device-option ${isSelected ? 'selected' : ''}" 
+                             data-device-id="${device.deviceId}"
+                             onclick="selectMicDevice(this, '${device.deviceId}')">
+                            <span class="device-icon">${i === 0 ? '🎙️' : '🎤'}</span>
+                            <div class="device-info">
+                                <div class="device-name">${escapeHtml(label)}</div>
+                                <div class="device-id">${shortId}</div>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+                
+            } catch (e) {
+                console.error('Failed to enumerate mic devices:', e);
+                listEl.innerHTML = `
+                    <div style="color: var(--error); padding: 1rem; text-align: center;">
+                        Failed to access microphones<br>
+                        <small style="color: var(--text-muted)">${e.message}</small>
+                    </div>
+                `;
+            }
+        }
+        
+        function selectMicDevice(element, deviceId) {
+            // Update UI
+            document.querySelectorAll('.mic-device-option').forEach(el => el.classList.remove('selected'));
+            element.classList.add('selected');
+            
+            // Update selection (not saved until Apply)
+            element.dataset.pendingSelection = deviceId;
+            
+            // Restart level test with new device
+            startMicLevelTest(deviceId);
+        }
+        
+        async function startMicLevelTest(deviceId = null) {
+            stopMicLevelTest();
+            
+            const targetDeviceId = deviceId || selectedMicDeviceId;
+            const constraints = targetDeviceId ? 
+                { audio: { deviceId: { exact: targetDeviceId } } } : 
+                { audio: true };
+            
+            try {
+                micTestStream = await navigator.mediaDevices.getUserMedia(constraints);
+                const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                micTestAnalyser = audioContext.createAnalyser();
+                micTestAnalyser.fftSize = 256;
+                
+                const source = audioContext.createMediaStreamSource(micTestStream);
+                source.connect(micTestAnalyser);
+                
+                const dataArray = new Uint8Array(micTestAnalyser.frequencyBinCount);
+                const levelFill = document.getElementById('micLevelFill');
+                
+                function updateLevel() {
+                    micTestAnimationId = requestAnimationFrame(updateLevel);
+                    micTestAnalyser.getByteFrequencyData(dataArray);
+                    
+                    const average = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
+                    const level = Math.min(100, (average / 128) * 100);
+                    levelFill.style.width = level + '%';
+                }
+                
+                updateLevel();
+            } catch (e) {
+                console.error('Mic test failed:', e);
+            }
+        }
+        
+        function stopMicLevelTest() {
+            if (micTestAnimationId) {
+                cancelAnimationFrame(micTestAnimationId);
+                micTestAnimationId = null;
+            }
+            if (micTestStream) {
+                micTestStream.getTracks().forEach(t => t.stop());
+                micTestStream = null;
+            }
+            micTestAnalyser = null;
+        }
+        
+        function applyMicSettings() {
+            // Get the selected device
+            const selectedEl = document.querySelector('.mic-device-option.selected');
+            if (selectedEl) {
+                selectedMicDeviceId = selectedEl.dataset.deviceId;
+                localStorage.setItem('selectedMicDeviceId', selectedMicDeviceId);
+                console.log('🎤 Mic device set to:', selectedMicDeviceId);
+                
+                // Reinitialize audio visualization with new device
+                if (mediaStream) {
+                    mediaStream.getTracks().forEach(t => t.stop());
+                    startAudioVisualization();
+                }
+            }
+            
+            closeMicSettings();
+        }
+
         // ============ INITIALIZATION ============
         document.addEventListener('DOMContentLoaded', () => {
             // Check for HTTPS requirement on mobile
@@ -2759,7 +3064,12 @@
         // ============ AUDIO VISUALIZATION ============
         async function startAudioVisualization() {
             try {
-                mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                // Use selected mic device if set
+                const constraints = selectedMicDeviceId ? 
+                    { audio: { deviceId: { exact: selectedMicDeviceId } } } : 
+                    { audio: true };
+                
+                mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
                 audioContext = new (window.AudioContext || window.webkitAudioContext)();
                 analyser = audioContext.createAnalyser();
                 analyser.fftSize = 64;
@@ -2768,6 +3078,7 @@
                 source.connect(analyser);
                 
                 visualize();
+                console.log('🎤 Audio visualization started' + (selectedMicDeviceId ? ' with selected device' : ''));
             } catch (e) {
                 console.error('Could not access microphone:', e);
             }
