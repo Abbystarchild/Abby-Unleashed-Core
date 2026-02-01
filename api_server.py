@@ -2082,7 +2082,9 @@ def enhanced_task():
         return jsonify(response)
     
     except Exception as e:
+        import traceback
         logger.error(f"Enhanced task error: {e}")
+        logger.error(f"Traceback: {traceback.format_exc()}")
         return jsonify({'error': str(e)}), 500
 
 

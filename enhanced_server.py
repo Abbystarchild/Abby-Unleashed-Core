@@ -518,7 +518,8 @@ class EnhancedAbbyServer:
         self,
         task: str,
         conversation_id: str,
-        output_mode: OutputMode = None
+        output_mode: OutputMode = None,
+        user_context: Dict[str, Any] = None
     ) -> Dict[str, Any]:
         """
         Process a task with parallel output.
@@ -527,6 +528,7 @@ class EnhancedAbbyServer:
             task: User's task/question
             conversation_id: ID for conversation context
             output_mode: Override output mode for this task
+            user_context: Additional context (user name, visual info, etc.)
         
         Returns:
             Dict with display and voice outputs
@@ -556,8 +558,13 @@ class EnhancedAbbyServer:
         # Get context
         context = self.parallel_processor.create_context(conversation_id)
         
+        # Add user context if provided
+        execution_context = {"conversation_id": conversation_id}
+        if user_context:
+            execution_context["user_context"] = user_context
+        
         # Execute with streaming updates
-        result = abby.execute_task(task, context={"conversation_id": conversation_id})
+        result = abby.execute_task(task, context=execution_context)
         
         # Complete thinking and route output
         routed = self.parallel_processor.complete_thinking(

@@ -15,6 +15,7 @@ from ollama_integration.model_selector import ModelSelector
 from agents.task_planner import TaskPlanner
 from agents.task_runner import TaskRunner
 from agents.action_executor import get_executor
+from parallel_thinker import ParallelThinker, create_parallel_thinker
 
 
 # Load environment variables
@@ -106,7 +107,16 @@ class AbbyUnleashed:
         # Conversation history for chat context
         self.conversation_history = []
         
+        # Initialize parallel thinker for smart responses
+        self.parallel_thinker = create_parallel_thinker(
+            ollama_client=self.ollama_client
+        )
+        
+        # Use parallel thinker by default (can be disabled)
+        self.use_parallel_thinker = True
+        
         logger.info("Abby Unleashed initialized successfully!")
+        logger.info(f"Parallel thinker: {'enabled' if self.use_parallel_thinker else 'disabled'}")
         
         # Load foundational coding knowledge
         self.coding_foundations = load_coding_foundations()
@@ -255,6 +265,55 @@ class AbbyUnleashed:
         
         return '\n'.join(parts)
     
+    def _execute_with_parallel_thinker(
+        self,
+        task: str,
+        context: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        Execute using parallel thinker - smart model selection
+        
+        - Uses fast model for simple chat
+        - Uses big model for coding tasks
+        - Abby decides based on query complexity
+        """
+        try:
+            personality = self.brain_clone.get_personality()
+            workspace = context.get("workspace", self.task_planner.workspace_path)
+            
+            # Use smart thinking (auto-selects fast vs parallel, and model)
+            result = self.parallel_thinker.think_smart(
+                query=task,
+                context={"workspace": workspace, **context},
+                conversation_history=self.conversation_history,
+                personality=personality
+            )
+            
+            # Add to conversation history
+            self.conversation_history.append({"role": "user", "content": task})
+            self.conversation_history.append({"role": "assistant", "content": result.spoken_text})
+            
+            # Keep history manageable
+            if len(self.conversation_history) > 20:
+                self.conversation_history = self.conversation_history[-20:]
+            
+            return {
+                "status": "completed",
+                "output": result.spoken_text,
+                "model": result.model_used,
+                "time": result.total_time,
+                "display_actions": result.display_actions,
+                "tone": result.tone,
+            }
+            
+        except Exception as e:
+            logger.error(f"Parallel thinker error: {e}")
+            return {
+                "status": "error",
+                "error": str(e),
+                "output": f"Sorry, something went wrong: {str(e)}"
+            }
+    
     def execute_task(
         self, 
         task: str, 
@@ -263,6 +322,8 @@ class AbbyUnleashed:
     ) -> Dict[str, Any]:
         """
         Execute a task - handles conversation AND actions
+        
+        Uses parallel thinker by default for smart model selection.
         
         This is the key method that makes Abby BOTH conversational AND able to ACT.
         
@@ -297,6 +358,14 @@ class AbbyUnleashed:
                 self.task_planner.workspace_path = context["workspace"]
                 self.task_runner.workspace_path = context["workspace"]
                 self.task_runner.executor = get_executor(context["workspace"])
+            
+            # Use parallel thinker for conversation (smart model selection)
+            # Only use old path if action execution is explicitly needed
+            if self.use_parallel_thinker and not needs_action:
+                result = self._execute_with_parallel_thinker(task, context)
+                self.task_progress["status"] = "completed"
+                self.task_progress["steps_completed"] = 1
+                return result
             
             # Get model to use
             model = os.getenv("DEFAULT_MODEL", "qwen2.5:latest")

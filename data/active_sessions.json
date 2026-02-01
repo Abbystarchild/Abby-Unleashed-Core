@@ -98,5 +98,55 @@
     "ip_address": "127.0.0.1",
     "user_agent": "AbbyBrowser/1.0 (Abby Unleashed; Desktop Client) AppleWebKit/537.36 Chrome/120.0.0.0",
     "message_count": 1
+  },
+  "5a1b0d25d0eeeb12": {
+    "user_id": "organic_abby",
+    "display_name": "Abby",
+    "device_info": "Windows PC",
+    "connected_at": "2026-01-31T22:26:53.024437",
+    "last_activity": "2026-01-31T22:26:58.530371",
+    "ip_address": "127.0.0.1",
+    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36 Edg/144.0.0.0",
+    "message_count": 1
+  },
+  "7f3c4ab5f822b872": {
+    "user_id": "organic_abby",
+    "display_name": "Abby",
+    "device_info": "Windows PC",
+    "connected_at": "2026-01-31T22:34:35.010287",
+    "last_activity": "2026-01-31T22:34:37.683454",
+    "ip_address": "127.0.0.1",
+    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36 Edg/144.0.0.0",
+    "message_count": 1
+  },
+  "531f67afe51b5dd4": {
+    "user_id": "organic_abby",
+    "display_name": "Abby",
+    "device_info": "unknown device",
+    "connected_at": "2026-01-31T22:36:16.205137",
+    "last_activity": "2026-01-31T22:36:19.336933",
+    "ip_address": "127.0.0.1",
+    "user_agent": "AbbyBrowser/1.0 (Abby Unleashed; Desktop Client) AppleWebKit/537.36 Chrome/120.0.0.0",
+    "message_count": 1
+  },
+  "90e944bfc5d41993": {
+    "user_id": "organic_abby",
+    "display_name": "Abby",
+    "device_info": "Windows PC",
+    "connected_at": "2026-01-31T22:39:39.924904",
+    "last_activity": "2026-01-31T22:39:49.935530",
+    "ip_address": "127.0.0.1",
+    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36 Edg/144.0.0.0",
+    "message_count": 1
+  },
+  "3512be31b73ead58": {
+    "user_id": "organic_abby",
+    "display_name": "Abby",
+    "device_info": "unknown device",
+    "connected_at": "2026-01-31T22:41:35.153710",
+    "last_activity": "2026-01-31T22:41:44.633317",
+    "ip_address": "127.0.0.1",
+    "user_agent": "AbbyBrowser/1.0 (Abby Unleashed; Desktop Client) AppleWebKit/537.36 Chrome/120.0.0.0",
+    "message_count": 1
   }
 }

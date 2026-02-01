@@ -31,46 +31,35 @@ start "Abby Server" /D "%ABBY_DIR%" cmd /k ""%ABBY_DIR%\venv\Scripts\python.exe"
 echo Waiting for server...
 timeout /t 4 /nobreak > nul
 
-:: Launch browser - Abby Browser with local speech, or Chrome/Edge as fallback
+:: Launch browser - Chrome or Edge work best with local speech recognition
 echo Launching browser...
 
-:: Option 1: Use Abby Browser (has local speech recognition via Vosk)
-if exist "%ABBY_DIR%\dist\AbbyBrowser.exe" (
-    echo Using Abby Browser (self-contained with local speech)...
-    start "" "%ABBY_DIR%\dist\AbbyBrowser.exe" http://localhost:8080
-    goto :end
-)
-
-if exist "%ABBY_DIR%\abby_browser.py" (
-    echo Using Abby Browser (Python)...
-    start "" "%ABBY_DIR%\venv\Scripts\pythonw.exe" "%ABBY_DIR%\abby_browser.py" http://localhost:8080
-    goto :end
-)
-
-:: Option 2: Fall back to Chrome/Edge (uses Web Speech API)
+:: Try Chrome first (best compatibility)
 set "CHROME_PATH="
+if exist "%LocalAppData%\Google\Chrome\Application\chrome.exe" set "CHROME_PATH=%LocalAppData%\Google\Chrome\Application\chrome.exe"
 if exist "%ProgramFiles%\Google\Chrome\Application\chrome.exe" set "CHROME_PATH=%ProgramFiles%\Google\Chrome\Application\chrome.exe"
 if exist "%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe" set "CHROME_PATH=%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe"
-if exist "%LocalAppData%\Google\Chrome\Application\chrome.exe" set "CHROME_PATH=%LocalAppData%\Google\Chrome\Application\chrome.exe"
 
+if defined CHROME_PATH (
+    echo Found Chrome - launching...
+    start "" "%CHROME_PATH%" --app=http://localhost:8080
+    goto :end
+)
+
+:: Try Edge
 set "EDGE_PATH="
 if exist "%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe" set "EDGE_PATH=%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe"
 if exist "%ProgramFiles%\Microsoft\Edge\Application\msedge.exe" set "EDGE_PATH=%ProgramFiles%\Microsoft\Edge\Application\msedge.exe"
 
-if defined CHROME_PATH (
-    echo Using Chrome (fallback)...
-    start "" "%CHROME_PATH%" --app=http://localhost:8080 --auto-accept-camera-and-microphone-capture
-    goto :end
-)
-
 if defined EDGE_PATH (
-    echo Using Edge (fallback)...
-    start "" "%EDGE_PATH%" --app=http://localhost:8080 --auto-accept-camera-and-microphone-capture
+    echo Found Edge - launching...
+    start "" "%EDGE_PATH%" --app=http://localhost:8080
     goto :end
 )
 
+:: Last resort - default browser
 echo Opening default browser...
-start http://localhost:8080
+start "" "http://localhost:8080"
 
 :end
 echo.

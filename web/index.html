@@ -3382,7 +3382,15 @@
             return 'Sent!';
         };
         
-        console.log('🧪 Debug functions available: testMic(), testAPI(), testAudioDirect(), testBeep(), askAbby("your message")');
+        // Debug: Test TTS directly
+        window.testTTS = async function(text = "Hello! This is a test of the text to speech system.") {
+            console.log('🧪 Testing TTS with text:', text);
+            console.log('🧪 useElevenLabs:', useElevenLabs, 'elevenLabsConfigured:', elevenLabsConfigured, 'isMuted:', isMuted);
+            await speakResponse(text);
+            return 'TTS test complete!';
+        };
+        
+        console.log('🧪 Debug functions available: testMic(), testAPI(), testAudioDirect(), testBeep(), askAbby("your message"), testTTS("text")');
         
         // Check ElevenLabs status on load
         async function checkElevenLabsStatus() {
@@ -3411,6 +3419,7 @@
         async function speakWithElevenLabs(text) {
             return new Promise(async (resolve) => {
                 try {
+                    console.log('🔊 ElevenLabs TTS starting for:', text.substring(0, 50) + '...');
                     updateVoiceUI('speaking');
                     startSpeakingAnimation();
                     
@@ -3420,6 +3429,7 @@
                     document.getElementById('transcriptText').classList.remove('interim');
                     
                     // Request audio from ElevenLabs API
+                    console.log('🔊 Requesting TTS from server...');
                     const response = await fetch('/api/tts/synthesize', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
@@ -3433,11 +3443,14 @@
                     });
                     
                     if (!response.ok) {
-                        throw new Error('TTS synthesis failed');
+                        const errorText = await response.text();
+                        console.error('🔊 TTS API error:', response.status, errorText);
+                        throw new Error('TTS synthesis failed: ' + response.status);
                     }
                     
                     // Get audio blob and play it
                     const audioBlob = await response.blob();
+                    console.log('🔊 Got audio blob:', audioBlob.size, 'bytes, type:', audioBlob.type);
                     const audioUrl = URL.createObjectURL(audioBlob);
                     
                     // Stop any existing audio
@@ -3447,20 +3460,28 @@
                     }
                     
                     audioPlayer = new Audio(audioUrl);
+                    audioPlayer.volume = 1.0;  // Ensure volume is max
+                    
+                    audioPlayer.onloadeddata = () => {
+                        console.log('🔊 Audio loaded, duration:', audioPlayer.duration, 'seconds');
+                    };
                     
                     audioPlayer.onended = () => {
+                        console.log('🔊 Audio playback finished');
                         stopSpeakingAnimation();
                         URL.revokeObjectURL(audioUrl);
                         resolve();
                     };
                     
                     audioPlayer.onerror = (e) => {
-                        console.error('Audio playback error:', e);
+                        console.error('🔊 Audio playback error:', e, audioPlayer.error);
                         stopSpeakingAnimation();
                         resolve();
                     };
                     
+                    console.log('🔊 Attempting to play audio...');
                     await audioPlayer.play();
+                    console.log('🔊 Audio play() started successfully');
                     
                 } catch (e) {
                     console.error('ElevenLabs TTS error:', e);
