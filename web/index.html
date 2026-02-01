@@ -939,8 +939,11 @@
             <button class="mic-btn" id="micBtn" onclick="toggleRecording()">
                 🎤
             </button>
-            <button class="secondary-btn" onclick="toggleRichDisplay()" id="displayBtn" title="View Display">
-                📄
+            <button class="secondary-btn" onclick="toggleMute()" id="muteBtn" title="Mute/Unmute">
+                🔊
+            </button>
+            <button class="secondary-btn" onclick="testAudio()" id="testAudioBtn" title="Test Audio">
+                🔔
             </button>
         </div>
     </div>
@@ -970,6 +973,35 @@
         let animationFrameId = null;
         let currentDisplayContent = null;
         let richDisplayOpen = false;
+        let audioUnlocked = false;  // Mobile audio requires user interaction first
+        let audioPlayer = null;
+        
+        // ============ MOBILE AUDIO UNLOCK ============
+        // Mobile browsers require a user interaction before audio can play
+        async function unlockAudio() {
+            if (audioUnlocked) return true;
+            
+            try {
+                // Create a silent audio context to unlock audio
+                const ctx = new (window.AudioContext || window.webkitAudioContext)();
+                const buffer = ctx.createBuffer(1, 1, 22050);
+                const source = ctx.createBufferSource();
+                source.buffer = buffer;
+                source.connect(ctx.destination);
+                source.start(0);
+                
+                // Also try playing a tiny silent audio
+                const silentAudio = new Audio('data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4Ljc2LjEwMAAAAAAAAAAAAAAA/+M4wAAAAAAAAAAAAEluZm8AAAAPAAAAAwAAAbAAqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV//////////////////////////////////////////////////////////////////8AAAAATGF2YzU4LjEzAAAAAAAAAAAAAAAAJAAAAAAAAAAAAbD///////8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/+MYxAALkAJQ+UMQAgAAA0gAAABU/+MYxA0L+CpBkZGQAAAADSAAAAFU');
+                await silentAudio.play().catch(() => {});
+                
+                audioUnlocked = true;
+                console.log('🔊 Audio unlocked for mobile playback');
+                return true;
+            } catch (e) {
+                console.warn('Could not unlock audio:', e);
+                return false;
+            }
+        }
         
         // ============ INITIALIZATION ============
         document.addEventListener('DOMContentLoaded', () => {
@@ -990,6 +1022,11 @@
             const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
             if (!SpeechRecognition) {
                 console.warn('Speech Recognition not supported');
+                // Update UI to show text-only mode
+                const transcriptText = document.getElementById('transcriptText');
+                if (transcriptText) {
+                    transcriptText.textContent = 'Voice not supported on this browser - use text chat';
+                }
                 return;
             }
             
@@ -997,10 +1034,13 @@
             recognition.continuous = true;  // Keep listening until user toggles off
             recognition.interimResults = true;
             recognition.lang = 'en-US';
+            recognition.maxAlternatives = 1;
             
             recognition.onstart = () => {
                 isRecording = true;
+                console.log('🎤 Speech recognition started');
                 updateVoiceUI('listening');
+                document.getElementById('transcriptText').textContent = 'Listening... speak now!';
             };
             
             recognition.onresult = (event) => {
@@ -1018,6 +1058,7 @@
                 
                 const transcriptText = document.getElementById('transcriptText');
                 if (final) {
+                    console.log('🎤 Final transcript:', final);
                     transcriptText.textContent = final;
                     transcriptText.classList.remove('interim');
                     // Stop recording while processing, then auto-resume if toggle is on
@@ -1038,13 +1079,23 @@
                 let errorMsg = 'Speech error: ' + event.error;
                 switch (event.error) {
                     case 'not-allowed':
-                        errorMsg = '🚫 Mic access denied. Check browser permissions.';
+                        errorMsg = '🚫 Mic blocked. In browser settings, allow microphone for this site.';
                         break;
                     case 'no-speech':
-                        errorMsg = '🔇 No speech detected. Try again.';
+                        // This is normal - just means silence detected
+                        if (wantsToRecord || hotMicEnabled) {
+                            // Quietly retry
+                            setTimeout(() => {
+                                if ((wantsToRecord || hotMicEnabled) && !isBusy) {
+                                    try { recognition.start(); } catch(e) {}
+                                }
+                            }, 100);
+                            return;
+                        }
+                        errorMsg = '🔇 No speech heard. Tap mic and speak.';
                         break;
                     case 'network':
-                        errorMsg = '🌐 Network error. Check your connection.';
+                        errorMsg = '🌐 Network error. Check connection.';
                         break;
                     case 'audio-capture':
                         errorMsg = '🎤 No microphone found.';
@@ -1158,10 +1209,17 @@
         }
         
         // ============ VOICE MODE ============
-        function enterVoiceMode() {
+        async function enterVoiceMode() {
+            // Unlock audio on mobile (must happen during user interaction)
+            await unlockAudio();
+            
             document.getElementById('voiceMode').classList.add('active');
             document.body.style.overflow = 'hidden';
             updateVoiceUI('ready');
+            
+            // Show helpful message on first entry
+            const transcriptText = document.getElementById('transcriptText');
+            transcriptText.textContent = 'Tap the mic button to start talking';
         }
         
         function exitVoiceMode() {
@@ -1458,8 +1516,13 @@
         }
         
         async function playBase64Audio(base64Data) {
-            return new Promise((resolve, reject) => {
+            return new Promise(async (resolve, reject) => {
                 try {
+                    // Ensure audio is unlocked on mobile
+                    if (!audioUnlocked) {
+                        await unlockAudio();
+                    }
+                    
                     updateVoiceUI('speaking');
                     
                     const audio = new Audio('data:audio/mp3;base64,' + base64Data);
@@ -1467,20 +1530,31 @@
                     
                     audio.onended = () => {
                         audioPlayer = null;
+                        console.log('🔊 Audio playback completed');
                         resolve();
                     };
                     
                     audio.onerror = (e) => {
                         audioPlayer = null;
+                        console.error('🔊 Audio playback error:', e);
                         reject(e);
                     };
                     
                     if (!isMuted) {
-                        audio.play();
+                        try {
+                            await audio.play();
+                            console.log('🔊 Audio playing...');
+                        } catch (playError) {
+                            console.error('🔊 Audio play() failed:', playError);
+                            // On mobile, might need user interaction - show message
+                            document.getElementById('transcriptText').textContent = 'Tap anywhere to enable audio';
+                            resolve();  // Don't fail the whole flow
+                        }
                     } else {
                         resolve();
                     }
                 } catch (e) {
+                    console.error('🔊 Audio error:', e);
                     reject(e);
                 }
             });
@@ -1778,6 +1852,49 @@
             
             if (isMuted) {
                 speechSynthesis.cancel();
+                if (audioPlayer) {
+                    audioPlayer.pause();
+                }
+            }
+        }
+        
+        // Test audio playback - helps diagnose mobile audio issues
+        async function testAudio() {
+            const transcriptText = document.getElementById('transcriptText');
+            transcriptText.textContent = 'Testing audio...';
+            
+            try {
+                // First unlock audio
+                await unlockAudio();
+                
+                // Try ElevenLabs test
+                if (elevenLabsConfigured) {
+                    transcriptText.textContent = 'Requesting test audio from server...';
+                    const response = await fetch('/api/tts/synthesize', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ text: 'Hello! Audio test successful. I can hear you!' })
+                    });
+                    
+                    if (response.ok) {
+                        const data = await response.json();
+                        if (data.audio) {
+                            transcriptText.textContent = 'Playing audio...';
+                            await playBase64Audio(data.audio);
+                            transcriptText.textContent = '✅ Audio working! Tap mic to start talking.';
+                            return;
+                        }
+                    }
+                }
+                
+                // Fallback to browser TTS
+                transcriptText.textContent = 'Using browser voice...';
+                await speakWithBrowserTTS('Audio test. Can you hear me?');
+                transcriptText.textContent = '✅ Browser audio working! Tap mic to talk.';
+                
+            } catch (e) {
+                console.error('Audio test failed:', e);
+                transcriptText.textContent = '❌ Audio failed: ' + e.message;
             }
         }
         

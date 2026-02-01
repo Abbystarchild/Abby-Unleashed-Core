@@ -250,10 +250,10 @@ class RichContentGenerator:
     def generate_voice_summary(full_response: str, max_ratio: float = 0.35) -> str:
         """
         Generate a concise voice summary from the full response.
-        Removes code blocks, URLs, and condenses for speech.
+        Removes code blocks, URLs, emojis, and condenses for speech.
         """
         # Remove code blocks
-        text = re.sub(r'```[\s\S]*?```', '[code block]', full_response)
+        text = re.sub(r'```[\s\S]*?```', '', full_response)
         
         # Remove markdown images
         text = re.sub(r'!\[[^\]]*\]\([^)]+\)', '', text)
@@ -264,30 +264,52 @@ class RichContentGenerator:
         # Remove action blocks
         text = re.sub(r'```action:[\s\S]*?```', '', text)
         
+        # Remove emojis and special characters that don't speak well
+        # This regex removes most emojis and pictographs
+        text = re.sub(r'[\U0001F600-\U0001F64F]', '', text)  # Emoticons
+        text = re.sub(r'[\U0001F300-\U0001F5FF]', '', text)  # Misc symbols
+        text = re.sub(r'[\U0001F680-\U0001F6FF]', '', text)  # Transport
+        text = re.sub(r'[\U0001F700-\U0001F77F]', '', text)  # Alchemical
+        text = re.sub(r'[\U0001F780-\U0001F7FF]', '', text)  # Geometric
+        text = re.sub(r'[\U0001F800-\U0001F8FF]', '', text)  # Arrows
+        text = re.sub(r'[\U0001F900-\U0001F9FF]', '', text)  # Supplemental
+        text = re.sub(r'[\U0001FA00-\U0001FA6F]', '', text)  # Chess
+        text = re.sub(r'[\U0001FA70-\U0001FAFF]', '', text)  # Symbols
+        text = re.sub(r'[\U00002702-\U000027B0]', '', text)  # Dingbats
+        text = re.sub(r'[\U0001F1E0-\U0001F1FF]', '', text)  # Flags
+        
+        # Remove markdown bold/italic markers
+        text = re.sub(r'\*\*([^*]+)\*\*', r'\1', text)  # **bold**
+        text = re.sub(r'\*([^*]+)\*', r'\1', text)      # *italic*
+        text = re.sub(r'__([^_]+)__', r'\1', text)      # __bold__
+        text = re.sub(r'_([^_]+)_', r'\1', text)        # _italic_
+        
+        # Remove bullet points and list markers
+        text = re.sub(r'^\s*[-*•]\s*', '', text, flags=re.MULTILINE)
+        text = re.sub(r'^\s*\d+\.\s*', '', text, flags=re.MULTILINE)
+        
         # Clean up extra whitespace
-        text = re.sub(r'\n\s*\n', '\n\n', text)
+        text = re.sub(r'\n\s*\n', '\n', text)
+        text = re.sub(r'\s+', ' ', text)
         text = text.strip()
         
         # If short enough, return as-is
-        if len(text) <= len(full_response) * max_ratio:
+        if len(text) <= 300:  # About 30 seconds of speech
             return text
         
         # Otherwise, extract key sentences
         sentences = re.split(r'(?<=[.!?])\s+', text)
         
-        # Take first few sentences and last sentence
-        if len(sentences) <= 3:
+        # Take first few sentences only - keep it SHORT for voice
+        if len(sentences) <= 2:
             return text
         
-        summary_sentences = sentences[:2]  # First two
-        if len(sentences) > 3:
-            summary_sentences.append(sentences[-1])  # Last one
-        
+        summary_sentences = sentences[:2]  # First two sentences max
         summary = ' '.join(summary_sentences)
         
-        # Add indicator that there's more
-        if len(text) > len(summary) + 50:
-            summary += " Check the display for more details."
+        # Keep it short!
+        if len(summary) > 300:
+            summary = summary[:297] + "..."
         
         return summary
 
