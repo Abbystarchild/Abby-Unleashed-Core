@@ -75,11 +75,12 @@ class OllamaClient:
         
         # Default generation options to prevent repetitive/verbose responses
         default_options = {
-            "temperature": 0.7,
-            "repeat_penalty": 1.3,
-            "repeat_last_n": 64,
+            "temperature": 0.8,
+            "repeat_penalty": 1.8,
+            "repeat_last_n": 128,
             "top_k": 40,
             "top_p": 0.9,
+            "stop": ["\n\n\n", "---"],
         }
         
         # Merge with any provided options
@@ -184,12 +185,13 @@ class OllamaClient:
         # Default generation options to prevent repetitive/verbose responses
         # These can be overridden via kwargs
         default_options = {
-            "temperature": 0.7,          # Balanced creativity
-            "repeat_penalty": 1.3,       # Strong penalty for repetition
-            "repeat_last_n": 64,         # Look back for repetition
+            "temperature": 0.8,          # Slightly more creative
+            "repeat_penalty": 1.8,       # VERY strong penalty for repetition
+            "repeat_last_n": 128,        # Look back further for repetition
             "top_k": 40,                 # Limit token choices
             "top_p": 0.9,                # Nucleus sampling
-            "num_predict": 256,          # Limit response length (short replies)
+            "num_predict": 150,          # Shorter responses
+            "stop": ["\n\n\n", "---"],  # Stop on multiple newlines
         }
         
         # Merge with any provided options

@@ -8,7 +8,7 @@ import os
 import subprocess
 import sys
 from typing import Dict, Any, Optional, List
-from flask import Flask, request, jsonify, send_from_directory
+from flask import Flask, request, jsonify, send_from_directory, Response
 from flask_cors import CORS
 from datetime import datetime
 import threading
@@ -796,6 +796,148 @@ def execute_task():
             'status': 'error',
             'error': str(e)
         }), 500
+
+
+# ============ STREAMING CONVERSATION API ============
+
+def get_streaming_conversation_instance():
+    """Get the streaming conversation instance with Abby attached"""
+    try:
+        from streaming_conversation import get_streaming_conversation
+        sc = get_streaming_conversation()
+        sc.abby = get_abby()
+        return sc
+    except Exception as e:
+        logger.error(f"Could not get streaming conversation: {e}")
+        return None
+
+
+@app.route('/api/stream/chat', methods=['POST'])
+def stream_chat():
+    """
+    Stream a conversation response using Server-Sent Events.
+    
+    Request body:
+        - message: The user's message
+        - session_id: Optional session ID for user context
+        - visual_context: Optional visual context from camera
+    
+    Returns:
+        SSE stream with events:
+        - thinking: Abby's thought process
+        - text: Response text (can be partial)
+        - step: Progress on multi-step tasks
+        - action: Actions being performed
+        - done: Response complete
+        - error: Something went wrong
+    """
+    def generate_stream():
+        try:
+            data = request.get_json()
+            message = data.get('message', '')
+            session_id = data.get('session_id')
+            visual_context = data.get('visual_context', '')
+            
+            if not message:
+                yield f"data: {json.dumps({'type': 'error', 'content': 'No message provided'})}\n\n"
+                return
+            
+            # Build context
+            context = {}
+            if session_id:
+                tracker = get_user_tracker_instance()
+                context['user_presence'] = tracker.get_user_context(session_id)
+                context['user_prompt_addition'] = tracker.get_system_prompt_addition(session_id)
+            
+            if visual_context:
+                existing = context.get('user_prompt_addition', '')
+                context['user_prompt_addition'] = f"{existing}\n\n{visual_context}" if existing else visual_context
+            
+            # Get streaming conversation
+            sc = get_streaming_conversation_instance()
+            if not sc:
+                yield f"data: {json.dumps({'type': 'error', 'content': 'Streaming not available'})}\n\n"
+                return
+            
+            # Stream the response
+            for event in sc.stream_response(message, context):
+                yield event.to_sse()
+            
+        except Exception as e:
+            logger.error(f"Stream error: {e}")
+            yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
+    
+    # Need json for the SSE formatting
+    import json
+    
+    return Response(
+        generate_stream(),
+        mimetype='text/event-stream',
+        headers={
+            'Cache-Control': 'no-cache',
+            'Connection': 'keep-alive',
+            'X-Accel-Buffering': 'no'  # Disable nginx buffering
+        }
+    )
+
+
+@app.route('/api/stream/status', methods=['GET'])
+def stream_status():
+    """Get current streaming conversation status"""
+    try:
+        sc = get_streaming_conversation_instance()
+        if not sc:
+            return jsonify({'error': 'Streaming not available'}), 500
+        
+        return jsonify(sc.get_status())
+    
+    except Exception as e:
+        logger.error(f"Stream status error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/stream/interrupt', methods=['POST'])
+def stream_interrupt():
+    """
+    Interrupt the current streaming response.
+    
+    Request body:
+        - redirect: Optional new message to redirect to
+    """
+    try:
+        sc = get_streaming_conversation_instance()
+        if not sc:
+            return jsonify({'error': 'Streaming not available'}), 500
+        
+        data = request.get_json() or {}
+        redirect_message = data.get('redirect')
+        
+        success = sc.interrupt(redirect_message)
+        
+        return jsonify({
+            'success': success,
+            'message': 'Interrupt requested' if success else 'Nothing to interrupt'
+        })
+    
+    except Exception as e:
+        logger.error(f"Interrupt error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/stream/clear', methods=['POST'])
+def stream_clear():
+    """Clear streaming conversation history"""
+    try:
+        sc = get_streaming_conversation_instance()
+        if not sc:
+            return jsonify({'error': 'Streaming not available'}), 500
+        
+        sc.clear_history()
+        return jsonify({'success': True})
+    
+    except Exception as e:
+        logger.error(f"Clear error: {e}")
+        return jsonify({'error': str(e)}), 500
 
 
 @app.route('/api/stats', methods=['GET'])
