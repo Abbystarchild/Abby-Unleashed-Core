@@ -713,6 +713,57 @@
             padding: 0;
         }
         
+        /* Inline code styling */
+        .inline-code {
+            background: var(--surface-light);
+            padding: 0.2rem 0.4rem;
+            border-radius: 0.25rem;
+            font-family: 'Monaco', 'Consolas', monospace;
+            font-size: 0.9em;
+        }
+        
+        /* Code block styling for markdown */
+        .code-block {
+            margin: 1rem 0;
+            border-radius: 0.5rem;
+            overflow: hidden;
+            background: #1e1e2e;
+        }
+        
+        .code-block .code-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.5rem 1rem;
+            background: #313244;
+            font-size: 0.85rem;
+            color: #cdd6f4;
+        }
+        
+        .code-block pre {
+            margin: 0;
+            padding: 1rem;
+            overflow-x: auto;
+            font-family: 'Monaco', 'Consolas', monospace;
+            font-size: 0.9rem;
+            line-height: 1.5;
+            color: #cdd6f4;
+        }
+        
+        .code-block .copy-btn {
+            background: var(--primary);
+            border: none;
+            color: white;
+            padding: 0.25rem 0.5rem;
+            border-radius: 0.25rem;
+            font-size: 0.75rem;
+            cursor: pointer;
+        }
+        
+        .code-block .copy-btn:hover {
+            background: var(--primary-dark);
+        }
+        
         .rich-content-item.code {
             position: relative;
         }
@@ -868,6 +919,136 @@
             cursor: pointer;
         }
         
+        /* Camera Modal Styles */
+        .camera-modal {
+            max-width: 500px;
+        }
+        
+        .camera-container {
+            position: relative;
+            width: 100%;
+            aspect-ratio: 4/3;
+            background: #000;
+            border-radius: 0.5rem;
+            overflow: hidden;
+            margin-bottom: 1rem;
+        }
+        
+        .camera-container video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transform: scaleX(-1); /* Mirror for natural feel */
+        }
+        
+        .camera-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            pointer-events: none;
+        }
+        
+        .face-box {
+            position: absolute;
+            border: 3px solid #22c55e;
+            border-radius: 0.25rem;
+            display: none;
+        }
+        
+        .face-box.unknown {
+            border-color: #f59e0b;
+        }
+        
+        .face-box::after {
+            content: attr(data-name);
+            position: absolute;
+            bottom: -24px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0,0,0,0.8);
+            color: white;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            white-space: nowrap;
+        }
+        
+        .camera-status {
+            text-align: center;
+            padding: 0.5rem;
+            color: var(--text-muted);
+            font-size: 0.9rem;
+        }
+        
+        .camera-status.success { color: #22c55e; }
+        .camera-status.error { color: #ef4444; }
+        
+        .camera-controls {
+            display: flex;
+            gap: 1rem;
+            justify-content: center;
+            margin-bottom: 1rem;
+        }
+        
+        .camera-action-btn {
+            background: var(--primary);
+            border: none;
+            color: white;
+            padding: 0.75rem 1.5rem;
+            border-radius: 2rem;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        .camera-action-btn:hover {
+            transform: scale(1.05);
+        }
+        
+        .camera-action-btn.learn-btn {
+            background: #8b5cf6;
+        }
+        
+        .known-faces {
+            border-top: 1px solid var(--border);
+            padding-top: 1rem;
+        }
+        
+        .known-faces h4 {
+            margin: 0 0 0.5rem 0;
+            color: var(--text-muted);
+            font-size: 0.9rem;
+        }
+        
+        .known-face-item {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem;
+            background: var(--surface);
+            border-radius: 0.5rem;
+            margin-bottom: 0.5rem;
+        }
+        
+        .known-face-item .face-icon {
+            font-size: 1.5rem;
+        }
+        
+        .known-face-item .face-info {
+            flex: 1;
+        }
+        
+        .known-face-item .face-name {
+            font-weight: 600;
+        }
+        
+        .known-face-item .face-samples {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+        }
+        
         /* Responsive */
         @media (max-width: 400px) {
             .main-avatar { width: 120px; height: 120px; font-size: 3rem; }
@@ -969,6 +1150,39 @@
             <button class="secondary-btn" onclick="testAudio()" id="testAudioBtn" title="Test Audio">
                 🔔
             </button>
+            <button class="secondary-btn" onclick="toggleCamera()" id="cameraBtn" title="Camera - Let Abby see you">
+                📷
+            </button>
+        </div>
+    </div>
+    
+    <!-- CAMERA MODAL -->
+    <div class="modal" id="cameraModal">
+        <div class="modal-content camera-modal">
+            <div class="modal-header">
+                <h2>📷 Let Abby See You</h2>
+                <button class="close-btn" onclick="closeCameraModal()">✕</button>
+            </div>
+            <div class="camera-container">
+                <video id="cameraPreview" autoplay playsinline muted></video>
+                <canvas id="cameraCanvas" style="display: none;"></canvas>
+                <div class="camera-overlay" id="cameraOverlay">
+                    <div class="face-box" id="faceBox"></div>
+                </div>
+            </div>
+            <div class="camera-status" id="cameraStatus">Camera initializing...</div>
+            <div class="camera-controls">
+                <button class="camera-action-btn" onclick="captureAndIdentify()" id="identifyBtn">
+                    🔍 Who Am I?
+                </button>
+                <button class="camera-action-btn learn-btn" onclick="captureAndLearn()" id="learnBtn">
+                    🧠 Learn My Face
+                </button>
+            </div>
+            <div class="known-faces" id="knownFaces">
+                <h4>Known Faces:</h4>
+                <div id="knownFacesList">Loading...</div>
+            </div>
         </div>
     </div>
     
@@ -1470,7 +1684,8 @@
                 
                 switch (item.type) {
                     case 'markdown':
-                        div.innerHTML = renderMarkdown(item.content);
+                        // Parse out code blocks and render them separately
+                        div.innerHTML = renderMarkdownWithCodeBlocks(item.content);
                         break;
                         
                     case 'code':
@@ -1500,17 +1715,51 @@
             });
         }
         
-        function renderMarkdown(text) {
-            // Simple markdown rendering
-            return text
-                .replace(/```(\w+)?\n([\s\S]*?)```/g, '<pre><code>$2</code></pre>')
-                .replace(/`([^`]+)`/g, '<code>$1</code>')
+        function renderMarkdownWithCodeBlocks(text) {
+            // First, extract and replace code blocks with placeholders
+            const codeBlocks = [];
+            let processed = text.replace(/```(\w*)\n?([\s\S]*?)```/g, (match, lang, code) => {
+                const index = codeBlocks.length;
+                codeBlocks.push({ lang: lang || 'code', code: code.trim() });
+                return `__CODE_BLOCK_${index}__`;
+            });
+            
+            // Render basic markdown
+            processed = processed
+                .replace(/`([^`]+)`/g, '<code class="inline-code">$1</code>')
                 .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
                 .replace(/\*([^*]+)\*/g, '<em>$1</em>')
                 .replace(/^### (.+)$/gm, '<h3>$1</h3>')
                 .replace(/^## (.+)$/gm, '<h2>$1</h2>')
                 .replace(/^# (.+)$/gm, '<h1>$1</h1>')
+                .replace(/^- (.+)$/gm, '<li>$1</li>')
+                .replace(/(<li>.*<\/li>)/s, '<ul>$1</ul>')
+                .replace(/\n\n/g, '</p><p>')
                 .replace(/\n/g, '<br>');
+            
+            // Wrap in paragraph
+            processed = '<p>' + processed + '</p>';
+            
+            // Now replace placeholders with rendered code blocks
+            codeBlocks.forEach((block, index) => {
+                const codeHtml = `
+                    <div class="code-block">
+                        <div class="code-header">
+                            <span>${block.lang}</span>
+                            <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+                        </div>
+                        <pre><code>${escapeHtml(block.code)}</code></pre>
+                    </div>
+                `;
+                processed = processed.replace(`__CODE_BLOCK_${index}__`, codeHtml);
+            });
+            
+            return processed;
+        }
+        
+        function renderMarkdown(text) {
+            // Simple markdown rendering (legacy, use renderMarkdownWithCodeBlocks for full support)
+            return renderMarkdownWithCodeBlocks(text);
         }
         
         function escapeHtml(text) {
@@ -2128,6 +2377,242 @@
                 speechSynthesis.getVoices();
             };
         }
+        
+        // ============ CAMERA / FACE RECOGNITION ============
+        let cameraStream = null;
+        let faceRecognitionAvailable = false;
+        
+        async function checkFaceRecognition() {
+            try {
+                const response = await fetch('/api/face/status');
+                const status = await response.json();
+                faceRecognitionAvailable = status.available;
+                console.log('Face recognition:', faceRecognitionAvailable ? '✅ Available' : '❌ Not available');
+                return status;
+            } catch (e) {
+                console.warn('Could not check face recognition:', e);
+                return { available: false };
+            }
+        }
+        
+        async function toggleCamera() {
+            const modal = document.getElementById('cameraModal');
+            if (modal.classList.contains('active')) {
+                closeCameraModal();
+            } else {
+                openCameraModal();
+            }
+        }
+        
+        async function openCameraModal() {
+            const modal = document.getElementById('cameraModal');
+            const video = document.getElementById('cameraPreview');
+            const status = document.getElementById('cameraStatus');
+            
+            modal.classList.add('active');
+            status.textContent = 'Starting camera...';
+            status.className = 'camera-status';
+            
+            try {
+                // Request camera access
+                cameraStream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: 'user', width: 640, height: 480 }
+                });
+                
+                video.srcObject = cameraStream;
+                await video.play();
+                
+                status.textContent = '📷 Camera ready! Let Abby see you.';
+                status.className = 'camera-status success';
+                
+                // Load known faces
+                loadKnownFaces();
+                
+                // Check face recognition availability
+                const faceStatus = await checkFaceRecognition();
+                if (!faceStatus.available) {
+                    status.textContent = '⚠️ Face recognition not installed on server. Camera works but recognition disabled.';
+                    status.className = 'camera-status';
+                }
+                
+            } catch (e) {
+                console.error('Camera error:', e);
+                status.textContent = '❌ ' + (e.name === 'NotAllowedError' ? 
+                    'Camera access denied. Allow camera in browser settings.' : 
+                    'Camera error: ' + e.message);
+                status.className = 'camera-status error';
+            }
+        }
+        
+        function closeCameraModal() {
+            const modal = document.getElementById('cameraModal');
+            modal.classList.remove('active');
+            
+            // Stop camera
+            if (cameraStream) {
+                cameraStream.getTracks().forEach(track => track.stop());
+                cameraStream = null;
+            }
+        }
+        
+        function captureFrame() {
+            const video = document.getElementById('cameraPreview');
+            const canvas = document.getElementById('cameraCanvas');
+            
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            
+            const ctx = canvas.getContext('2d');
+            // Flip horizontally to match mirrored video
+            ctx.translate(canvas.width, 0);
+            ctx.scale(-1, 1);
+            ctx.drawImage(video, 0, 0);
+            
+            return canvas.toDataURL('image/jpeg', 0.8);
+        }
+        
+        async function captureAndIdentify() {
+            const status = document.getElementById('cameraStatus');
+            status.textContent = '🔍 Identifying...';
+            status.className = 'camera-status';
+            
+            try {
+                const imageData = captureFrame();
+                
+                const response = await fetch('/api/face/identify', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        image: imageData,
+                        session_id: currentSession?.session_id
+                    })
+                });
+                
+                const result = await response.json();
+                
+                if (result.error) {
+                    status.textContent = '❌ ' + result.error;
+                    status.className = 'camera-status error';
+                    return;
+                }
+                
+                if (result.recognized) {
+                    status.textContent = `✅ Hello ${result.name}! (${Math.round(result.confidence * 100)}% confident)`;
+                    status.className = 'camera-status success';
+                    
+                    // Update user display
+                    if (result.user_id) {
+                        currentUserId = result.user_id;
+                        document.getElementById('userName').textContent = result.name;
+                        document.getElementById('userIcon').textContent = '👤';
+                    }
+                    
+                    // Announce to Abby
+                    askAbby(`You just saw me through the camera. My name is ${result.name}. Say hi!`);
+                    
+                } else if (result.faces_detected > 0) {
+                    status.textContent = '🤔 I see a face but don\'t recognize you. Click "Learn My Face" to teach me!';
+                    status.className = 'camera-status';
+                } else {
+                    status.textContent = '👀 No face detected. Make sure your face is visible and well-lit.';
+                    status.className = 'camera-status';
+                }
+                
+            } catch (e) {
+                status.textContent = '❌ Error: ' + e.message;
+                status.className = 'camera-status error';
+            }
+        }
+        
+        async function captureAndLearn() {
+            // Prompt for name if not already identified
+            let userId = currentUserId;
+            let name = document.getElementById('userName').textContent;
+            
+            if (userId === 'unknown' || name === "Who's this?") {
+                name = prompt('What should I call you?');
+                if (!name) return;
+                
+                userId = name.toLowerCase().replace(/[^a-z0-9]/g, '_');
+            }
+            
+            const status = document.getElementById('cameraStatus');
+            status.textContent = '🧠 Learning your face...';
+            status.className = 'camera-status';
+            
+            try {
+                const imageData = captureFrame();
+                
+                const response = await fetch('/api/face/learn', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        user_id: userId,
+                        name: name,
+                        image: imageData
+                    })
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    status.textContent = `✅ ${result.message}`;
+                    status.className = 'camera-status success';
+                    
+                    // Update user
+                    currentUserId = userId;
+                    document.getElementById('userName').textContent = name;
+                    
+                    // Reload known faces list
+                    loadKnownFaces();
+                    
+                    // Announce
+                    askAbby(`I just taught you to recognize my face. My name is ${name}. Now you'll know it's me!`);
+                    
+                } else {
+                    status.textContent = '❌ ' + (result.error || 'Learning failed');
+                    status.className = 'camera-status error';
+                }
+                
+            } catch (e) {
+                status.textContent = '❌ Error: ' + e.message;
+                status.className = 'camera-status error';
+            }
+        }
+        
+        async function loadKnownFaces() {
+            const list = document.getElementById('knownFacesList');
+            
+            try {
+                const response = await fetch('/api/face/status');
+                const status = await response.json();
+                
+                if (!status.available) {
+                    list.innerHTML = '<em>Face recognition not available</em>';
+                    return;
+                }
+                
+                if (status.users && status.users.length > 0) {
+                    list.innerHTML = status.users.map(user => `
+                        <div class="known-face-item">
+                            <span class="face-icon">👤</span>
+                            <div class="face-info">
+                                <div class="face-name">${user.name}</div>
+                                <div class="face-samples">${user.samples} sample${user.samples !== 1 ? 's' : ''}</div>
+                            </div>
+                        </div>
+                    `).join('');
+                } else {
+                    list.innerHTML = '<em>No faces learned yet</em>';
+                }
+                
+            } catch (e) {
+                list.innerHTML = '<em>Could not load faces</em>';
+            }
+        }
+        
+        // Initialize face recognition check
+        checkFaceRecognition();
         
         // ============ USER IDENTITY / PRESENCE ============
         let currentSession = null;

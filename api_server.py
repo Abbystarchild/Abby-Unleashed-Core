@@ -193,6 +193,150 @@ def list_available_users():
         return jsonify({'error': str(e)}), 500
 
 
+# ==================== FACE RECOGNITION ====================
+
+@app.route('/api/face/status', methods=['GET'])
+def face_recognition_status():
+    """Check if face recognition is available and configured"""
+    try:
+        from presence.face_recognition import get_face_recognizer
+        recognizer = get_face_recognizer()
+        
+        return jsonify({
+            'available': recognizer.is_available,
+            'known_users': len(recognizer.known_faces),
+            'users': recognizer.get_known_users()
+        })
+    except Exception as e:
+        logger.error(f"Face status error: {e}")
+        return jsonify({'available': False, 'error': str(e)})
+
+
+@app.route('/api/face/detect', methods=['POST'])
+def detect_faces():
+    """
+    Detect and recognize faces in an image.
+    
+    POST body:
+        image: Base64 encoded image
+        
+    Returns:
+        faces_detected: Number of faces found
+        faces: List of face info with recognition results
+    """
+    try:
+        from presence.face_recognition import get_face_recognizer
+        recognizer = get_face_recognizer()
+        
+        data = request.get_json()
+        if not data or 'image' not in data:
+            return jsonify({'error': 'Image required'}), 400
+        
+        result = recognizer.process_image(data['image'])
+        return jsonify(result)
+    
+    except Exception as e:
+        logger.error(f"Face detect error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/face/learn', methods=['POST'])
+def learn_face():
+    """
+    Learn a new face for a user.
+    
+    POST body:
+        user_id: Unique identifier (e.g., 'organic_abby', 'boyfriend')
+        name: Display name
+        image: Base64 encoded image with the face
+        
+    Returns:
+        success: Whether learning succeeded
+        total_samples: Number of face samples for this user
+    """
+    try:
+        from presence.face_recognition import get_face_recognizer
+        recognizer = get_face_recognizer()
+        
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'Data required'}), 400
+        
+        user_id = data.get('user_id')
+        name = data.get('name')
+        image = data.get('image')
+        
+        if not all([user_id, name, image]):
+            return jsonify({'error': 'user_id, name, and image are required'}), 400
+        
+        result = recognizer.learn_face(user_id, name, image)
+        return jsonify(result)
+    
+    except Exception as e:
+        logger.error(f"Face learn error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/face/identify', methods=['POST'])
+def identify_face():
+    """
+    Identify who is in front of the camera and update their session.
+    Combines face detection with presence tracking.
+    
+    POST body:
+        image: Base64 encoded image
+        session_id: Optional session to update
+        
+    Returns:
+        recognized: Whether a known face was found
+        user_id: ID of recognized user (if any)
+        session_updated: Whether the session was updated
+    """
+    try:
+        from presence.face_recognition import get_face_recognizer
+        recognizer = get_face_recognizer()
+        
+        data = request.get_json()
+        if not data or 'image' not in data:
+            return jsonify({'error': 'Image required'}), 400
+        
+        # Detect faces
+        result = recognizer.process_image(data['image'])
+        
+        if result.get('error'):
+            return jsonify(result)
+        
+        # Look for a recognized face
+        recognized_user = None
+        for face in result.get('faces', []):
+            if face.get('recognized') and face.get('confidence', 0) >= 0.5:
+                recognized_user = face
+                break
+        
+        response = {
+            'faces_detected': result.get('faces_detected', 0),
+            'recognized': recognized_user is not None
+        }
+        
+        if recognized_user:
+            response['user_id'] = recognized_user['user_id']
+            response['name'] = recognized_user['name']
+            response['confidence'] = recognized_user['confidence']
+            
+            # Update session if provided
+            session_id = data.get('session_id')
+            if session_id:
+                tracker = get_user_tracker_instance()
+                tracker.identify_user(session_id, recognized_user['user_id'])
+                response['session_updated'] = True
+        
+        return jsonify(response)
+    
+    except Exception as e:
+        logger.error(f"Face identify error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/api/presence/active', methods=['GET'])
 def list_active_sessions():
     """List all active sessions (for admin/debug)"""
