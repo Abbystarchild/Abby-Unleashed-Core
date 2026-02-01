@@ -488,8 +488,32 @@
         }
         
         .transcript-text.interim {
-            color: var(--text-muted);
+            color: #22c55e;
             font-style: italic;
+            animation: pulse-green 0.5s ease-in-out;
+        }
+        
+        @keyframes pulse-green {
+            0%, 100% { color: #22c55e; }
+            50% { color: #4ade80; }
+        }
+        
+        .hearing-indicator {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 0.9rem;
+            color: #22c55e;
+            font-weight: bold;
+            opacity: 0;
+            transition: opacity 0.2s;
+            pointer-events: none;
+        }
+        
+        .hearing-indicator.active {
+            opacity: 1;
+            animation: pulse 1s infinite;
         }
         
         /* Voice Controls */
@@ -1044,7 +1068,8 @@
                 isRecording = true;
                 console.log('🎤 Speech recognition started');
                 updateVoiceUI('listening');
-                document.getElementById('transcriptText').textContent = 'Listening... speak now!';
+                document.getElementById('transcriptText').textContent = '🎤 Mic is ON - speak now!';
+                document.getElementById('voiceStatus').textContent = '🎤 Listening...';
             };
             
             recognition.onresult = (event) => {
@@ -1061,18 +1086,23 @@
                 }
                 
                 const transcriptText = document.getElementById('transcriptText');
+                const statusEl = document.getElementById('voiceStatus');
+                
                 if (final) {
                     console.log('🎤 Final transcript:', final);
-                    transcriptText.textContent = final;
+                    transcriptText.textContent = '✅ "' + final + '"';
                     transcriptText.classList.remove('interim');
+                    statusEl.textContent = '✅ Heard you!';
                     // Stop recording while processing, then auto-resume if toggle is on
                     if (wantsToRecord) {
                         recognition.stop();
                     }
                     processVoiceInput(final);
                 } else if (interim) {
-                    transcriptText.textContent = interim;
+                    // Show they're being heard with green text
+                    transcriptText.textContent = '🎤 "' + interim + '..."';
                     transcriptText.classList.add('interim');
+                    statusEl.textContent = '👂 Hearing you...';
                 }
             };
             
