@@ -1033,6 +1033,15 @@
         
         // ============ INITIALIZATION ============
         document.addEventListener('DOMContentLoaded', () => {
+            // Check for HTTPS requirement on mobile
+            const isSecure = location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+            const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+            
+            if (isMobile && !isSecure) {
+                console.warn('⚠️ Mobile device on non-HTTPS connection - mic may not work');
+                // Show warning in console but don't block - some browsers still allow it on local network
+            }
+            
             initSpeechRecognition();
             createVisualizerBars();
             checkHealth();
@@ -1066,10 +1075,28 @@
             
             recognition.onstart = () => {
                 isRecording = true;
-                console.log('🎤 Speech recognition started');
+                console.log('🎤 Speech recognition started successfully');
+                
+                // Clear the timeout since onstart fired
+                if (recognition._startTimeout) {
+                    clearTimeout(recognition._startTimeout);
+                    recognition._startTimeout = null;
+                }
+                
                 updateVoiceUI('listening');
                 document.getElementById('transcriptText').textContent = '🎤 Mic is ON - speak now!';
                 document.getElementById('voiceStatus').textContent = '🎤 Listening...';
+            };
+            
+            // This fires when audio actually starts being captured
+            recognition.onaudiostart = () => {
+                console.log('🔊 Audio capture started - mic is receiving sound');
+                document.getElementById('voiceStatus').textContent = '🎤 Listening...';
+            };
+            
+            recognition.onspeechstart = () => {
+                console.log('🗣️ Speech detected!');
+                document.getElementById('voiceStatus').textContent = '🗣️ Hearing speech...';
             };
             
             recognition.onresult = (event) => {
@@ -1318,11 +1345,23 @@
                 wantsToRecord = true;
                 try {
                     // Update UI to show we're trying
-                    document.getElementById('transcriptText').textContent = 'Requesting microphone access...';
+                    document.getElementById('transcriptText').textContent = 'Starting microphone...';
                     updateVoiceUI('listening');
+                    
+                    // Set a timeout in case onstart never fires
+                    const startTimeout = setTimeout(() => {
+                        if (!isRecording && wantsToRecord) {
+                            console.warn('Recognition start timeout - onstart never fired');
+                            document.getElementById('transcriptText').textContent = '⚠️ Mic may not be working. Try speaking or tap mic again.';
+                        }
+                    }, 3000);
+                    
+                    // Store timeout so we can clear it if onstart fires
+                    recognition._startTimeout = startTimeout;
                     
                     // Try to start recognition first - let the browser handle permissions
                     recognition.start();
+                    console.log('recognition.start() called');
                     
                     // Try visualization separately (it's optional)
                     startAudioVisualization().catch(e => {
