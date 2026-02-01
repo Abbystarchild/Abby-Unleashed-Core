@@ -2148,6 +2148,9 @@
             recognition.onspeechstart = () => {
                 console.log('🗣️ Speech detected!');
                 document.getElementById('voiceStatus').textContent = '🗣️ Hearing speech...';
+                
+                // Natural interrupt: if Abby is speaking/thinking and user starts talking, interrupt her
+                notifyUserSpeaking();
             };
             
             recognition.onresult = (event) => {
@@ -2531,6 +2534,19 @@
                 showInterruptButton(false);
             } catch (e) {
                 console.error('Interrupt failed:', e);
+            }
+        }
+        
+        // Notify backend that user started speaking (for natural interrupts)
+        async function notifyUserSpeaking() {
+            try {
+                await fetch('/api/stream/user-speaking', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({})
+                });
+            } catch (e) {
+                // Silently ignore - not critical
             }
         }
         

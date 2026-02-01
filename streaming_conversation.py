@@ -6,6 +6,7 @@ Enables:
 - Visible thinking process [THINKING] vs [SPEAKING]
 - Multi-step task planning and execution
 - User interrupts mid-task
+- PersonaPlex integration for natural conversation flow
 """
 import asyncio
 import json
@@ -24,6 +25,7 @@ logger = logging.getLogger(__name__)
 class ThinkingState(Enum):
     """What Abby is currently doing"""
     IDLE = "idle"
+    LISTENING = "listening"    # Actively listening for speech
     THINKING = "thinking"      # Processing/reasoning internally
     SPEAKING = "speaking"      # Generating response for user
     DOING = "doing"           # Executing an action (file ops, commands)
@@ -43,7 +45,7 @@ class TaskStep:
 @dataclass 
 class StreamEvent:
     """An event in the response stream"""
-    type: str  # 'thinking', 'text', 'action', 'step', 'done', 'error', 'interrupt'
+    type: str  # 'thinking', 'text', 'action', 'step', 'done', 'error', 'interrupt', 'listening'
     content: str
     metadata: Dict[str, Any] = field(default_factory=dict)
     timestamp: float = field(default_factory=time.time)
@@ -64,12 +66,14 @@ class StreamEvent:
 class StreamingConversation:
     """
     Manages streaming, continuous conversation with Abby.
+    Integrates PersonaPlex features for natural conversation.
     
     Features:
     - Streams tokens as they're generated
     - Shows thinking process before final response
     - Plans multi-step tasks and shows progress
-    - Accepts interrupts from user
+    - Accepts interrupts from user (even mid-speech)
+    - Natural turn-taking with PersonaPlex VAD
     """
     
     def __init__(self, abby_instance=None):
@@ -79,9 +83,10 @@ class StreamingConversation:
         self.task_steps: List[TaskStep] = []
         self.current_step_index = 0
         
-        # Interrupt handling
+        # Interrupt handling - supports mid-speech interrupts
         self.interrupt_requested = False
         self.interrupt_message: Optional[str] = None
+        self.can_be_interrupted = True  # Allow interrupts during speech
         
         # Event queue for streaming
         self.event_queue: queue.Queue = queue.Queue()
@@ -89,16 +94,56 @@ class StreamingConversation:
         # Callbacks
         self.on_state_change: Optional[Callable] = None
         self.on_event: Optional[Callable] = None
+        self.on_user_speaking: Optional[Callable] = None  # Called when user starts speaking (for interrupt)
         
         # Conversation context
         self.conversation_history: List[Dict] = []
         
-        logger.info("StreamingConversation initialized")
+        # PersonaPlex conversation manager (optional, for full local speech)
+        self._personaplex_manager = None
+        
+        # Speaking state for interrupt detection
+        self._is_speaking = False
+        self._speech_start_time = None
+        
+        logger.info("StreamingConversation initialized with interrupt support")
+    
+    def enable_personaplex(self):
+        """
+        Enable full PersonaPlex features (local STT, VAD, wake word).
+        This provides more natural conversation with proper turn-taking.
+        """
+        try:
+            from speech_interface import ConversationManager
+            self._personaplex_manager = ConversationManager(
+                tts_backend="elevenlabs"  # Use ElevenLabs for voice
+            )
+            
+            # Connect Abby as the task executor
+            if self.abby:
+                self._personaplex_manager.set_task_executor(
+                    lambda text: self.abby.execute_task(text).get('output', '')
+                )
+            
+            self._personaplex_manager.initialize()
+            logger.info("PersonaPlex full conversation mode enabled")
+            return True
+        except Exception as e:
+            logger.warning(f"PersonaPlex not available: {e}")
+            return False
     
     def _set_state(self, new_state: ThinkingState):
         """Update state and notify listeners"""
         old_state = self.state
         self.state = new_state
+        
+        # Track speaking state for interrupts
+        if new_state == ThinkingState.SPEAKING:
+            self._is_speaking = True
+            self._speech_start_time = time.time()
+        elif old_state == ThinkingState.SPEAKING:
+            self._is_speaking = False
+        
         logger.info(f"State: {old_state.value} -> {new_state.value}")
         
         if self.on_state_change:
@@ -118,6 +163,24 @@ class StreamingConversation:
         if self.on_event:
             self.on_event(event)
     
+    def on_user_started_speaking(self):
+        """
+        Called when user starts speaking (detected by VAD or browser).
+        This enables natural interruption like in real conversation.
+        """
+        if self._is_speaking and self.can_be_interrupted:
+            # User started talking while Abby was speaking - natural interrupt!
+            speech_duration = time.time() - (self._speech_start_time or time.time())
+            
+            # Only interrupt if Abby has been speaking for at least 1 second
+            # (avoid interrupting greetings/short responses)
+            if speech_duration > 1.0:
+                logger.info(f"Natural interrupt: user spoke while Abby was talking (after {speech_duration:.1f}s)")
+                self.interrupt("User started speaking")
+                return True
+        
+        return False
+    
     def interrupt(self, message: str = None):
         """
         Request an interrupt of the current task.
@@ -125,11 +188,12 @@ class StreamingConversation:
         Args:
             message: Optional new instruction to redirect to
         """
-        if self.state in [ThinkingState.IDLE, ThinkingState.WAITING]:
+        if self.state in [ThinkingState.IDLE, ThinkingState.WAITING, ThinkingState.LISTENING]:
             return False  # Nothing to interrupt
         
         self.interrupt_requested = True
         self.interrupt_message = message
+        self._is_speaking = False  # Stop speaking immediately
         self._emit_event('interrupt', 'Interrupt requested', {'redirect': message})
         logger.info(f"Interrupt requested: {message}")
         return True

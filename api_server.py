@@ -924,6 +924,29 @@ def stream_interrupt():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/stream/user-speaking', methods=['POST'])
+def stream_user_speaking():
+    """
+    Notify that user started speaking (for natural interrupts).
+    Called by the UI when VAD or speech recognition detects user voice.
+    """
+    try:
+        sc = get_streaming_conversation_instance()
+        if not sc:
+            return jsonify({'error': 'Streaming not available'}), 500
+        
+        interrupted = sc.on_user_started_speaking()
+        
+        return jsonify({
+            'interrupted': interrupted,
+            'state': sc.state.value
+        })
+    
+    except Exception as e:
+        logger.error(f"User speaking notification error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/api/stream/clear', methods=['POST'])
 def stream_clear():
     """Clear streaming conversation history"""

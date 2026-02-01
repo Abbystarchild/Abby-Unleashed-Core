@@ -317,50 +317,25 @@ class UserTracker:
     def get_system_prompt_addition(self, session_id: str) -> str:
         """
         Generate additional system prompt text based on who is connected.
-        
-        This gets injected into Abby's system prompt to customize her behavior.
+        KEEP THIS SHORT - it gets added to every prompt!
         """
         ctx = self.get_user_context(session_id)
         
-        # Get system identity info
-        system_id = self.profiles.get('system_identity', {})
-        
+        # Keep it minimal!
         parts = []
         
-        # Add self-awareness
-        if system_id.get('self_awareness'):
-            parts.append(f"=== WHO YOU ARE ===\n{system_id['self_awareness']}")
+        # Just identify who we're talking to
+        if ctx.get('is_known_user'):
+            parts.append(f"Talking to: {ctx['display_name']} ({ctx['relationship']})")
+            
+            # Only add tone hint
+            style = ctx.get('communication_style', {})
+            if style.get('tone'):
+                parts.append(f"Tone: {style['tone']}")
+        else:
+            parts.append("Talking to: someone new")
         
-        # Add user context
-        parts.append(f"\n=== WHO YOU'RE TALKING TO ===")
-        parts.append(f"Current user: {ctx['display_name']}")
-        parts.append(f"Relationship: {ctx['relationship']}")
-        parts.append(f"Device: {ctx['device']}")
-        
-        if ctx.get('message_count', 0) > 0:
-            parts.append(f"Messages this session: {ctx['message_count']}")
-        
-        # Add personality notes
-        if ctx.get('personality_notes'):
-            parts.append("\nThings to remember about this user:")
-            for note in ctx['personality_notes']:
-                parts.append(f"- {note}")
-        
-        # Add communication style
-        style = ctx.get('communication_style', {})
-        if style:
-            parts.append(f"\nCommunication style for this user:")
-            parts.append(f"- Tone: {style.get('tone', 'friendly')}")
-            parts.append(f"- Formality: {style.get('formality', 'moderate')}")
-            parts.append(f"- Humor level: {style.get('humor', 'appropriate')}")
-        
-        # Add special behaviors
-        if ctx.get('special_behaviors'):
-            parts.append("\nSpecial instructions for this user:")
-            for behavior in ctx['special_behaviors']:
-                parts.append(f"- {behavior}")
-        
-        return '\n'.join(parts)
+        return ' | '.join(parts) if parts else ""
     
     def get_chaos_response(self) -> str:
         """Get a pre-made response for handling chaotic/wild statements from the boyfriend"""
