@@ -5,11 +5,14 @@ With user presence awareness - knows who she's talking to!
 """
 import logging
 import os
-from typing import Dict, Any, Optional
+import subprocess
+import sys
+from typing import Dict, Any, Optional, List
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 from datetime import datetime
 import threading
+from collections import deque
 from dotenv import load_dotenv
 
 # Load environment variables FIRST
@@ -20,10 +23,183 @@ from presence.user_tracker import get_user_tracker, UserTracker
 
 logger = logging.getLogger(__name__)
 
+# ============ LOG BUFFER FOR GUI ============
+class LogBuffer(logging.Handler):
+    """Captures logs in a buffer for GUI display"""
+    def __init__(self, maxlen=500):
+        super().__init__()
+        self.buffer = deque(maxlen=maxlen)
+        self.setFormatter(logging.Formatter('%(asctime)s [%(levelname)s] %(name)s: %(message)s', datefmt='%H:%M:%S'))
+    
+    def emit(self, record):
+        try:
+            msg = self.format(record)
+            self.buffer.append({
+                'time': datetime.now().isoformat(),
+                'level': record.levelname,
+                'message': msg
+            })
+        except:
+            pass
+    
+    def get_logs(self, count=100):
+        return list(self.buffer)[-count:]
+    
+    def clear(self):
+        self.buffer.clear()
+
+# Global log buffer
+log_buffer = LogBuffer()
+logging.getLogger().addHandler(log_buffer)
+
+# ============ NGROK MANAGER ============
+class NgrokManager:
+    """Manages ngrok tunnel lifecycle"""
+    def __init__(self):
+        self.process = None
+        self.public_url = None
+        self.is_running = False
+        self._lock = threading.Lock()
+    
+    def find_ngrok_path(self) -> Optional[str]:
+        """Find ngrok executable"""
+        # Try common locations
+        paths = [
+            "ngrok",  # In PATH
+            os.path.expandvars(r"%LOCALAPPDATA%\Microsoft\WinGet\Packages\Ngrok.Ngrok_Microsoft.Winget.Source_8wekyb3d8bbwe\ngrok.exe"),
+            os.path.expandvars(r"%LOCALAPPDATA%\ngrok\ngrok.exe"),
+            r"C:\ngrok\ngrok.exe",
+        ]
+        
+        for path in paths:
+            try:
+                expanded = os.path.expandvars(path)
+                if os.path.exists(expanded):
+                    return expanded
+                # Try running it
+                result = subprocess.run([path, "version"], capture_output=True, timeout=5)
+                if result.returncode == 0:
+                    return path
+            except:
+                continue
+        
+        # Search in WinGet packages
+        try:
+            winget_path = os.path.expandvars(r"%LOCALAPPDATA%\Microsoft\WinGet\Packages")
+            for root, dirs, files in os.walk(winget_path):
+                if "ngrok.exe" in files:
+                    return os.path.join(root, "ngrok.exe")
+        except:
+            pass
+        
+        return None
+    
+    def start(self, port: int = 8080) -> Dict[str, Any]:
+        """Start ngrok tunnel"""
+        with self._lock:
+            if self.is_running:
+                return {'success': True, 'url': self.public_url, 'message': 'Already running'}
+            
+            ngrok_path = self.find_ngrok_path()
+            if not ngrok_path:
+                return {'success': False, 'error': 'ngrok not found. Install with: winget install ngrok.ngrok'}
+            
+            try:
+                # Start ngrok
+                self.process = subprocess.Popen(
+                    [ngrok_path, "http", str(port)],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
+                )
+                
+                # Wait for tunnel to establish and get URL
+                import time
+                import requests
+                for _ in range(30):  # Try for 15 seconds
+                    time.sleep(0.5)
+                    try:
+                        resp = requests.get("http://127.0.0.1:4040/api/tunnels", timeout=2)
+                        tunnels = resp.json().get('tunnels', [])
+                        for tunnel in tunnels:
+                            if tunnel.get('proto') == 'https':
+                                self.public_url = tunnel.get('public_url')
+                                self.is_running = True
+                                logger.info(f"🌐 Ngrok tunnel active: {self.public_url}")
+                                return {'success': True, 'url': self.public_url}
+                    except:
+                        continue
+                
+                return {'success': False, 'error': 'Timeout waiting for ngrok tunnel'}
+                
+            except Exception as e:
+                logger.error(f"Ngrok start error: {e}")
+                return {'success': False, 'error': str(e)}
+    
+    def stop(self) -> Dict[str, Any]:
+        """Stop ngrok tunnel"""
+        with self._lock:
+            if not self.is_running:
+                return {'success': True, 'message': 'Not running'}
+            
+            try:
+                if self.process:
+                    self.process.terminate()
+                    self.process.wait(timeout=5)
+                    self.process = None
+                
+                self.public_url = None
+                self.is_running = False
+                logger.info("🌐 Ngrok tunnel stopped")
+                return {'success': True}
+            except Exception as e:
+                logger.error(f"Ngrok stop error: {e}")
+                return {'success': False, 'error': str(e)}
+    
+    def status(self) -> Dict[str, Any]:
+        """Get ngrok status"""
+        return {
+            'running': self.is_running,
+            'url': self.public_url
+        }
+
+# Global ngrok manager
+ngrok_manager = NgrokManager()
+
+# Mobile detection patterns
+MOBILE_USER_AGENTS = [
+    'Android', 'webOS', 'iPhone', 'iPad', 'iPod', 
+    'BlackBerry', 'IEMobile', 'Opera Mini', 'Mobile', 'mobile'
+]
+
+def is_mobile_request() -> bool:
+    """Check if request is from a mobile device"""
+    user_agent = request.headers.get('User-Agent', '')
+    return any(pattern in user_agent for pattern in MOBILE_USER_AGENTS)
+
+def auto_start_ngrok_for_mobile():
+    """Auto-start ngrok if mobile device detected and not using HTTPS"""
+    if not is_mobile_request():
+        return None
+    
+    # Check if already on ngrok or HTTPS
+    host = request.host.lower()
+    if 'ngrok' in host or request.is_secure:
+        return None
+    
+    # Mobile on local network without HTTPS - start ngrok
+    if not ngrok_manager.is_running:
+        logger.info("📱 Mobile device detected - auto-starting ngrok for HTTPS...")
+        result = ngrok_manager.start(8080)
+        if result.get('success'):
+            logger.info(f"📱 Ngrok auto-started: {result.get('url')}")
+    
+    return ngrok_manager.public_url
+
 # Initialize Flask app
 app = Flask(__name__, static_folder='web', static_url_path='')
 
-# Enable CORS with restrictions for local network security
+# Enable CORS with restrictions for local network security (plus ngrok)
 CORS(app, resources={
     r"/api/*": {
         "origins": [
@@ -66,7 +242,9 @@ CORS(app, resources={
             "https://172.28.*.*:*",
             "https://172.29.*.*:*",
             "https://172.30.*.*:*",
-            "https://172.31.*.*:*"
+            "https://172.31.*.*:*",
+            "https://*.ngrok-free.app",  # Ngrok tunnels
+            "https://*.ngrok.io"
         ],
         "methods": ["GET", "POST"],
         "allow_headers": ["Content-Type"]
@@ -101,22 +279,68 @@ def get_abby():
 
 @app.route('/')
 def index():
-    """Serve mobile web interface"""
+    """Serve mobile web interface - auto-starts ngrok for mobile devices"""
+    ngrok_url = auto_start_ngrok_for_mobile()
+    
+    # If mobile and ngrok is now running, we could redirect
+    # But better to let the client decide via JS
     return send_from_directory('web', 'index.html')
+
+
+@app.route('/api/mobile-redirect', methods=['GET'])
+def mobile_redirect():
+    """Check if mobile should redirect to ngrok URL"""
+    ngrok_url = auto_start_ngrok_for_mobile()
+    
+    if ngrok_url and is_mobile_request() and not request.is_secure:
+        return jsonify({
+            'should_redirect': True,
+            'ngrok_url': ngrok_url,
+            'reason': 'Mobile device needs HTTPS for camera/mic access'
+        })
+    
+    return jsonify({
+        'should_redirect': False,
+        'is_mobile': is_mobile_request(),
+        'is_secure': request.is_secure
+    })
+
+
+@app.route('/cert.pem')
+def download_cert():
+    """Download SSL certificate for mobile installation"""
+    try:
+        return send_from_directory('ssl', 'cert.pem', 
+                                   mimetype='application/x-pem-file',
+                                   as_attachment=True,
+                                   download_name='abby-unleashed-cert.pem')
+    except:
+        return "Certificate not found. Start server with --https first.", 404
 
 
 @app.route('/api/health', methods=['GET'])
 def health():
-    """Health check endpoint"""
+    """Health check endpoint - auto-starts ngrok for mobile"""
     try:
+        # Auto-start ngrok for mobile devices
+        ngrok_url = auto_start_ngrok_for_mobile()
+        
         abby_instance = get_abby()
         ollama_healthy = abby_instance.ollama_client.health_check()
         
-        return jsonify({
+        response_data = {
             'status': 'healthy' if ollama_healthy else 'degraded',
             'ollama': 'connected' if ollama_healthy else 'disconnected',
-            'timestamp': datetime.now().isoformat()
-        })
+            'timestamp': datetime.now().isoformat(),
+            'ngrok': ngrok_manager.status(),
+            'is_mobile': is_mobile_request()
+        }
+        
+        # Suggest redirect for mobile on HTTP
+        if ngrok_url and is_mobile_request() and not request.is_secure:
+            response_data['suggest_redirect'] = ngrok_url
+        
+        return jsonify(response_data)
     except Exception as e:
         logger.error(f"Health check failed: {e}")
         return jsonify({
@@ -124,6 +348,70 @@ def health():
             'error': str(e),
             'timestamp': datetime.now().isoformat()
         }), 500
+
+
+# ============== SERVER LOGS API ==============
+
+@app.route('/api/logs', methods=['GET'])
+def get_logs():
+    """Get recent server logs"""
+    try:
+        return jsonify({
+            'logs': log_buffer.get_logs(),
+            'count': len(log_buffer.logs)
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/logs/clear', methods=['POST'])
+def clear_logs():
+    """Clear the log buffer"""
+    try:
+        log_buffer.clear()
+        return jsonify({'success': True, 'message': 'Logs cleared'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# ============== NGROK TUNNEL API ==============
+
+@app.route('/api/ngrok/status', methods=['GET'])
+def ngrok_status():
+    """Get ngrok tunnel status"""
+    try:
+        status = ngrok_manager.status()
+        return jsonify(status)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/ngrok/start', methods=['POST'])
+def ngrok_start():
+    """Start ngrok tunnel"""
+    try:
+        data = request.get_json() or {}
+        port = data.get('port', 8080)
+        
+        result = ngrok_manager.start(port)
+        if result.get('success'):
+            logger.info(f"Ngrok tunnel started: {result.get('url')}")
+            return jsonify(result)
+        else:
+            return jsonify(result), 500
+    except Exception as e:
+        logger.error(f"Failed to start ngrok: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/ngrok/stop', methods=['POST'])
+def ngrok_stop():
+    """Stop ngrok tunnel"""
+    try:
+        result = ngrok_manager.stop()
+        if result.get('success'):
+            logger.info("Ngrok tunnel stopped")
+        return jsonify(result)
+    except Exception as e:
+        logger.error(f"Failed to stop ngrok: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 
 # ============== PRESENCE & IDENTITY APIs ==============
