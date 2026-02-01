@@ -2062,17 +2062,35 @@
         }
 
         // ============ INITIALIZATION ============
-        document.addEventListener('DOMContentLoaded', () => {
+        let useLocalSpeech = false;  // Will be set based on server capability
+        let localSpeechEventSource = null;
+        
+        document.addEventListener('DOMContentLoaded', async () => {
             // Check for HTTPS requirement on mobile
             const isSecure = location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1';
             const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
             
             if (isMobile && !isSecure) {
                 console.warn('⚠️ Mobile device on non-HTTPS connection - mic may not work');
-                // Show warning in console but don't block - some browsers still allow it on local network
             }
             
-            initSpeechRecognition();
+            // Check if local speech recognition is available (Vosk)
+            try {
+                const speechStatus = await fetch('/api/speech/status');
+                const status = await speechStatus.json();
+                if (status.available) {
+                    console.log('🎤 Local speech recognition available (Vosk)');
+                    useLocalSpeech = true;
+                    initLocalSpeechRecognition();
+                } else {
+                    console.log('⚠️ Local speech not available, trying Web Speech API');
+                    initSpeechRecognition();
+                }
+            } catch (e) {
+                console.log('⚠️ Could not check local speech, using Web Speech API');
+                initSpeechRecognition();
+            }
+            
             createVisualizerBars();
             checkHealth();
             setInterval(checkHealth, 15000);
@@ -2092,6 +2110,96 @@
             });
         });
         
+        // ============ LOCAL SPEECH RECOGNITION (Vosk) ============
+        function initLocalSpeechRecognition() {
+            console.log('🎤 Initializing LOCAL speech recognition (Vosk - no internet needed!)');
+            
+            const transcriptText = document.getElementById('transcriptText');
+            const voiceStatus = document.getElementById('voiceStatus');
+            
+            transcriptText.textContent = '🎤 Local voice ready - tap mic to talk';
+            voiceStatus.textContent = '✅ Local Voice';
+            voiceStatus.style.color = '#22c55e';
+            
+            // Mark recognition as available (use a placeholder object)
+            recognition = {
+                _isLocal: true,
+                start: startLocalListening,
+                stop: stopLocalListening,
+                abort: stopLocalListening
+            };
+        }
+        
+        async function startLocalListening() {
+            if (isRecording) return;
+            
+            console.log('🎤 Starting local speech recognition...');
+            isRecording = true;
+            updateVoiceUI('listening');
+            document.getElementById('transcriptText').textContent = '🎤 Listening locally...';
+            document.getElementById('voiceStatus').textContent = '🎤 Listening...';
+            
+            // Start visualization
+            startAudioVisualization().catch(e => console.warn('Viz unavailable:', e));
+            
+            // Connect to SSE stream for real-time results
+            localSpeechEventSource = new EventSource('/api/speech/stream');
+            
+            localSpeechEventSource.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                
+                if (data.type === 'final' && data.text) {
+                    console.log('🎤 Final (local):', data.text);
+                    document.getElementById('transcriptText').textContent = '✅ "' + data.text + '"';
+                    document.getElementById('voiceStatus').textContent = '✅ Heard you!';
+                    
+                    // Stop and process
+                    stopLocalListening();
+                    processVoiceInput(data.text);
+                    
+                } else if (data.type === 'partial' && data.text) {
+                    document.getElementById('transcriptText').textContent = '🎤 "' + data.text + '..."';
+                    document.getElementById('voiceStatus').textContent = '👂 Hearing...';
+                    
+                    // Notify PersonaPlex about user speaking (for interrupts)
+                    notifyUserSpeaking();
+                }
+            };
+            
+            localSpeechEventSource.onerror = (e) => {
+                console.error('Local speech stream error:', e);
+                stopLocalListening();
+                document.getElementById('transcriptText').textContent = '❌ Local speech error';
+                updateVoiceUI('error');
+                setTimeout(() => updateVoiceUI('ready'), 2000);
+            };
+        }
+        
+        function stopLocalListening() {
+            if (localSpeechEventSource) {
+                localSpeechEventSource.close();
+                localSpeechEventSource = null;
+            }
+            
+            // Tell server to stop listening
+            fetch('/api/speech/stop', { method: 'POST' }).catch(() => {});
+            
+            isRecording = false;
+            stopAudioVisualization();
+            
+            // Auto-restart if toggle is on
+            if (wantsToRecord && !isBusy) {
+                setTimeout(() => {
+                    if (wantsToRecord && !isBusy && !isRecording) {
+                        startLocalListening();
+                    }
+                }, 500);
+            } else if (!isBusy) {
+                updateVoiceUI('ready');
+            }
+        }
+        
+        // ============ WEB SPEECH API (fallback) ============
         function initSpeechRecognition() {
             const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
             if (!SpeechRecognition) {

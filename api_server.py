@@ -2456,6 +2456,18 @@ def start_server(host: str = '0.0.0.0', port: int = 8080, debug: bool = False, h
     # Initialize Abby
     get_abby()
     
+    # Initialize local speech recognition (Vosk)
+    try:
+        from local_speech import register_speech_routes, get_speech_recognizer
+        register_speech_routes(app)
+        recognizer = get_speech_recognizer()
+        if recognizer.is_available:
+            logger.info("🎤 Local speech recognition enabled (Vosk)")
+        else:
+            logger.warning("Local speech recognition not available - model may be missing")
+    except Exception as e:
+        logger.warning(f"Could not initialize local speech: {e}")
+    
     # Initialize enhanced server (starts background workers)
     try:
         get_enhanced_server()
@@ -2494,8 +2506,42 @@ if __name__ == '__main__':
     parser.add_argument('--port', type=int, default=8080, help='Port to bind to')
     parser.add_argument('--debug', action='store_true', help='Enable debug mode')
     parser.add_argument('--https', action='store_true', help='Enable HTTPS for mobile camera support')
+    parser.add_argument('--no-browser', action='store_true', help='Do not auto-launch Abby Browser')
     
     args = parser.parse_args()
     
+    # Auto-launch Abby Browser unless disabled
+    if not args.no_browser:
+        import subprocess
+        import threading
+        import time
+        
+        def launch_browser():
+            """Launch Abby Browser after a short delay to let server start"""
+            time.sleep(2)  # Wait for server to be ready
+            browser_path = os.path.join(os.path.dirname(__file__), 'abby_browser.py')
+            if os.path.exists(browser_path):
+                protocol = 'https' if args.https else 'http'
+                url = f"{protocol}://localhost:{args.port}"
+                logger.info(f"🚀 Launching Abby Browser -> {url}")
+                try:
+                    # Use pythonw to avoid extra console window, fall back to python
+                    python_exe = sys.executable
+                    pythonw = python_exe.replace('python.exe', 'pythonw.exe')
+                    if os.path.exists(pythonw):
+                        subprocess.Popen([pythonw, browser_path, url], 
+                                       creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
+                    else:
+                        subprocess.Popen([python_exe, browser_path, url],
+                                       creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
+                except Exception as e:
+                    logger.warning(f"Could not launch Abby Browser: {e}")
+            else:
+                logger.warning("Abby Browser not found - open http://localhost:8080 manually")
+        
+        # Start browser launch in background thread
+        threading.Thread(target=launch_browser, daemon=True).start()
+    
     start_server(host=args.host, port=args.port, debug=args.debug, https=args.https)
+
 

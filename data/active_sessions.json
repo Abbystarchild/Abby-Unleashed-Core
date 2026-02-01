@@ -14,10 +14,10 @@
     "display_name": "Organic Abby",
     "device_info": "Windows PC",
     "connected_at": "2026-01-31T18:11:25.070587",
-    "last_activity": "2026-01-31T21:14:34.297684",
+    "last_activity": "2026-01-31T22:06:43.950116",
     "ip_address": "127.0.0.1",
     "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36 OPR/126.0.0.0",
-    "message_count": 18
+    "message_count": 20
   },
   "da3981c74a4a823e": {
     "user_id": "organic_abby",
@@ -48,5 +48,55 @@
     "ip_address": "127.0.0.1",
     "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Code/1.108.2 Chrome/142.0.7444.235 Electron/39.2.7 Safari/537.36",
     "message_count": 3
+  },
+  "eb4ec62b37bf774a": {
+    "user_id": "unknown",
+    "display_name": "Unknown User",
+    "device_info": "unknown device",
+    "connected_at": "2026-01-31T21:51:13.213333",
+    "last_activity": "2026-01-31T21:51:13.213333",
+    "ip_address": "127.0.0.1",
+    "user_agent": "AbbyBrowser/1.0 (Abby Unleashed; Desktop Client) AppleWebKit/537.36 Chrome/120.0.0.0",
+    "message_count": 0
+  },
+  "8aa972894f2f64c6": {
+    "user_id": "unknown",
+    "display_name": "Unknown User",
+    "device_info": "unknown device",
+    "connected_at": "2026-01-31T21:57:40.095100",
+    "last_activity": "2026-01-31T21:57:40.095100",
+    "ip_address": "127.0.0.1",
+    "user_agent": "AbbyBrowser/1.0 (Abby Unleashed; Desktop Client) AppleWebKit/537.36 Chrome/120.0.0.0",
+    "message_count": 0
+  },
+  "43702b10e420a72c": {
+    "user_id": "unknown",
+    "display_name": "Unknown User",
+    "device_info": "unknown device",
+    "connected_at": "2026-01-31T22:04:53.697114",
+    "last_activity": "2026-01-31T22:04:53.697114",
+    "ip_address": "127.0.0.1",
+    "user_agent": "AbbyBrowser/1.0 (Abby Unleashed; Desktop Client) AppleWebKit/537.36 Chrome/120.0.0.0",
+    "message_count": 0
+  },
+  "6cf5a16496b96073": {
+    "user_id": "organic_abby",
+    "display_name": "Abby",
+    "device_info": "unknown device",
+    "connected_at": "2026-01-31T22:06:44.000410",
+    "last_activity": "2026-01-31T22:06:56.432920",
+    "ip_address": "127.0.0.1",
+    "user_agent": "AbbyBrowser/1.0 (Abby Unleashed; Desktop Client) AppleWebKit/537.36 Chrome/120.0.0.0",
+    "message_count": 1
+  },
+  "453a5bc72836e8c1": {
+    "user_id": "organic_abby",
+    "display_name": "Abby",
+    "device_info": "unknown device",
+    "connected_at": "2026-01-31T22:12:00.523950",
+    "last_activity": "2026-01-31T22:12:03.554737",
+    "ip_address": "127.0.0.1",
+    "user_agent": "AbbyBrowser/1.0 (Abby Unleashed; Desktop Client) AppleWebKit/537.36 Chrome/120.0.0.0",
+    "message_count": 1
   }
 }
