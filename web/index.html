@@ -898,7 +898,7 @@
         <div class="voice-header">
             <button class="close-voice-btn" onclick="exitVoiceMode()">✕</button>
             <div class="voice-status" id="voiceStatus">Ready</div>
-            <div class="model-badge" id="modelBadge">qwen3-coder:30b</div>
+            <div class="model-badge" id="modelBadge">mistral:latest</div>
         </div>
         
         <div class="avatar-container">
@@ -1216,6 +1216,17 @@
             document.getElementById('voiceMode').classList.add('active');
             document.body.style.overflow = 'hidden';
             updateVoiceUI('ready');
+            
+            // Fetch and display the current model being used
+            try {
+                const resp = await fetch(`${API_BASE}/api/current_model`);
+                if (resp.ok) {
+                    const data = await resp.json();
+                    document.getElementById('modelBadge').textContent = data.conversation_model || 'mistral:latest';
+                }
+            } catch (e) {
+                console.log('Could not fetch current model:', e);
+            }
             
             // Show helpful message on first entry
             const transcriptText = document.getElementById('transcriptText');

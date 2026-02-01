@@ -307,6 +307,26 @@ def list_models():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/current_model', methods=['GET'])
+def get_current_model():
+    """Get the current conversation model being used"""
+    try:
+        # Get the conversation model from environment
+        conversation_model = os.getenv("DEFAULT_MODEL", "mistral:latest")
+        
+        # Note: qwen3-coder is only used for actual coding tasks
+        # Conversation/personality uses the smaller, faster mistral model
+        return jsonify({
+            'conversation_model': conversation_model,
+            'coding_model': 'qwen3-coder:30b',
+            'description': 'Conversations use mistral for personality. Coding tasks use qwen3-coder.'
+        })
+    
+    except Exception as e:
+        logger.error(f"Current model error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/api/conversation/history', methods=['GET'])
 def get_conversation_history():
     """Get conversation history"""
