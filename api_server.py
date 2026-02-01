@@ -31,6 +31,10 @@ CORS(app, resources={
             "http://127.0.0.1:*",
             "http://192.168.*.*:*",
             "http://10.*.*.*:*",
+            "https://localhost:*",
+            "https://127.0.0.1:*",
+            "https://192.168.*.*:*",
+            "https://10.*.*.*:*",
             "http://172.16.*.*:*",  # Common private network ranges
             "http://172.17.*.*:*",
             "http://172.18.*.*:*",
@@ -46,7 +50,23 @@ CORS(app, resources={
             "http://172.28.*.*:*",
             "http://172.29.*.*:*",
             "http://172.30.*.*:*",
-            "http://172.31.*.*:*"
+            "http://172.31.*.*:*",
+            "https://172.16.*.*:*",
+            "https://172.17.*.*:*",
+            "https://172.18.*.*:*",
+            "https://172.19.*.*:*",
+            "https://172.20.*.*:*",
+            "https://172.21.*.*:*",
+            "https://172.22.*.*:*",
+            "https://172.23.*.*:*",
+            "https://172.24.*.*:*",
+            "https://172.25.*.*:*",
+            "https://172.26.*.*:*",
+            "https://172.27.*.*:*",
+            "https://172.28.*.*:*",
+            "https://172.29.*.*:*",
+            "https://172.30.*.*:*",
+            "https://172.31.*.*:*"
         ],
         "methods": ["GET", "POST"],
         "allow_headers": ["Content-Type"]
@@ -1961,7 +1981,7 @@ def speaking_complete():
         return jsonify({'error': str(e)}), 500
 
 
-def start_server(host: str = '0.0.0.0', port: int = 8080, debug: bool = False):
+def start_server(host: str = '0.0.0.0', port: int = 8080, debug: bool = False, https: bool = False):
     """
     Start the web API server
     
@@ -1969,10 +1989,16 @@ def start_server(host: str = '0.0.0.0', port: int = 8080, debug: bool = False):
         host: Host to bind to (0.0.0.0 for all interfaces)
         port: Port to bind to
         debug: Enable debug mode
+        https: Enable HTTPS with self-signed certificate
     """
-    logger.info(f"Starting Abby Unleashed API server on {host}:{port}")
-    logger.info(f"Access from your phone: http://<your-pc-ip>:{port}")
+    protocol = "https" if https else "http"
+    logger.info(f"Starting Abby Unleashed API server on {protocol}://{host}:{port}")
+    logger.info(f"Access from your phone: {protocol}://<your-pc-ip>:{port}")
     logger.info(f"To find your PC IP: Linux/Mac: ifconfig | Windows: ipconfig")
+    
+    if https:
+        logger.info("🔐 HTTPS enabled - mobile camera will work!")
+        logger.info("⚠️  Accept the self-signed certificate warning in your browser")
     
     # Initialize Abby
     get_abby()
@@ -1985,7 +2011,26 @@ def start_server(host: str = '0.0.0.0', port: int = 8080, debug: bool = False):
         logger.warning(f"Enhanced server features not available: {e}")
     
     # Start Flask server
-    app.run(host=host, port=port, debug=debug, threaded=True)
+    if https:
+        # Check for SSL certificates
+        cert_file = "ssl/cert.pem"
+        key_file = "ssl/key.pem"
+        
+        if not os.path.exists(cert_file) or not os.path.exists(key_file):
+            logger.info("Generating SSL certificates...")
+            from generate_ssl_cert import generate_ssl_cert
+            cert_file, key_file = generate_ssl_cert()
+            
+            if not cert_file or not key_file:
+                logger.error("Failed to generate SSL certificates. Run: pip install cryptography")
+                logger.info("Falling back to HTTP...")
+                app.run(host=host, port=port, debug=debug, threaded=True)
+                return
+        
+        # Run with SSL
+        app.run(host=host, port=port, debug=debug, threaded=True, ssl_context=(cert_file, key_file))
+    else:
+        app.run(host=host, port=port, debug=debug, threaded=True)
 
 
 if __name__ == '__main__':
@@ -1995,8 +2040,9 @@ if __name__ == '__main__':
     parser.add_argument('--host', default='0.0.0.0', help='Host to bind to')
     parser.add_argument('--port', type=int, default=8080, help='Port to bind to')
     parser.add_argument('--debug', action='store_true', help='Enable debug mode')
+    parser.add_argument('--https', action='store_true', help='Enable HTTPS for mobile camera support')
     
     args = parser.parse_args()
     
-    start_server(host=args.host, port=args.port, debug=args.debug)
+    start_server(host=args.host, port=args.port, debug=args.debug, https=args.https)
 
