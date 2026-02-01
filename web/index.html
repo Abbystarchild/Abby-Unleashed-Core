@@ -1746,7 +1746,16 @@
             }
         };
         
-        console.log('🧪 Debug functions available: testMic(), testAPI(), testAudioDirect(), testBeep()');
+        // Test sending a message directly to Abby (bypasses mic)
+        window.askAbby = async function(message) {
+            message = message || 'Hello Abby, can you hear me?';
+            console.log('🧪 Sending to Abby:', message);
+            document.getElementById('transcriptText').textContent = '🤔 Asking Abby: ' + message;
+            await processVoiceInput(message);
+            return 'Sent!';
+        };
+        
+        console.log('🧪 Debug functions available: testMic(), testAPI(), testAudioDirect(), testBeep(), askAbby("your message")');
         
         // Check ElevenLabs status on load
         async function checkElevenLabsStatus() {
