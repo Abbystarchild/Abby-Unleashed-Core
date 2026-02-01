@@ -729,7 +729,12 @@
             if (isRecording && recognition) {
                 recognition.stop();
             }
+            // Stop both browser TTS and ElevenLabs audio
             speechSynthesis.cancel();
+            if (audioPlayer) {
+                audioPlayer.pause();
+                audioPlayer = null;
+            }
             stopAudioVisualization();
         }
         
@@ -747,27 +752,41 @@
                 recognition.stop();
             } else {
                 try {
-                    // Check microphone permission first
-                    const permissionStatus = await navigator.permissions.query({ name: 'microphone' }).catch(() => null);
-                    if (permissionStatus && permissionStatus.state === 'denied') {
-                        alert('Microphone access is blocked.\n\nPlease allow microphone access in your browser settings.');
-                        updateVoiceUI('error');
-                        document.getElementById('transcriptText').textContent = 'Mic blocked - check browser settings';
-                        return;
-                    }
+                    // Update UI to show we're trying
+                    document.getElementById('transcriptText').textContent = 'Requesting microphone access...';
+                    updateVoiceUI('listening');
                     
-                    await startAudioVisualization();
+                    // Try to start recognition first - let the browser handle permissions
                     recognition.start();
+                    
+                    // Try visualization separately (it's optional)
+                    startAudioVisualization().catch(e => {
+                        console.warn('Visualization unavailable:', e);
+                        // Continue without visualization - recognition can still work
+                    });
+                    
                 } catch (e) {
                     console.error('Failed to start recognition:', e);
+                    isRecording = false;
+                    
                     let errorMsg = 'Error: ' + e.message;
-                    if (e.name === 'NotAllowedError') {
-                        errorMsg = 'Mic access denied. Allow microphone in browser settings.';
+                    if (e.name === 'NotAllowedError' || e.message.includes('not-allowed')) {
+                        errorMsg = '🚫 Mic access denied. Allow microphone in browser settings.';
                     } else if (e.name === 'NotFoundError') {
-                        errorMsg = 'No microphone found. Check your device.';
+                        errorMsg = '🎤 No microphone found. Check your device.';
+                    } else if (e.name === 'InvalidStateError') {
+                        // Recognition already running - try to stop and restart
+                        try {
+                            recognition.stop();
+                            setTimeout(() => toggleRecording(), 500);
+                            return;
+                        } catch (stopErr) {
+                            errorMsg = 'Voice busy - please wait';
+                        }
                     }
                     document.getElementById('transcriptText').textContent = errorMsg;
                     updateVoiceUI('error');
+                    setTimeout(() => updateVoiceUI('ready'), 3000);
                 }
             }
         }
@@ -801,9 +820,102 @@
             }
         }
         
-        function speakResponse(text) {
+        // ============ ELEVENLABS TEXT-TO-SPEECH ============
+        let useElevenLabs = true;  // Set to false to use browser TTS
+        let elevenLabsConfigured = false;
+        let audioPlayer = null;
+        
+        // Check ElevenLabs status on load
+        async function checkElevenLabsStatus() {
+            try {
+                const response = await fetch('/api/tts/status');
+                const status = await response.json();
+                elevenLabsConfigured = status.configured;
+                
+                if (elevenLabsConfigured) {
+                    console.log('✅ ElevenLabs configured - using voice clone');
+                    console.log(`   Characters: ${status.characters_used}/${status.characters_limit}`);
+                } else {
+                    console.log('ℹ️ ElevenLabs not configured - using browser TTS');
+                    console.log('   To enable: Set ELEVENLABS_API_KEY and ELEVENLABS_VOICE_ID in .env');
+                    useElevenLabs = false;
+                }
+            } catch (e) {
+                console.warn('Could not check ElevenLabs status:', e);
+                useElevenLabs = false;
+            }
+        }
+        
+        // Initialize on page load
+        checkElevenLabsStatus();
+        
+        async function speakWithElevenLabs(text) {
+            return new Promise(async (resolve) => {
+                try {
+                    updateVoiceUI('speaking');
+                    startSpeakingAnimation();
+                    
+                    // Display what's being spoken
+                    document.getElementById('transcriptLabel').textContent = 'Abby says:';
+                    document.getElementById('transcriptText').textContent = text;
+                    document.getElementById('transcriptText').classList.remove('interim');
+                    
+                    // Request audio from ElevenLabs API
+                    const response = await fetch('/api/tts/synthesize', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ 
+                            text: text,
+                            settings: {
+                                stability: 0.5,
+                                similarity_boost: 0.75
+                            }
+                        })
+                    });
+                    
+                    if (!response.ok) {
+                        throw new Error('TTS synthesis failed');
+                    }
+                    
+                    // Get audio blob and play it
+                    const audioBlob = await response.blob();
+                    const audioUrl = URL.createObjectURL(audioBlob);
+                    
+                    // Stop any existing audio
+                    if (audioPlayer) {
+                        audioPlayer.pause();
+                        audioPlayer = null;
+                    }
+                    
+                    audioPlayer = new Audio(audioUrl);
+                    
+                    audioPlayer.onended = () => {
+                        stopSpeakingAnimation();
+                        URL.revokeObjectURL(audioUrl);
+                        resolve();
+                    };
+                    
+                    audioPlayer.onerror = (e) => {
+                        console.error('Audio playback error:', e);
+                        stopSpeakingAnimation();
+                        resolve();
+                    };
+                    
+                    await audioPlayer.play();
+                    
+                } catch (e) {
+                    console.error('ElevenLabs TTS error:', e);
+                    stopSpeakingAnimation();
+                    // Fall back to browser TTS
+                    await speakWithBrowserTTS(text);
+                    resolve();
+                }
+            });
+        }
+        
+        function speakWithBrowserTTS(text) {
             return new Promise((resolve) => {
-                if (isMuted || !window.speechSynthesis) {
+                if (!window.speechSynthesis) {
                     resolve();
                     return;
                 }
@@ -848,6 +960,19 @@
                 
                 speechSynthesis.speak(utterance);
             });
+        }
+        
+        function speakResponse(text) {
+            if (isMuted) {
+                return Promise.resolve();
+            }
+            
+            // Use ElevenLabs if configured, otherwise browser TTS
+            if (useElevenLabs && elevenLabsConfigured) {
+                return speakWithElevenLabs(text);
+            } else {
+                return speakWithBrowserTTS(text);
+            }
         }
         
         // ============ AUDIO VISUALIZATION ============

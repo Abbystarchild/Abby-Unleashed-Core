@@ -12,6 +12,7 @@ silero-vad>=4.0.0
 pyaudio>=0.2.13
 sounddevice>=0.4.6
 pvporcupine>=3.0.0
+pydub>=0.25.0  # For ElevenLabs audio conversion
 
 # LLM & embeddings
 sentence-transformers>=2.2.0

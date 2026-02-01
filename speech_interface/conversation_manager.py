@@ -1,8 +1,13 @@
 """
 Conversation Manager - PersonaPlex Integration
 Manages the flow of speech-to-speech conversations
+
+Supports multiple TTS backends:
+- Piper TTS (local, free, fast)
+- ElevenLabs (your cloned voice via API)
 """
 import logging
+import os
 import queue
 import threading
 from typing import Optional, Callable, Dict, Any
@@ -31,12 +36,17 @@ class ConversationManager:
     """
     Manages speech-to-speech conversation flow
     PersonaPlex-inspired real-time interaction
+    
+    Supports two TTS backends:
+    - 'piper': Local TTS using Piper (default, free)
+    - 'elevenlabs': Cloud TTS using your ElevenLabs voice clone
     """
     
     def __init__(
         self,
         stt_model: str = "base.en",
         tts_voice: str = "en_US-amy-medium",
+        tts_backend: str = None,  # 'piper' or 'elevenlabs' - auto-detects if None
         wake_word: str = "hey abby",
         vad_threshold: float = 0.5,
         sample_rate: int = 16000,
@@ -47,7 +57,9 @@ class ConversationManager:
         
         Args:
             stt_model: Whisper model size
-            tts_voice: Piper voice model
+            tts_voice: Piper voice model (used if tts_backend='piper')
+            tts_backend: 'piper' for local TTS, 'elevenlabs' for cloud voice clone
+                        If None, auto-detects based on ELEVENLABS_API_KEY
             wake_word: Wake word phrase
             vad_threshold: VAD detection threshold
             sample_rate: Audio sample rate
@@ -61,9 +73,30 @@ class ConversationManager:
         self._state_lock = threading.Lock()
         self._wake_word_active = False
         
-        # Initialize components
+        # Auto-detect TTS backend
+        if tts_backend is None:
+            if os.getenv("ELEVENLABS_API_KEY") and os.getenv("ELEVENLABS_VOICE_ID"):
+                tts_backend = "elevenlabs"
+                logger.info("Auto-detected ElevenLabs configuration - using voice clone")
+            else:
+                tts_backend = "piper"
+                logger.info("Using Piper TTS (local)")
+        
+        self.tts_backend = tts_backend
+        
+        # Initialize STT (speech-to-text) - always use local Whisper
         self.stt = STTEngine(model_size=stt_model)
-        self.tts = TTSEngine(voice=tts_voice, sample_rate=sample_rate)
+        
+        # Initialize TTS (text-to-speech) - based on backend choice
+        if tts_backend == "elevenlabs":
+            from .elevenlabs_tts import ElevenLabsTTS
+            self.tts = ElevenLabsTTS(sample_rate=sample_rate)
+            logger.info("Using ElevenLabs TTS with your voice clone")
+        else:
+            self.tts = TTSEngine(voice=tts_voice, sample_rate=sample_rate)
+            logger.info(f"Using Piper TTS with voice: {tts_voice}")
+        
+        # Initialize VAD and wake word (always local)
         self.vad = VADDetector(threshold=vad_threshold, sample_rate=sample_rate)
         self.wake_word_detector = WakeWordDetector(
             wake_word=wake_word,
@@ -73,7 +106,7 @@ class ConversationManager:
         # Task executor callback
         self.task_executor: Optional[Callable[[str], str]] = None
         
-        logger.info("Conversation manager initialized")
+        logger.info(f"Conversation manager initialized (TTS: {tts_backend})")
     
     def initialize(self):
         """Initialize all speech components"""

@@ -9,6 +9,10 @@ from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 from datetime import datetime
 import threading
+from dotenv import load_dotenv
+
+# Load environment variables FIRST
+load_dotenv()
 
 from cli import AbbyUnleashed
 
@@ -884,6 +888,162 @@ Please answer the user's question using this information. If the search didn't f
         return jsonify({'error': str(e)}), 500
 
 
+# ==================== ELEVENLABS TTS ====================
+
+@app.route('/api/tts/synthesize', methods=['POST'])
+def synthesize_speech():
+    """
+    Convert text to speech using ElevenLabs
+    
+    POST body:
+        text: Text to synthesize
+        settings: Optional voice settings (stability, similarity_boost, style)
+    
+    Returns:
+        Audio file (audio/mpeg) or JSON error
+    """
+    try:
+        from speech_interface.elevenlabs_tts import get_tts
+        from flask import Response
+        
+        tts = get_tts()
+        
+        if not tts.is_configured:
+            return jsonify({
+                'error': 'ElevenLabs not configured',
+                'help': 'Set ELEVENLABS_API_KEY and ELEVENLABS_VOICE_ID in .env'
+            }), 503
+        
+        data = request.get_json()
+        if not data or 'text' not in data:
+            return jsonify({'error': 'Text required'}), 400
+        
+        text = data['text']
+        settings = data.get('settings', {})
+        
+        # Synthesize audio (get bytes, not numpy array)
+        audio_data = tts.synthesize_bytes(text, settings=settings)
+        
+        if audio_data:
+            return Response(
+                audio_data,
+                mimetype='audio/mpeg',
+                headers={
+                    'Content-Disposition': 'inline',
+                    'Cache-Control': 'public, max-age=3600'
+                }
+            )
+        else:
+            return jsonify({'error': 'Synthesis failed'}), 500
+    
+    except Exception as e:
+        logger.error(f"TTS error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/tts/stream', methods=['POST'])
+def stream_speech():
+    """
+    Stream text-to-speech audio (for long text)
+    
+    Returns streaming audio response
+    """
+    try:
+        from speech_interface.elevenlabs_tts import get_tts
+        from flask import Response
+        
+        tts = get_tts()
+        
+        if not tts.is_configured:
+            return jsonify({
+                'error': 'ElevenLabs not configured'
+            }), 503
+        
+        data = request.get_json()
+        if not data or 'text' not in data:
+            return jsonify({'error': 'Text required'}), 400
+        
+        text = data['text']
+        settings = data.get('settings', {})
+        
+        def generate():
+            for chunk in tts.synthesize_stream(text, settings=settings):
+                yield chunk
+        
+        return Response(
+            generate(),
+            mimetype='audio/mpeg',
+            headers={
+                'Transfer-Encoding': 'chunked',
+                'Cache-Control': 'no-cache'
+            }
+        )
+    
+    except Exception as e:
+        logger.error(f"TTS stream error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/tts/voices', methods=['GET'])
+def list_voices():
+    """List available ElevenLabs voices"""
+    try:
+        from speech_interface.elevenlabs_tts import get_tts
+        
+        tts = get_tts()
+        
+        if not tts.is_configured:
+            return jsonify({
+                'configured': False,
+                'voices': [],
+                'help': 'Set ELEVENLABS_API_KEY in .env'
+            })
+        
+        voices_data = tts.get_voices()
+        return jsonify({
+            'configured': True,
+            'current_voice': tts.voice_id,
+            'voices': voices_data.get('voices', [])
+        })
+    
+    except Exception as e:
+        logger.error(f"Voices list error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/tts/status', methods=['GET'])
+def tts_status():
+    """Get ElevenLabs TTS status and usage"""
+    try:
+        from speech_interface.elevenlabs_tts import get_tts
+        
+        tts = get_tts()
+        
+        if not tts.is_configured:
+            return jsonify({
+                'configured': False,
+                'api_key_set': bool(tts.api_key),
+                'voice_id_set': bool(tts.voice_id),
+                'help': 'Add ELEVENLABS_API_KEY and ELEVENLABS_VOICE_ID to .env'
+            })
+        
+        user_info = tts.get_user_info()
+        subscription = user_info.get('subscription', {})
+        
+        return jsonify({
+            'configured': True,
+            'voice_id': tts.voice_id,
+            'model': tts.model_id,
+            'characters_used': subscription.get('character_count', 0),
+            'characters_limit': subscription.get('character_limit', 0),
+            'tier': subscription.get('tier', 'unknown')
+        })
+    
+    except Exception as e:
+        logger.error(f"TTS status error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
 @app.errorhandler(404)
 def not_found(e):
     return jsonify({'error': 'Endpoint not found'}), 404
@@ -892,6 +1052,283 @@ def not_found(e):
 @app.errorhandler(500)
 def internal_error(e):
     return jsonify({'error': 'Internal server error'}), 500
+
+
+# ==================== ENHANCED SERVER FEATURES ====================
+
+# Enhanced server instance
+_enhanced_server = None
+
+
+def get_enhanced_server():
+    """Get or create the enhanced server"""
+    global _enhanced_server
+    if _enhanced_server is None:
+        from enhanced_server import get_enhanced_server as create_server
+        _enhanced_server = create_server()
+        _enhanced_server.start()
+    return _enhanced_server
+
+
+@app.route('/api/enhanced/status', methods=['GET'])
+def enhanced_status():
+    """Get enhanced server status"""
+    try:
+        server = get_enhanced_server()
+        return jsonify(server.get_status())
+    except Exception as e:
+        logger.error(f"Enhanced status error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/enhanced/output-mode', methods=['GET', 'POST'])
+def output_mode():
+    """Get or set output mode"""
+    try:
+        server = get_enhanced_server()
+        
+        if request.method == 'GET':
+            return jsonify({
+                'mode': server.output_router.voice_mode.value,
+                'available_modes': ['display', 'voice', 'both', 'summary']
+            })
+        
+        data = request.get_json()
+        mode = data.get('mode')
+        
+        if not mode:
+            return jsonify({'error': 'Mode required'}), 400
+        
+        if server.set_output_mode(mode):
+            return jsonify({
+                'success': True,
+                'mode': mode,
+                'message': f'Output mode set to: {mode}'
+            })
+        else:
+            return jsonify({
+                'error': f'Invalid mode: {mode}',
+                'available_modes': ['display', 'voice', 'both', 'summary']
+            }), 400
+    
+    except Exception as e:
+        logger.error(f"Output mode error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/enhanced/task', methods=['POST'])
+def enhanced_task():
+    """
+    Process a task with parallel output.
+    
+    POST body:
+        task: User's task/question
+        conversation_id: Optional conversation ID
+        output_mode: Optional override (display, voice, both, summary)
+        speak: Whether to return voice audio (default: based on mode)
+    
+    Returns:
+        display: Full text for display
+        voice_text: Text that will be spoken (if any)
+        voice_audio: Base64 audio (if speak=true)
+    """
+    try:
+        data = request.get_json()
+        
+        if not data or 'task' not in data:
+            return jsonify({'error': 'Task required'}), 400
+        
+        task = data['task']
+        conversation_id = data.get('conversation_id', 'default')
+        output_mode = data.get('output_mode')
+        speak = data.get('speak', True)
+        
+        # Get enhanced server
+        server = get_enhanced_server()
+        
+        # Set mode if specified
+        if output_mode:
+            from enhanced_server import OutputMode
+            try:
+                server.output_router.set_mode(OutputMode(output_mode))
+            except ValueError:
+                pass
+        
+        # Process task
+        import asyncio
+        
+        # Run async in sync context
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            result = loop.run_until_complete(
+                server.process_task(task, conversation_id)
+            )
+        finally:
+            loop.close()
+        
+        response = {
+            'task_id': result['task_id'],
+            'display': result['display'],
+            'voice_text': result['voice'],
+            'voice_mode': result['voice_mode'],
+            'status': result['result'].get('status', 'completed')
+        }
+        
+        # Synthesize voice if requested
+        if speak and result['voice']:
+            try:
+                from speech_interface.elevenlabs_tts import get_tts
+                import base64
+                
+                tts = get_tts()
+                if tts.is_configured:
+                    audio_bytes = tts.synthesize_bytes(result['voice'])
+                    if audio_bytes:
+                        response['voice_audio'] = base64.b64encode(audio_bytes).decode('utf-8')
+                        response['voice_format'] = 'mp3'
+            except Exception as e:
+                logger.warning(f"Voice synthesis error: {e}")
+        
+        return jsonify(response)
+    
+    except Exception as e:
+        logger.error(f"Enhanced task error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/enhanced/reload', methods=['POST'])
+def trigger_reload():
+    """Manually trigger a hot reload"""
+    try:
+        server = get_enhanced_server()
+        server._on_reload()
+        return jsonify({
+            'success': True,
+            'message': 'Reload triggered'
+        })
+    except Exception as e:
+        logger.error(f"Reload error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/enhanced/refresh-knowledge', methods=['POST'])
+def refresh_knowledge():
+    """Manually trigger knowledge refresh"""
+    try:
+        server = get_enhanced_server()
+        server.background_learner.trigger_refresh()
+        return jsonify({
+            'success': True,
+            'message': 'Knowledge refresh triggered',
+            'last_refresh': server.background_learner.last_refresh.isoformat() if server.background_learner.last_refresh else None
+        })
+    except Exception as e:
+        logger.error(f"Refresh error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/capabilities', methods=['GET'])
+def get_capabilities():
+    """
+    Get Abby's full capabilities - what she and her agents can do.
+    """
+    capabilities = {
+        "abby_core": {
+            "description": "Abby Unleashed - Your AI assistant with a unique personality",
+            "abilities": [
+                "Natural conversation with personality",
+                "Task execution (not just talking)",
+                "Multi-agent orchestration",
+                "Voice interaction (your cloned voice via ElevenLabs)",
+                "Real-time web research",
+                "Code generation and execution"
+            ]
+        },
+        "action_execution": {
+            "description": "Abby can actually DO things, not just describe them",
+            "abilities": [
+                "Create files and directories",
+                "Edit existing files",
+                "Run shell commands",
+                "Execute Python code",
+                "Run tests",
+                "Git operations (commit, push, etc.)",
+                "Research topics online"
+            ]
+        },
+        "agent_system": {
+            "description": "Dynamic agent creation with 5-element DNA",
+            "dna_elements": [
+                "Role - What the agent does",
+                "Domain - Area of expertise",
+                "Seniority - Level of experience",
+                "Communication Style - How they interact",
+                "Specializations - Specific skills"
+            ],
+            "features": [
+                "Auto-create agents for new domains",
+                "Save and reuse personas",
+                "Agents research their domain to gain real expertise",
+                "Sub-agents for complex tasks"
+            ]
+        },
+        "knowledge_bases": {
+            "description": "14 comprehensive knowledge bases for coding expertise",
+            "domains": [
+                "Coding foundations (AI vibe coding awareness)",
+                "Python mastery",
+                "JavaScript/TypeScript",
+                "Kotlin",
+                "Docker/containers",
+                "Database (SQL/NoSQL)",
+                "API design (REST)",
+                "Git version control",
+                "Testing patterns",
+                "Security (OWASP)",
+                "Performance optimization",
+                "DevOps/CI-CD",
+                "Error handling",
+                "General programming (SOLID, Clean Code)"
+            ]
+        },
+        "research_toolkit": {
+            "description": "Agents can research to acquire real knowledge",
+            "abilities": [
+                "Web search and scraping",
+                "Documentation fetching",
+                "Build knowledge from multiple sources",
+                "Save research for future use"
+            ]
+        },
+        "voice_interface": {
+            "description": "Voice interaction with your cloned voice",
+            "features": [
+                "Speech-to-text via browser/PersonaPlex",
+                "Text-to-speech via ElevenLabs",
+                "Wake word detection",
+                "Voice activity detection"
+            ]
+        },
+        "enhanced_server": {
+            "description": "Advanced server features for continuous operation",
+            "features": [
+                "Hot reload (update code without restart)",
+                "Background learning (periodic knowledge refresh)",
+                "Parallel processing (display + voice)",
+                "Smart output routing (save API costs)",
+                "WebSocket real-time updates"
+            ],
+            "output_modes": {
+                "display": "Show everything on screen, no voice",
+                "voice": "Speak everything, minimal display",
+                "both": "Display and speak full response",
+                "summary": "Display full, speak condensed summary (saves ElevenLabs)"
+            }
+        }
+    }
+    
+    return jsonify(capabilities)
 
 
 def start_server(host: str = '0.0.0.0', port: int = 8080, debug: bool = False):
@@ -910,6 +1347,13 @@ def start_server(host: str = '0.0.0.0', port: int = 8080, debug: bool = False):
     # Initialize Abby
     get_abby()
     
+    # Initialize enhanced server (starts background workers)
+    try:
+        get_enhanced_server()
+        logger.info("Enhanced server features enabled")
+    except Exception as e:
+        logger.warning(f"Enhanced server features not available: {e}")
+    
     # Start Flask server
     app.run(host=host, port=port, debug=debug, threaded=True)
 
@@ -925,3 +1369,4 @@ if __name__ == '__main__':
     args = parser.parse_args()
     
     start_server(host=args.host, port=args.port, debug=args.debug)
+

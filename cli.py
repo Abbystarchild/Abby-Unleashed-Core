@@ -4,7 +4,7 @@ Main Abby Unleashed Orchestrator
 import logging
 import os
 import yaml
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from dotenv import load_dotenv
 
 from personality.brain_clone import BrainClone
@@ -12,6 +12,9 @@ from persona_library.library_manager import PersonaLibrary
 from agents.agent_factory import AgentFactory
 from ollama_integration.client import OllamaClient
 from ollama_integration.model_selector import ModelSelector
+from agents.task_planner import TaskPlanner
+from agents.task_runner import TaskRunner
+from agents.action_executor import get_executor
 
 
 # Load environment variables
@@ -83,9 +86,22 @@ class AbbyUnleashed:
             personality=self.brain_clone.get_personality()
         )
         
+        # Initialize task planner and runner for ACTUAL EXECUTION
+        self.task_planner = TaskPlanner(
+            ollama_client=self.ollama_client,
+            workspace_path=os.getcwd()
+        )
+        self.task_runner = TaskRunner(
+            ollama_client=self.ollama_client,
+            workspace_path=os.getcwd(),
+            on_progress=self._on_task_progress
+        )
+        self.executor = get_executor()
+        
         # Track current task progress
         self.current_task = None
         self.task_progress = {}
+        self.progress_log = []
         
         # Conversation history for chat context
         self.conversation_history = []
@@ -96,6 +112,11 @@ class AbbyUnleashed:
         self.coding_foundations = load_coding_foundations()
         if self.coding_foundations:
             logger.info("Loaded foundational coding best practices")
+    
+    def _on_task_progress(self, message: str, data: Dict = None):
+        """Handle task progress updates"""
+        self.progress_log.append({"message": message, "data": data})
+        logger.info(f"Progress: {message}")
     
     def _is_coding_task(self, task: str) -> bool:
         """Check if a task is coding-related"""
@@ -136,6 +157,104 @@ class AbbyUnleashed:
         
         return '\n'.join(parts)
     
+    def _needs_execution(self, task: str, context: Dict = None) -> bool:
+        """
+        Determine if a task requires actual execution (creating files, running commands, etc)
+        vs. just a conversational response.
+        """
+        action_keywords = [
+            # File operations
+            'create', 'make', 'build', 'write', 'generate', 'scaffold',
+            'edit', 'modify', 'update', 'change', 'fix', 'refactor',
+            'delete', 'remove',
+            # Commands
+            'run', 'execute', 'install', 'setup', 'deploy', 'start',
+            # Agent operations
+            'spawn', 'create agent', 'new agent',
+            # Git
+            'commit', 'push', 'pull', 'branch',
+        ]
+        
+        task_lower = task.lower()
+        
+        # Check for action keywords
+        for keyword in action_keywords:
+            if keyword in task_lower:
+                return True
+        
+        # Check if context indicates execution needed
+        if context and context.get("execute"):
+            return True
+        
+        return False
+    
+    def _has_action_blocks(self, response: str) -> bool:
+        """Check if an LLM response contains action blocks to execute"""
+        import re
+        
+        # Look for action blocks
+        action_patterns = [
+            r'```action:create_file',
+            r'```action:edit_file',
+            r'```action:delete_file',
+            r'```bash',
+            r'```shell',
+            r'```python\s*\n\s*#\s*execute',  # Python blocks marked for execution
+        ]
+        
+        for pattern in action_patterns:
+            if re.search(pattern, response, re.IGNORECASE):
+                return True
+        
+        return False
+    
+    def _format_action_results(self, results: List[Dict]) -> str:
+        """Format action execution results for display"""
+        if not results:
+            return ""
+        
+        parts = ["📋 **Action Results:**"]
+        
+        for i, result in enumerate(results, 1):
+            action_type = result.get("action", "unknown")
+            success = result.get("success", False)
+            
+            icon = "✅" if success else "❌"
+            
+            if action_type == "create_file":
+                path = result.get("path", "unknown")
+                parts.append(f"{icon} Created file: `{path}`")
+            
+            elif action_type == "edit_file":
+                path = result.get("path", "unknown")
+                parts.append(f"{icon} Edited file: `{path}`")
+            
+            elif action_type == "delete_file":
+                path = result.get("path", "unknown")
+                parts.append(f"{icon} Deleted file: `{path}`")
+            
+            elif action_type == "command":
+                cmd = result.get("command", "unknown")[:50]
+                parts.append(f"{icon} Ran command: `{cmd}...`")
+                if result.get("output"):
+                    output = result["output"][:200]
+                    parts.append(f"   Output: {output}")
+            
+            elif action_type == "python":
+                parts.append(f"{icon} Executed Python code")
+                if result.get("output"):
+                    output = result["output"][:200]
+                    parts.append(f"   Output: {output}")
+            
+            else:
+                parts.append(f"{icon} {action_type}: {result.get('message', 'completed')}")
+            
+            # Show error if failed
+            if not success and result.get("error"):
+                parts.append(f"   Error: {result['error'][:100]}")
+        
+        return '\n'.join(parts)
+    
     def execute_task(
         self, 
         task: str, 
@@ -143,12 +262,14 @@ class AbbyUnleashed:
         use_orchestrator: bool = True
     ) -> Dict[str, Any]:
         """
-        Execute a task or respond to user input conversationally
+        Execute a task - handles conversation AND actions
+        
+        This is the key method that makes Abby BOTH conversational AND able to ACT.
         
         Args:
             task: Task description or user message
-            context: Optional task context
-            use_orchestrator: Whether to use the orchestrator for complex tasks
+            context: Optional task context (can include workspace path)
+            use_orchestrator: Whether to use orchestrator for complex tasks
             
         Returns:
             Result dictionary with response
@@ -165,38 +286,79 @@ class AbbyUnleashed:
             "steps_completed": 0,
             "total_steps": 1
         }
+        self.progress_log = []
         
         try:
+            # Determine if this needs ACTION or just conversation
+            needs_action = self._needs_execution(task, context)
+            
+            # If workspace specified in context, update planner/runner
+            if context.get("workspace"):
+                self.task_planner.workspace_path = context["workspace"]
+                self.task_runner.workspace_path = context["workspace"]
+                self.task_runner.executor = get_executor(context["workspace"])
+            
             # Get model to use
             model = os.getenv("DEFAULT_MODEL", "qwen2.5:latest")
             
-            # Build system prompt with personality
+            # Build system prompt with personality AND action capabilities
             personality = self.brain_clone.get_personality()
             identity = personality.get("identity", {})
             comm_style = personality.get("communication_style", {})
             
-            system_prompt = f"""You are {identity.get('name', 'Abby')}, {identity.get('role', 'an AI assistant')}.
+            base_prompt = f"""You are {identity.get('name', 'Abby')}, {identity.get('role', 'an AI assistant')}.
 
 Your personality:
 - Tone: {comm_style.get('tone', 'friendly and professional')}
 - Style: {comm_style.get('style', 'conversational')}
 - You are helpful, knowledgeable, and engaging
 
-Instructions:
-- Respond naturally to the user's message
-- If asked to perform a task, help them with it
-- If you need more information to help properly, ask clarifying questions
-- Be conversational and personable, not robotic
-- Keep responses concise but helpful
+IMPORTANT - You can DO things, not just talk about them!
+When asked to create, build, fix, or modify something, you should:
+1. Analyze what needs to be done
+2. Plan the steps
+3. Tell the user you're going to execute the plan
+4. Actually do it (I will handle the execution)
 
-Remember: You are having a conversation, not just executing commands."""
+For coding/file tasks, format your actions using these blocks:
+
+```action:create_file
+path: relative/path/to/file.py
+content: |
+    # Your code here
+```
+
+```action:edit_file
+path: relative/path/to/file.py
+old: |
+    old code to find
+new: |
+    new code to replace with
+```
+
+```bash
+command to run
+```
+
+For agent creation, you can still use the engram builder or create agents directly.
+
+Remember:
+- Be conversational AND actionable
+- If you can DO something, DO IT - don't just explain what you would do
+- Ask clarifying questions if you need more info
+- Report what you actually did after executing"""
 
             # Add coding best practices if this is a coding task
             if self._is_coding_task(task):
                 coding_guidance = self._get_coding_guidance()
                 if coding_guidance:
-                    system_prompt += coding_guidance
+                    base_prompt += coding_guidance
                     logger.debug("Added coding best practices to prompt")
+
+            # Add workspace context if available
+            workspace = context.get("workspace", self.task_planner.workspace_path)
+            if workspace:
+                base_prompt += f"\n\nCurrent workspace: {workspace}"
 
             # Add user message to history
             self.conversation_history.append({
@@ -204,13 +366,13 @@ Remember: You are having a conversation, not just executing commands."""
                 "content": task
             })
             
-            # Keep conversation history manageable (last 10 exchanges)
+            # Keep conversation history manageable
             if len(self.conversation_history) > 20:
                 self.conversation_history = self.conversation_history[-20:]
             
             # Call Ollama for response
             response = self.ollama_client.chat(
-                messages=[{"role": "system", "content": system_prompt}] + self.conversation_history,
+                messages=[{"role": "system", "content": base_prompt}] + self.conversation_history,
                 model=model
             )
             
@@ -229,6 +391,17 @@ Remember: You are having a conversation, not just executing commands."""
             if not assistant_message:
                 assistant_message = response.get("response", "I'm not sure how to respond to that.")
             
+            # Check if response contains actions to execute
+            action_results = []
+            if needs_action or self._has_action_blocks(assistant_message):
+                logger.info("Detected actions in response - executing...")
+                action_results = self.executor.parse_and_execute(assistant_message)
+                
+                if action_results:
+                    # Append action results to response
+                    action_summary = self._format_action_results(action_results)
+                    assistant_message += f"\n\n{action_summary}"
+            
             # Add to history
             self.conversation_history.append({
                 "role": "assistant", 
@@ -243,7 +416,9 @@ Remember: You are having a conversation, not just executing commands."""
             return {
                 "status": "completed",
                 "output": assistant_message,
-                "model": model
+                "model": model,
+                "actions_executed": len(action_results),
+                "action_results": action_results if action_results else None
             }
         
         except Exception as e:
