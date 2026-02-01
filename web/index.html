@@ -960,6 +960,10 @@
     </div>
 
     <script>
+        // ============ CONFIG ============
+        // API base URL - empty string means same origin (works for both localhost and network access)
+        const API_BASE = '';
+        
         // ============ STATE ============
         let isRecording = false;
         let wantsToRecord = false;  // User's intent to keep recording (toggle state)
