@@ -1528,9 +1528,11 @@
         }
         
         async function processVoiceInput(text) {
+            console.log('📝 processVoiceInput called with:', text);
             isBusy = true;
             updateVoiceUI('thinking');
             hideDisplayPreview();
+            document.getElementById('transcriptText').textContent = '🤔 Thinking...';
             
             try {
                 // Build payload with session for presence awareness
@@ -1539,6 +1541,8 @@
                     payload.session_id = currentSession.session_id;
                 }
                 
+                console.log('📤 Sending to API:', payload);
+                
                 // Use realtime conversation API for rich content
                 const response = await fetch('/api/realtime/conversation', {
                     method: 'POST',
@@ -1546,6 +1550,13 @@
                     body: JSON.stringify(payload)
                 });
                 const result = await response.json();
+                
+                console.log('📥 API Response:', { 
+                    hasError: !!result.error,
+                    hasVoiceAudio: !!result.voice_audio,
+                    voiceAudioLen: result.voice_audio?.length || 0,
+                    voiceText: result.voice_text?.substring(0, 50)
+                });
                 
                 if (result.error) {
                     throw new Error(result.error);
@@ -1563,10 +1574,15 @@
                 
                 // Speak the voice summary (shorter than full text)
                 const voiceText = result.voice_text || result.full_text;
+                document.getElementById('transcriptText').textContent = '🔊 Playing response...';
+                
                 if (result.voice_audio) {
+                    console.log('🔊 Playing pre-synthesized audio...');
                     // Use pre-synthesized audio
                     await playBase64Audio(result.voice_audio);
+                    console.log('🔊 Audio finished');
                 } else {
+                    console.log('🔊 No voice_audio, using fallback...');
                     // Fallback to synthesizing
                     await speakResponse(voiceText);
                 }
@@ -1647,6 +1663,56 @@
         // ============ ELEVENLABS TEXT-TO-SPEECH ============
         let useElevenLabs = true;  // Set to false to use browser TTS
         let elevenLabsConfigured = false;
+        
+        // ============ DEBUG TEST FUNCTIONS ============
+        // Call these from browser console (F12) to test individual components
+        window.testMic = function() {
+            console.log('🧪 Testing microphone...');
+            const sr = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
+            sr.onstart = () => console.log('✅ Mic started');
+            sr.onaudiostart = () => console.log('✅ Audio capture working');
+            sr.onspeechstart = () => console.log('✅ Speech detected!');
+            sr.onresult = (e) => console.log('✅ Got result:', e.results[0][0].transcript);
+            sr.onerror = (e) => console.log('❌ Mic error:', e.error);
+            sr.onend = () => console.log('🛑 Mic stopped');
+            sr.start();
+            setTimeout(() => sr.stop(), 5000);
+            return 'Listening for 5 seconds... speak now!';
+        };
+        
+        window.testAPI = async function() {
+            console.log('🧪 Testing API...');
+            const r = await fetch('/api/realtime/conversation', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ transcript: 'Test message', speak: true })
+            });
+            const data = await r.json();
+            console.log('✅ API responded:', data);
+            return data;
+        };
+        
+        window.testAudioDirect = async function() {
+            console.log('🧪 Testing audio playback...');
+            const r = await fetch('/api/realtime/conversation', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ transcript: 'Say hello', speak: true })
+            });
+            const data = await r.json();
+            if (data.voice_audio) {
+                console.log('✅ Got audio, length:', data.voice_audio.length);
+                const audio = new Audio('data:audio/mp3;base64,' + data.voice_audio);
+                audio.onended = () => console.log('✅ Audio finished playing');
+                audio.onerror = (e) => console.log('❌ Audio error:', e);
+                await audio.play();
+                return 'Playing audio...';
+            } else {
+                return '❌ No voice_audio in response';
+            }
+        };
+        
+        console.log('🧪 Debug functions available: testMic(), testAPI(), testAudioDirect()');
         
         // Check ElevenLabs status on load
         async function checkElevenLabsStatus() {
