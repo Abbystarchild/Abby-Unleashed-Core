@@ -73,12 +73,29 @@ class OllamaClient:
         """
         url = f"{self.base_url}/generate"
         
+        # Default generation options to prevent repetitive/verbose responses
+        default_options = {
+            "temperature": 0.7,
+            "repeat_penalty": 1.3,
+            "repeat_last_n": 64,
+            "top_k": 40,
+            "top_p": 0.9,
+        }
+        
+        # Merge with any provided options
+        options = {**default_options, **kwargs.get('options', {})}
+        
         payload = {
             "model": model,
             "prompt": prompt,
             "stream": stream,
-            **kwargs
+            "options": options,
         }
+        
+        # Add other kwargs except 'options'
+        for k, v in kwargs.items():
+            if k != 'options':
+                payload[k] = v
         
         if system:
             payload["system"] = system
@@ -164,12 +181,31 @@ class OllamaClient:
         """
         url = f"{self.base_url}/chat"
         
+        # Default generation options to prevent repetitive/verbose responses
+        # These can be overridden via kwargs
+        default_options = {
+            "temperature": 0.7,          # Balanced creativity
+            "repeat_penalty": 1.3,       # Strong penalty for repetition
+            "repeat_last_n": 64,         # Look back for repetition
+            "top_k": 40,                 # Limit token choices
+            "top_p": 0.9,                # Nucleus sampling
+            "num_predict": 256,          # Limit response length (short replies)
+        }
+        
+        # Merge with any provided options
+        options = {**default_options, **kwargs.get('options', {})}
+        
         payload = {
             "model": model,
             "messages": messages,
             "stream": stream,
-            **kwargs
+            "options": options,
         }
+        
+        # Add any other kwargs except 'options' which we already handled
+        for k, v in kwargs.items():
+            if k != 'options':
+                payload[k] = v
         
         try:
             if stream:
