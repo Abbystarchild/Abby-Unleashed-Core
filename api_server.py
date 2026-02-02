@@ -20,6 +20,7 @@ load_dotenv()
 
 from cli import AbbyUnleashed
 from presence.user_tracker import get_user_tracker, UserTracker
+from skills_display import get_skills_manager
 
 logger = logging.getLogger(__name__)
 
@@ -348,6 +349,31 @@ def health():
             'error': str(e),
             'timestamp': datetime.now().isoformat()
         }), 500
+
+
+# ============== SKILLS & CHARACTER SHEET API ==============
+
+@app.route('/api/skills', methods=['GET'])
+def get_skills():
+    """Get Abby's skills for RPG character sheet display"""
+    try:
+        skills_manager = get_skills_manager()
+        return jsonify(skills_manager.get_all_skills())
+    except Exception as e:
+        logger.error(f"Skills fetch failed: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/skills/category/<category>', methods=['GET'])
+def get_skills_by_category(category):
+    """Get skills for a specific category"""
+    try:
+        skills_manager = get_skills_manager()
+        all_skills = skills_manager.get_all_skills()
+        if category in all_skills['categories']:
+            return jsonify(all_skills['categories'][category])
+        return jsonify({'error': f'Category {category} not found'}), 404
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 
 # ============== SERVER LOGS API ==============
