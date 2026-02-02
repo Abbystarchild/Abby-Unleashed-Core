@@ -3,6 +3,7 @@ Web API Server for Abby Unleashed
 Enables mobile and remote access to the AI system
 With user presence awareness - knows who she's talking to!
 """
+import json
 import logging
 import os
 import subprocess
@@ -857,27 +858,29 @@ def stream_chat():
         - done: Response complete
         - error: Something went wrong
     """
+    # IMPORTANT: Extract request data BEFORE the generator function
+    # Flask request context is not available inside generators after first yield
+    data = request.get_json() or {}
+    message = data.get('message', '')
+    session_id = data.get('session_id')
+    visual_context = data.get('visual_context', '')
+    
+    # Build context while still in request context
+    context = {}
+    if session_id:
+        tracker = get_user_tracker_instance()
+        context['user_presence'] = tracker.get_user_context(session_id)
+        context['user_prompt_addition'] = tracker.get_system_prompt_addition(session_id)
+    
+    if visual_context:
+        existing = context.get('user_prompt_addition', '')
+        context['user_prompt_addition'] = f"{existing}\n\n{visual_context}" if existing else visual_context
+    
     def generate_stream():
         try:
-            data = request.get_json()
-            message = data.get('message', '')
-            session_id = data.get('session_id')
-            visual_context = data.get('visual_context', '')
-            
             if not message:
                 yield f"data: {json.dumps({'type': 'error', 'content': 'No message provided'})}\n\n"
                 return
-            
-            # Build context
-            context = {}
-            if session_id:
-                tracker = get_user_tracker_instance()
-                context['user_presence'] = tracker.get_user_context(session_id)
-                context['user_prompt_addition'] = tracker.get_system_prompt_addition(session_id)
-            
-            if visual_context:
-                existing = context.get('user_prompt_addition', '')
-                context['user_prompt_addition'] = f"{existing}\n\n{visual_context}" if existing else visual_context
             
             # Get streaming conversation
             sc = get_streaming_conversation_instance()
@@ -893,15 +896,11 @@ def stream_chat():
             logger.error(f"Stream error: {e}")
             yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
     
-    # Need json for the SSE formatting
-    import json
-    
     return Response(
         generate_stream(),
         mimetype='text/event-stream',
         headers={
             'Cache-Control': 'no-cache',
-            'Connection': 'keep-alive',
             'X-Accel-Buffering': 'no'  # Disable nginx buffering
         }
     )
@@ -2464,12 +2463,12 @@ def speaking_complete():
 
 def start_server(host: str = '0.0.0.0', port: int = 8080, debug: bool = False, https: bool = False):
     """
-    Start the web API server
+    Start the web API server using Waitress (production WSGI server)
     
     Args:
         host: Host to bind to (0.0.0.0 for all interfaces)
         port: Port to bind to
-        debug: Enable debug mode
+        debug: Enable debug mode (uses Flask dev server if True)
         https: Enable HTTPS with self-signed certificate
     """
     protocol = "https" if https else "http"
@@ -2503,27 +2502,47 @@ def start_server(host: str = '0.0.0.0', port: int = 8080, debug: bool = False, h
     except Exception as e:
         logger.warning(f"Enhanced server features not available: {e}")
     
-    # Start Flask server
-    if https:
-        # Check for SSL certificates
-        cert_file = "ssl/cert.pem"
-        key_file = "ssl/key.pem"
-        
-        if not os.path.exists(cert_file) or not os.path.exists(key_file):
-            logger.info("Generating SSL certificates...")
-            from generate_ssl_cert import generate_ssl_cert
-            cert_file, key_file = generate_ssl_cert()
-            
-            if not cert_file or not key_file:
-                logger.error("Failed to generate SSL certificates. Run: pip install cryptography")
-                logger.info("Falling back to HTTP...")
-                app.run(host=host, port=port, debug=debug, threaded=True)
-                return
-        
-        # Run with SSL
-        app.run(host=host, port=port, debug=debug, threaded=True, ssl_context=(cert_file, key_file))
+    # Use Waitress production server (much better for streaming and threading)
+    # Fall back to Flask dev server only if debug=True
+    if debug:
+        logger.warning("⚠️ Debug mode: Using Flask development server (not for production)")
+        if https:
+            cert_file = "ssl/cert.pem"
+            key_file = "ssl/key.pem"
+            if not os.path.exists(cert_file) or not os.path.exists(key_file):
+                logger.info("Generating SSL certificates...")
+                from generate_ssl_cert import generate_ssl_cert
+                cert_file, key_file = generate_ssl_cert()
+            app.run(host=host, port=port, debug=debug, threaded=True, ssl_context=(cert_file, key_file))
+        else:
+            app.run(host=host, port=port, debug=debug, threaded=True)
     else:
-        app.run(host=host, port=port, debug=debug, threaded=True)
+        # Production mode: Use Waitress WSGI server
+        try:
+            from waitress import serve
+            logger.info("🚀 Using Waitress production WSGI server")
+            logger.info(f"Server ready at http://{host}:{port}")
+            
+            if https:
+                # For HTTPS with Waitress, we need to use a reverse proxy or wrapper
+                # For now, fall back to Flask's SSL support with threaded mode
+                logger.warning("HTTPS with Waitress requires reverse proxy - using Flask SSL")
+                cert_file = "ssl/cert.pem"
+                key_file = "ssl/key.pem"
+                if not os.path.exists(cert_file) or not os.path.exists(key_file):
+                    logger.info("Generating SSL certificates...")
+                    from generate_ssl_cert import generate_ssl_cert
+                    cert_file, key_file = generate_ssl_cert()
+                app.run(host=host, port=port, debug=False, threaded=True, ssl_context=(cert_file, key_file))
+            else:
+                # Waitress handles threading properly - great for streaming responses
+                serve(app, host=host, port=port, threads=8, connection_limit=100,
+                      channel_timeout=120, recv_bytes=65536,
+                      url_scheme='http')
+        except ImportError:
+            logger.warning("Waitress not installed - falling back to Flask dev server")
+            logger.warning("Install with: pip install waitress")
+            app.run(host=host, port=port, debug=False, threaded=True)
 
 
 if __name__ == '__main__':
