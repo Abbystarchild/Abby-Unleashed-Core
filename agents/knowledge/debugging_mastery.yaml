@@ -1,0 +1,1214 @@
+# Debugging and Troubleshooting Mastery
+# Systematic approaches to finding and fixing bugs in software
+
+debugging_mastery:
+  
+  # ============ DEBUGGING PHILOSOPHY ============
+  philosophy:
+    
+    core_mindset: |
+      "Debugging is twice as hard as writing the code in the first place.
+      Therefore, if you write the code as cleverly as possible, you are,
+      by definition, not smart enough to debug it." - Brian Kernighan
+    
+    scientific_approach: |
+      Debugging is hypothesis-driven investigation:
+      1. Observe the symptom
+      2. Form a hypothesis about the cause
+      3. Design an experiment to test the hypothesis
+      4. Analyze results
+      5. Refine hypothesis or fix the bug
+    
+    golden_rules:
+      - "The bug is always in your code (not the compiler, not the OS)"
+      - "If you can't reproduce it, you can't fix it"
+      - "The simplest explanation is usually correct"
+      - "Don't guess - measure and verify"
+      - "Fix the root cause, not the symptom"
+      - "One change at a time, then test"
+
+  # ============ DEBUGGING METHODOLOGY ============
+  debugging_methodology:
+    
+    systematic_process:
+      step_1_reproduce:
+        description: "Reliably reproduce the bug"
+        actions:
+          - "Get exact steps from bug report"
+          - "Identify the minimal reproduction case"
+          - "Document environment (OS, versions, config)"
+          - "Create automated test that fails"
+        example: |
+          # Bad: "Sometimes the app crashes"
+          # Good: "Click 'Save' with empty title field in Firefox 120"
+          
+          def test_save_with_empty_title_crashes():
+              """Minimal reproduction case for BUG-1234."""
+              form = SaveForm()
+              form.title = ""  # Empty title
+              with pytest.raises(UnexpectedCrash):
+                  form.submit()  # This should not crash
+      
+      step_2_isolate:
+        description: "Narrow down the location"
+        techniques:
+          binary_search:
+            description: "Divide and conquer to find the bug"
+            example: |
+              # If bug occurs after running 100 functions:
+              # 1. Add checkpoint at function 50
+              # 2. If bug occurs before checkpoint → search 1-50
+              # 3. If bug occurs after checkpoint → search 50-100
+              # 4. Repeat until narrowed to single function
+              
+              def debug_pipeline():
+                  data = load_data()
+                  print(f"[CHECKPOINT 1] Data loaded: {len(data)} items")
+                  
+                  processed = process_data(data)
+                  print(f"[CHECKPOINT 2] Processed: {len(processed)} items")
+                  
+                  filtered = filter_data(processed)
+                  print(f"[CHECKPOINT 3] Filtered: {len(filtered)} items")
+                  # Bug occurs here? Now check inside filter_data()
+          
+          git_bisect:
+            description: "Find the commit that introduced the bug"
+            commands: |
+              # Start bisect session
+              git bisect start
+              
+              # Mark current (broken) as bad
+              git bisect bad
+              
+              # Mark known good commit
+              git bisect good v1.2.0
+              
+              # Git checks out middle commit - test it
+              # Then mark as good or bad
+              git bisect good  # or git bisect bad
+              
+              # Automate with a test script
+              git bisect run ./test_for_bug.sh
+              
+              # When done
+              git bisect reset
+          
+          delta_debugging:
+            description: "Minimize failing input"
+            example: |
+              # If 1000-line input causes crash, find minimal input
+              def minimize_input(failing_input, test_func):
+                  """Binary search to find minimal failing input."""
+                  lines = failing_input.split('\n')
+                  
+                  while len(lines) > 1:
+                      mid = len(lines) // 2
+                      first_half = '\n'.join(lines[:mid])
+                      
+                      if test_func(first_half):  # Still fails?
+                          lines = lines[:mid]
+                      else:
+                          lines = lines[mid:]
+                  
+                  return '\n'.join(lines)
+      
+      step_3_hypothesize:
+        description: "Form testable hypotheses"
+        framework: |
+          For each hypothesis, ask:
+          1. Does this explain ALL observed symptoms?
+          2. Can I design an experiment to test it?
+          3. What would prove it wrong?
+        
+        common_hypotheses:
+          - "Input validation is missing"
+          - "State is corrupted by concurrent access"
+          - "Resource is not being cleaned up"
+          - "Assumption about external system is wrong"
+          - "Edge case not handled"
+      
+      step_4_test_hypothesis:
+        description: "Design experiments to prove/disprove"
+        techniques:
+          - "Add logging at suspected locations"
+          - "Use debugger to inspect state"
+          - "Write unit test for hypothesis"
+          - "Compare working vs broken environments"
+        example: |
+          # Hypothesis: Race condition in user session
+          
+          # Experiment 1: Add locking
+          with session_lock:
+              user.update(data)
+          # If bug disappears → hypothesis confirmed
+          
+          # Experiment 2: Add timing logs
+          logger.info(f"[{time.time()}] Thread {id} entering update")
+          user.update(data)
+          logger.info(f"[{time.time()}] Thread {id} exiting update")
+          # Analyze interleaving
+      
+      step_5_fix_and_verify:
+        description: "Apply fix and confirm resolution"
+        checklist:
+          - "Write failing test BEFORE fixing"
+          - "Fix should be minimal and targeted"
+          - "Test passes after fix"
+          - "No regressions in other tests"
+          - "Code review the fix"
+          - "Document the fix in commit message"
+        example_commit: |
+          fix: Handle empty title in save form (BUG-1234)
+          
+          Root cause: SaveForm.submit() assumed title was non-empty
+          and called title.strip() without null check.
+          
+          Fix: Add validation before processing, return error to user.
+          
+          Testing: Added test_save_with_empty_title() regression test.
+
+  # ============ COMMON BUG PATTERNS ============
+  common_bugs:
+    
+    off_by_one:
+      description: "Errors at boundaries of loops or arrays"
+      symptoms:
+        - "Array index out of bounds"
+        - "Missing first or last item in output"
+        - "Loop runs one too many or too few times"
+        - "Fence post errors (n items need n+1 posts)"
+      
+      causes:
+        - "Confusion between 0-based and 1-based indexing"
+        - "Wrong comparison operator (< vs <=)"
+        - "Forgetting that range(n) goes 0 to n-1"
+        - "String slicing end index is exclusive"
+      
+      examples:
+        bad: |
+          # Bug: Skips last element
+          for i in range(len(items) - 1):
+              process(items[i])
+          
+          # Bug: Index out of bounds
+          for i in range(len(items) + 1):
+              process(items[i])  # Crashes on last iteration
+          
+          # Bug: Fence post error
+          # "How many fence posts for 100m fence with post every 10m?"
+          # Wrong: 100/10 = 10 posts
+          # Right: 100/10 + 1 = 11 posts
+        
+        good: |
+          # Correct: Process all items
+          for i in range(len(items)):
+              process(items[i])
+          
+          # Better: Iterate directly
+          for item in items:
+              process(item)
+          
+          # Fence posts
+          posts_needed = (fence_length // spacing) + 1
+      
+      fixes:
+        - "Use inclusive/exclusive conventions consistently"
+        - "Prefer foreach over index-based loops"
+        - "Test with 0, 1, 2, and boundary values"
+        - "Draw diagrams for complex index math"
+
+    null_reference:
+      description: "Accessing properties of null/None objects"
+      symptoms:
+        - "NoneType has no attribute 'x'"
+        - "Cannot read property 'x' of undefined"
+        - "NullPointerException"
+        - "Segmentation fault (in C/C++)"
+      
+      causes:
+        - "Function returns None on failure"
+        - "Missing initialization"
+        - "Object deleted but reference kept"
+        - "Optional field accessed without check"
+        - "API returns null on not found"
+      
+      examples:
+        bad: |
+          # Python
+          user = database.find_user(user_id)
+          print(user.name)  # AttributeError if user is None
+          
+          # JavaScript
+          const user = users.find(u => u.id === userId);
+          console.log(user.name);  // TypeError if not found
+          
+          # Chained access
+          company.ceo.assistant.email  # Any could be null
+        
+        good: |
+          # Python - explicit check
+          user = database.find_user(user_id)
+          if user is None:
+              raise UserNotFoundError(user_id)
+          print(user.name)
+          
+          # Python - Optional type hints
+          def find_user(user_id: int) -> Optional[User]:
+              ...
+          
+          # JavaScript - optional chaining
+          const email = company?.ceo?.assistant?.email ?? "N/A";
+          
+          # Null Object Pattern
+          user = database.find_user(user_id) or NullUser()
+          print(user.name)  # NullUser.name returns ""
+      
+      fixes:
+        - "Use Optional type hints and check them"
+        - "Fail fast with clear error messages"
+        - "Use Optional chaining (?. in JS, ?. in C#)"
+        - "Consider Null Object Pattern"
+        - "Initialize all fields in constructor"
+
+    race_conditions:
+      description: "Bugs that depend on timing of concurrent operations"
+      symptoms:
+        - "Works in debugger but fails in production"
+        - "Intermittent failures"
+        - "Bug appears under high load"
+        - "Different results on each run"
+        - "Data corruption"
+      
+      causes:
+        - "Shared mutable state without synchronization"
+        - "Check-then-act patterns"
+        - "Read-modify-write without atomicity"
+        - "Lock ordering issues (deadlock)"
+      
+      examples:
+        bad: |
+          # Check-then-act race condition
+          if user.balance >= amount:  # Thread A checks
+              # Thread B withdraws here!
+              user.balance -= amount   # Thread A withdraws → overdraft
+          
+          # Read-modify-write
+          counter = counter + 1  # Not atomic!
+          # Thread A reads 5
+          # Thread B reads 5
+          # Thread A writes 6
+          # Thread B writes 6  # Lost update!
+          
+          # Lazy initialization race
+          if self._instance is None:
+              self._instance = create_instance()  # Created twice!
+          return self._instance
+        
+        good: |
+          # Use locks
+          with balance_lock:
+              if user.balance >= amount:
+                  user.balance -= amount
+          
+          # Atomic operations
+          import threading
+          counter = threading.atomic(0)
+          counter.increment()
+          
+          # Double-checked locking (properly)
+          if self._instance is None:
+              with self._lock:
+                  if self._instance is None:
+                      self._instance = create_instance()
+          
+          # Database transactions
+          with db.transaction():
+              user = db.query(User).with_for_update().get(user_id)
+              if user.balance >= amount:
+                  user.balance -= amount
+      
+      fixes:
+        - "Minimize shared mutable state"
+        - "Use proper synchronization primitives"
+        - "Prefer immutable data structures"
+        - "Use database transactions for consistency"
+        - "Test with race condition detectors"
+
+    memory_leaks:
+      description: "Memory that is allocated but never freed"
+      symptoms:
+        - "Memory usage grows over time"
+        - "OutOfMemoryError after running long"
+        - "Performance degrades gradually"
+        - "Process killed by OOM killer"
+      
+      causes:
+        - "Objects referenced but no longer needed"
+        - "Event listeners not removed"
+        - "Caches without eviction"
+        - "Closures capturing large objects"
+        - "Circular references (in some languages)"
+      
+      examples:
+        bad: |
+          # Python - accumulating data
+          class DataProcessor:
+              def __init__(self):
+                  self.history = []  # Grows forever
+              
+              def process(self, data):
+                  result = transform(data)
+                  self.history.append(data)  # Never cleared
+                  return result
+          
+          # JavaScript - event listener leak
+          function setupHandler() {
+              const largeData = loadLargeData();
+              element.addEventListener('click', () => {
+                  // Closure keeps largeData alive
+                  console.log(largeData.summary);
+              });
+          }
+          // Called many times, listeners accumulate
+          
+          # Python - circular reference
+          class Node:
+              def __init__(self):
+                  self.parent = None
+                  self.children = []
+              
+              def add_child(self, child):
+                  self.children.append(child)
+                  child.parent = self  # Circular reference
+        
+        good: |
+          # Bounded history
+          from collections import deque
+          
+          class DataProcessor:
+              def __init__(self, max_history=1000):
+                  self.history = deque(maxlen=max_history)
+          
+          # Remove event listeners
+          function setupHandler() {
+              const handler = (e) => console.log(e);
+              element.addEventListener('click', handler);
+              
+              // Later, when done:
+              element.removeEventListener('click', handler);
+          }
+          
+          # Weak references
+          import weakref
+          
+          class Node:
+              def __init__(self):
+                  self._parent = None  # weakref
+                  self.children = []
+              
+              @property
+              def parent(self):
+                  return self._parent() if self._parent else None
+              
+              def set_parent(self, parent):
+                  self._parent = weakref.ref(parent)
+      
+      fixes:
+        - "Use memory profiler to identify leaks"
+        - "Implement proper cleanup/dispose methods"
+        - "Use weak references for caches"
+        - "Bound collection sizes"
+        - "Remove event listeners when done"
+
+    state_corruption:
+      description: "Object ends up in invalid state"
+      symptoms:
+        - "Impossible values (negative count)"
+        - "Invariant violations"
+        - "Cascading failures after one error"
+      
+      causes:
+        - "Partial updates (some fields updated, others not)"
+        - "Exception during state modification"
+        - "Missing validation"
+      
+      examples:
+        bad: |
+          def transfer(from_account, to_account, amount):
+              from_account.balance -= amount
+              # Exception here leaves money "lost"
+              to_account.balance += amount
+        
+        good: |
+          def transfer(from_account, to_account, amount):
+              if amount <= 0:
+                  raise ValueError("Amount must be positive")
+              if from_account.balance < amount:
+                  raise InsufficientFunds()
+              
+              # Use transaction
+              with db.transaction():
+                  from_account.balance -= amount
+                  to_account.balance += amount
+      
+      fixes:
+        - "Use transactions for multi-step operations"
+        - "Validate inputs before modifying state"
+        - "Make state changes atomic"
+        - "Use immutable objects where possible"
+
+    encoding_issues:
+      description: "Character encoding mismatches"
+      symptoms:
+        - "Mojibake (garbled characters: ñ → Ã±)"
+        - "UnicodeDecodeError"
+        - "Data looks fine in DB but wrong in app"
+      
+      causes:
+        - "Assuming ASCII when data is UTF-8"
+        - "Double encoding"
+        - "Missing encoding declaration"
+      
+      fixes:
+        - "Use UTF-8 everywhere consistently"
+        - "Specify encoding explicitly when opening files"
+        - "Set database and connection encoding"
+        example: |
+          # Python - always specify encoding
+          with open('file.txt', 'r', encoding='utf-8') as f:
+              content = f.read()
+          
+          # MySQL connection
+          connection = mysql.connect(charset='utf8mb4')
+
+  # ============ DEBUGGING TOOLS ============
+  tool_usage:
+    
+    python_debugger_pdb:
+      basic_usage: |
+        # Insert breakpoint in code
+        import pdb; pdb.set_trace()
+        
+        # Python 3.7+
+        breakpoint()
+        
+        # Run script in debugger
+        python -m pdb script.py
+      
+      commands: |
+        # Navigation
+        n (next)     - Execute next line
+        s (step)     - Step into function
+        c (continue) - Continue to next breakpoint
+        r (return)   - Continue until function returns
+        q (quit)     - Quit debugger
+        
+        # Inspection
+        p expr       - Print expression
+        pp expr      - Pretty print
+        l (list)     - Show current code
+        ll           - Show entire function
+        w (where)    - Print stack trace
+        u (up)       - Move up stack frame
+        d (down)     - Move down stack frame
+        
+        # Breakpoints
+        b line       - Set breakpoint at line
+        b file:line  - Set breakpoint in file
+        b func       - Break when entering function
+        b line, cond - Conditional breakpoint
+        cl           - Clear breakpoints
+        
+        # Example session
+        > script.py(10)calculate()
+        -> result = a + b
+        (Pdb) p a
+        5
+        (Pdb) p b
+        None  # Found the bug!
+      
+      advanced: |
+        # Post-mortem debugging (after crash)
+        import pdb
+        import traceback
+        
+        try:
+            main()
+        except Exception:
+            traceback.print_exc()
+            pdb.post_mortem()
+        
+        # Conditional breakpoint
+        breakpoint() if user_id == 'problematic_user' else None
+        
+        # pdb++ (enhanced debugger)
+        pip install pdbpp
+        # Automatic syntax highlighting, sticky mode, etc.
+
+    chrome_devtools:
+      console: |
+        // Logging levels
+        console.log("Info");
+        console.warn("Warning");
+        console.error("Error");
+        
+        // Structured logging
+        console.table([{a: 1, b: 2}, {a: 3, b: 4}]);
+        console.group("Section");
+        console.log("Detail 1");
+        console.groupEnd();
+        
+        // Timing
+        console.time("operation");
+        doExpensiveWork();
+        console.timeEnd("operation");  // operation: 234ms
+        
+        // Stack trace
+        console.trace("How did we get here?");
+        
+        // Assertions
+        console.assert(user !== null, "User should exist");
+      
+      debugger: |
+        // Programmatic breakpoint
+        debugger;
+        
+        // Conditional breakpoint (in DevTools)
+        // Right-click line → Add conditional breakpoint
+        // Enter: user.id === 'test'
+        
+        // Logpoint (log without pausing)
+        // Right-click → Add logpoint
+        // Enter: "User:", user
+        
+        // DOM breakpoints
+        // Right-click element → Break on → subtree modifications
+      
+      network: |
+        // Filter requests
+        // Type in filter: domain:api.example.com
+        // -domain:google.com (exclude)
+        // method:POST
+        // status-code:500
+        
+        // Throttling
+        // Network tab → Throttling dropdown → Slow 3G
+        
+        // Block requests for testing
+        // Network tab → Right-click request → Block request URL
+      
+      performance: |
+        // Record performance profile
+        // Performance tab → Record → Perform actions → Stop
+        
+        // Analyze:
+        // - Main thread activity
+        // - Long tasks (>50ms)
+        // - Layout thrashing
+        // - Forced reflows
+        
+        // Memory timeline
+        // Memory tab → Timeline → Record
+        // Look for: Growing heap, detached DOM nodes
+
+    memory_analyzers:
+      python: |
+        # Memory profiler - line by line
+        pip install memory-profiler
+        
+        @profile
+        def my_function():
+            a = [i for i in range(1000000)]
+            b = [i * 2 for i in a]
+            return b
+        
+        # Run: python -m memory_profiler script.py
+        # Output shows memory usage per line
+        
+        # objgraph - find what's holding references
+        import objgraph
+        objgraph.show_most_common_types(limit=10)
+        objgraph.show_backrefs(obj, filename='refs.png')
+        
+        # tracemalloc - built-in memory tracking
+        import tracemalloc
+        
+        tracemalloc.start()
+        # ... run code ...
+        snapshot = tracemalloc.take_snapshot()
+        top = snapshot.statistics('lineno')
+        for stat in top[:10]:
+            print(stat)
+      
+      javascript: |
+        // Chrome DevTools Memory tab
+        // Take heap snapshot → Compare snapshots
+        
+        // Find detached DOM nodes
+        // Type "Detached" in snapshot filter
+        
+        // Allocation timeline
+        // Memory tab → Allocation instrumentation on timeline
+        // Blue bars = allocated, gray = freed
+      
+      java: |
+        # JVM heap analysis
+        # Take heap dump
+        jmap -dump:format=b,file=heap.hprof <pid>
+        
+        # Analyze with MAT (Memory Analyzer Tool)
+        # Or VisualVM
+        
+        # Common leak patterns:
+        # - Static collections
+        # - Unclosed resources
+        # - Inner class references
+
+    profilers:
+      python_cprofile: |
+        # Profile entire script
+        python -m cProfile -s cumtime script.py
+        
+        # Profile specific code
+        import cProfile
+        import pstats
+        
+        profiler = cProfile.Profile()
+        profiler.enable()
+        result = function_to_profile()
+        profiler.disable()
+        
+        stats = pstats.Stats(profiler)
+        stats.sort_stats('cumulative')
+        stats.print_stats(10)  # Top 10 functions
+        
+        # Output columns:
+        # ncalls - number of calls
+        # tottime - time in function (excluding subcalls)
+        # cumtime - time in function (including subcalls)
+      
+      python_line_profiler: |
+        pip install line_profiler
+        
+        @profile
+        def slow_function():
+            result = []
+            for i in range(10000):
+                result.append(expensive_operation(i))
+            return result
+        
+        # Run: kernprof -l -v script.py
+        # Shows time spent on each line
+      
+      py_spy: |
+        # Sampling profiler - no code changes needed
+        pip install py-spy
+        
+        # Profile running process
+        py-spy top --pid 12345
+        
+        # Generate flame graph
+        py-spy record -o profile.svg -- python script.py
+
+  # ============ LOG ANALYSIS ============
+  log_analysis:
+    
+    grep_patterns:
+      basic: |
+        # Search for errors
+        grep -i "error\|exception\|fail" app.log
+        
+        # Show context around matches
+        grep -B 5 -A 5 "OutOfMemory" app.log
+        
+        # Search multiple files
+        grep -r "connection refused" /var/log/
+        
+        # Count occurrences
+        grep -c "timeout" app.log
+        
+        # Show only filenames
+        grep -l "critical" *.log
+      
+      advanced: |
+        # Extract specific fields (IP addresses)
+        grep -oE '\b[0-9]{1,3}(\.[0-9]{1,3}){3}\b' access.log
+        
+        # Invert match (show non-matching)
+        grep -v "DEBUG" app.log
+        
+        # Multiple patterns
+        grep -E "ERROR|WARN|FATAL" app.log
+        
+        # Time range (assuming ISO timestamps)
+        grep "2024-01-15T1[0-2]:" app.log  # 10:00-12:59
+      
+      with_other_tools: |
+        # Most common errors
+        grep "ERROR" app.log | cut -d']' -f2 | sort | uniq -c | sort -rn | head -10
+        
+        # Errors per minute
+        grep "ERROR" app.log | cut -d' ' -f1,2 | cut -d':' -f1,2 | uniq -c
+        
+        # Follow log in real time, filtering
+        tail -f app.log | grep --line-buffered "ERROR"
+        
+        # Using awk for complex parsing
+        awk '/ERROR/ {print $1, $4, $NF}' app.log
+
+    log_correlation:
+      description: "Connecting events across logs"
+      techniques:
+        request_id: |
+          # Use request ID to trace across services
+          # In log: [req-123] Processing payment
+          
+          # Search all services
+          grep "req-123" service-*.log | sort -t: -k2
+        
+        timestamp_alignment: |
+          # Merge logs by timestamp
+          sort -t' ' -k1,2 service1.log service2.log > merged.log
+          
+          # Find events within time window
+          awk -v start="10:30:00" -v end="10:31:00" \
+            '$2 >= start && $2 <= end' merged.log
+        
+        user_session: |
+          # Extract session timeline
+          grep "session-abc" *.log | sort | while read line; do
+              echo "$(echo $line | cut -d' ' -f1-2): $(echo $line | cut -d']' -f2-)"
+          done
+
+    timeline_reconstruction:
+      process: |
+        1. Identify the incident time window
+        2. Collect all relevant logs
+        3. Normalize timestamps (handle timezone differences)
+        4. Merge and sort by timestamp
+        5. Filter to relevant components
+        6. Create timeline narrative
+      
+      example: |
+        # Timeline reconstruction script
+        #!/bin/bash
+        
+        START="2024-01-15T10:30"
+        END="2024-01-15T10:35"
+        
+        echo "=== Timeline for incident $START to $END ==="
+        
+        for log in /var/log/app/*.log; do
+            awk -v s="$START" -v e="$END" \
+                '$0 ~ /^[0-9]{4}-[0-9]{2}/ && $1 >= s && $1 <= e' \
+                "$log"
+        done | sort | while read line; do
+            # Add source identification
+            echo "$line"
+        done
+
+  # ============ PERFORMANCE DEBUGGING ============
+  performance_debugging:
+    
+    cpu_profiling:
+      identify_hotspots: |
+        # Where is CPU time being spent?
+        
+        # Python: Use cProfile
+        python -m cProfile -s tottime script.py 2>&1 | head -20
+        
+        # Look for:
+        # - Functions with high tottime (time in function itself)
+        # - Functions with high cumtime (time including children)
+        # - Functions called many times (ncalls)
+      
+      flame_graphs: |
+        # Visualize call stacks
+        # Width = time spent, depth = call stack
+        
+        # Generate with py-spy
+        py-spy record -o flame.svg -- python script.py
+        
+        # Or with perf (Linux)
+        perf record -g python script.py
+        perf script | stackcollapse-perf.pl | flamegraph.pl > flame.svg
+      
+      common_cpu_issues:
+        - "Unnecessary computation in loops"
+        - "N+1 query patterns"
+        - "Inefficient algorithms (O(n²) when O(n) possible)"
+        - "Repeated parsing/serialization"
+        - "String concatenation in loops"
+
+    memory_profiling:
+      identify_usage: |
+        # Python memory profiler
+        from memory_profiler import profile
+        
+        @profile
+        def memory_hungry():
+            data = []
+            for i in range(1000000):
+                data.append({'id': i, 'value': i * 2})
+            return process(data)
+        
+        # Output shows memory per line:
+        # Line    Mem usage    Increment
+        #   4      50.0 MiB     0.0 MiB    data = []
+        #   6     250.0 MiB   200.0 MiB    data.append(...)
+      
+      find_leaks: |
+        # Take snapshots and compare
+        import tracemalloc
+        
+        tracemalloc.start()
+        
+        # Snapshot before operation
+        snapshot1 = tracemalloc.take_snapshot()
+        
+        do_suspected_operation()
+        
+        # Snapshot after
+        snapshot2 = tracemalloc.take_snapshot()
+        
+        # Compare
+        diff = snapshot2.compare_to(snapshot1, 'lineno')
+        for stat in diff[:10]:
+            print(stat)
+        # Shows which lines allocated most memory
+      
+      common_memory_issues:
+        - "Loading entire files into memory"
+        - "Keeping references to large objects"
+        - "Unbounded caches"
+        - "Large objects in closures"
+        - "String building without generators"
+
+    io_bottlenecks:
+      identify: |
+        # Disk I/O monitoring
+        # Linux: iotop
+        sudo iotop -o  # Only show processes doing I/O
+        
+        # Network I/O
+        # Linux: nethogs
+        sudo nethogs
+        
+        # Python: Profile I/O operations
+        import time
+        
+        start = time.time()
+        data = read_large_file()
+        print(f"Read took {time.time() - start:.2f}s")
+      
+      common_io_issues:
+        - "Synchronous I/O blocking event loop"
+        - "Reading file multiple times"
+        - "Many small writes instead of buffered"
+        - "N+1 database queries"
+        - "Missing connection pooling"
+      
+      solutions: |
+        # Async I/O
+        async def fetch_all(urls):
+            async with aiohttp.ClientSession() as session:
+                tasks = [fetch(session, url) for url in urls]
+                return await asyncio.gather(*tasks)
+        
+        # Buffered writes
+        with open('output.txt', 'w', buffering=8192) as f:
+            for item in items:
+                f.write(format(item))
+        
+        # Batch database queries
+        # Instead of:
+        for id in ids:
+            user = db.query(User).get(id)  # N queries
+        
+        # Use:
+        users = db.query(User).filter(User.id.in_(ids)).all()  # 1 query
+
+    database_debugging:
+      slow_queries: |
+        # Enable slow query log (MySQL)
+        SET GLOBAL slow_query_log = 'ON';
+        SET GLOBAL long_query_time = 1;  # Log queries > 1 second
+        
+        # PostgreSQL: pg_stat_statements
+        SELECT query, calls, mean_time, total_time
+        FROM pg_stat_statements
+        ORDER BY total_time DESC
+        LIMIT 10;
+      
+      explain_analyze: |
+        # Understand query execution
+        EXPLAIN ANALYZE SELECT * FROM orders 
+        WHERE user_id = 123 AND status = 'pending';
+        
+        # Look for:
+        # - Seq Scan (might need index)
+        # - Nested Loop (might be inefficient)
+        # - High actual rows vs estimated
+      
+      common_issues:
+        - "Missing indexes on WHERE/JOIN columns"
+        - "N+1 queries (ORM anti-pattern)"
+        - "SELECT * when only few columns needed"
+        - "Large result sets without pagination"
+
+  # ============ PRODUCTION DEBUGGING ============
+  production_debugging:
+    
+    safety_principles:
+      - "Never debug directly on production database"
+      - "Use read replicas for investigation"
+      - "Have rollback plan before any change"
+      - "Monitor impact of debugging activities"
+      - "Get approval for invasive debugging"
+      - "Time-box debugging sessions"
+    
+    safe_techniques:
+      logging_levels: |
+        # Dynamically adjust logging (Python)
+        import logging
+        
+        # API endpoint to change log level
+        @app.route('/admin/log-level', methods=['POST'])
+        def set_log_level():
+            level = request.json['level']
+            logging.getLogger().setLevel(level)
+            return {'status': 'ok', 'level': level}
+        
+        # Temporarily enable DEBUG for specific module
+        logging.getLogger('payment_service').setLevel(logging.DEBUG)
+      
+      feature_flags: |
+        # Debug specific users/requests
+        
+        if feature_flags.is_enabled('detailed_logging', user_id=user.id):
+            logger.debug(f"Processing request: {request.json}")
+            logger.debug(f"User state: {user.to_dict()}")
+        
+        # A/B testing for fixes
+        if feature_flags.is_enabled('new_algorithm', user_id=user.id):
+            result = new_algorithm(data)
+        else:
+            result = old_algorithm(data)
+      
+      shadow_mode: |
+        # Run new code in parallel without affecting users
+        def process_order(order):
+            result = old_processor.process(order)  # Real result
+            
+            try:
+                # Shadow test new processor
+                shadow_result = new_processor.process(order)
+                if shadow_result != result:
+                    logger.warning(f"Shadow mismatch: {result} vs {shadow_result}")
+            except Exception as e:
+                logger.error(f"Shadow failed: {e}")
+            
+            return result  # Always return old result
+
+    observability:
+      three_pillars:
+        logs: |
+          # Structured logging
+          logger.info("Order processed", extra={
+              'order_id': order.id,
+              'amount': order.total,
+              'user_id': order.user_id,
+              'duration_ms': duration * 1000
+          })
+          
+          # Correlation IDs
+          logger.info("Payment started", extra={'request_id': request_id})
+          # ... in another service ...
+          logger.info("Payment verified", extra={'request_id': request_id})
+        
+        metrics: |
+          # Key metrics to track
+          # - Request rate (requests/second)
+          # - Error rate (errors/requests)
+          # - Latency (p50, p95, p99)
+          # - Saturation (CPU, memory, connections)
+          
+          # Prometheus example
+          from prometheus_client import Counter, Histogram
+          
+          REQUEST_COUNT = Counter('requests_total', 'Total requests', ['method', 'endpoint', 'status'])
+          REQUEST_LATENCY = Histogram('request_latency_seconds', 'Request latency', ['endpoint'])
+          
+          @app.before_request
+          def before_request():
+              request.start_time = time.time()
+          
+          @app.after_request
+          def after_request(response):
+              latency = time.time() - request.start_time
+              REQUEST_COUNT.labels(request.method, request.path, response.status_code).inc()
+              REQUEST_LATENCY.labels(request.path).observe(latency)
+              return response
+        
+        traces: |
+          # Distributed tracing
+          from opentelemetry import trace
+          
+          tracer = trace.get_tracer(__name__)
+          
+          @app.route('/api/order', methods=['POST'])
+          def create_order():
+              with tracer.start_as_current_span("create_order") as span:
+                  span.set_attribute("user_id", user.id)
+                  
+                  with tracer.start_as_current_span("validate_order"):
+                      validate(order_data)
+                  
+                  with tracer.start_as_current_span("process_payment"):
+                      payment_service.charge(order)
+                  
+                  return {'order_id': order.id}
+
+    rollback_strategies:
+      code_rollback: |
+        # Git revert (creates new commit)
+        git revert <commit-hash>
+        
+        # Deploy previous version
+        kubectl rollout undo deployment/myapp
+        
+        # Or specify revision
+        kubectl rollout undo deployment/myapp --to-revision=2
+      
+      feature_flag_rollback: |
+        # Instant disable without deploy
+        feature_flags.disable('new_checkout_flow')
+        
+        # Percentage rollback
+        feature_flags.set_percentage('new_checkout_flow', 0)  # 0% = off
+      
+      database_rollback: |
+        # Point-in-time recovery
+        # Restore database to state before bad migration
+        
+        # Or: Forward-fix with new migration
+        -- migration_002_fix.sql
+        UPDATE users SET status = 'active' WHERE status = 'actve';  -- Fix typo
+
+  # ============ DEBUGGING CHECKLIST ============
+  debugging_checklist:
+    
+    before_starting:
+      - "Can I reproduce the bug reliably?"
+      - "Do I have a failing test case?"
+      - "Have I checked recent changes (git log, deployments)?"
+      - "Is this a known issue? (Check bug tracker, Stack Overflow)"
+      - "Do I understand what the correct behavior should be?"
+    
+    gathering_information:
+      - "What are the exact error messages?"
+      - "What are the steps to reproduce?"
+      - "What environment does it occur in? (OS, browser, versions)"
+      - "When did it start happening?"
+      - "Does it happen consistently or intermittently?"
+      - "Are there relevant log entries?"
+      - "What was the user trying to do?"
+    
+    isolation:
+      - "Can I reproduce with minimal test case?"
+      - "Have I identified which component is failing?"
+      - "Have I checked inputs and outputs at each step?"
+      - "Have I verified my assumptions about state?"
+      - "Can I narrow down to a specific commit with git bisect?"
+    
+    common_causes_to_check:
+      - "Input validation - is the input what we expect?"
+      - "Null/undefined values - are all objects initialized?"
+      - "Off-by-one errors - are loops and indexes correct?"
+      - "Race conditions - is there concurrent access?"
+      - "State - is the object in a valid state?"
+      - "External dependencies - are services up and responding?"
+      - "Configuration - are settings correct for this environment?"
+      - "Permissions - does the code have necessary access?"
+      - "Encoding - are character encodings consistent?"
+    
+    after_fixing:
+      - "Does the fix address the root cause (not just symptom)?"
+      - "Have I added a regression test?"
+      - "Do all existing tests still pass?"
+      - "Have I documented the fix in the commit message?"
+      - "Should this be documented for other developers?"
+      - "Are there similar bugs elsewhere that need fixing?"
+      - "Have I updated monitoring/alerting if needed?"
+
+  # ============ DEBUGGING ANTI-PATTERNS ============
+  anti_patterns:
+    
+    random_changes:
+      description: "Changing code randomly hoping to fix the bug"
+      problem: "May introduce new bugs, doesn't build understanding"
+      instead: "Form hypothesis, make targeted change, test"
+    
+    printf_only:
+      description: "Using only print statements, never learning debugger"
+      problem: "Slow, clutters code, misses debugger power"
+      instead: "Learn debugger for interactive investigation"
+    
+    blame_tools:
+      description: "Assuming bug is in library/framework/compiler"
+      problem: "Wastes time, the bug is almost always in your code"
+      instead: "Prove it's not your code before blaming tools"
+    
+    not_reading_errors:
+      description: "Ignoring error messages, just trying fixes"
+      problem: "Error messages often tell you exactly what's wrong"
+      instead: "Read the ENTIRE error message and stack trace"
+    
+    debugging_without_tests:
+      description: "Fixing without writing failing test first"
+      problem: "Can't verify fix, may regress later"
+      instead: "Write failing test, then fix, test passes"
+    
+    heroic_debugging:
+      description: "Long solo debugging sessions"
+      problem: "Fresh eyes often spot issues quickly"
+      instead: "Time-box debugging, then ask for help or rubber duck"
+
+  # ============ QUICK REFERENCE ============
+  quick_reference:
+    
+    python_debugging: |
+      breakpoint()                    # Enter debugger
+      python -m pdb script.py         # Run in debugger
+      python -m cProfile script.py    # CPU profiling
+      python -m memory_profiler script.py  # Memory profiling
+      python -m py_spy top --pid PID  # Profile running process
+    
+    javascript_debugging: |
+      debugger;                       // Enter DevTools debugger
+      console.trace()                 // Print stack trace
+      console.time('label')          // Start timer
+      console.timeEnd('label')       // End timer
+      console.table(array)           // Pretty print array
+    
+    git_debugging: |
+      git log --oneline -20          # Recent commits
+      git diff HEAD~5                # Changes in last 5 commits
+      git bisect start               # Start binary search
+      git blame file.py              # Who changed each line
+      git log -p --follow file.py    # Full history of file
+    
+    linux_debugging: |
+      strace -p PID                   # System calls
+      lsof -p PID                     # Open files
+      netstat -tlnp                   # Listening ports
+      top -p PID                      # Process resources
+      journalctl -u service -f        # Service logs
+    
+    log_commands: |
+      tail -f app.log                 # Follow log
+      grep -i error app.log           # Find errors
+      grep -B5 -A5 "exception" app.log  # Context around match
+      zgrep "pattern" app.log.gz      # Search compressed
+      less +F app.log                 # Follow with scroll back

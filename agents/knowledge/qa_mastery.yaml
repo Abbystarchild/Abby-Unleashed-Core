@@ -1,0 +1,580 @@
+# QA Testing Mastery
+# Comprehensive testing and quality assurance expertise
+
+qa_mastery:
+
+  # ============ TEST PYRAMID ============
+  test_pyramid:
+    description: "Optimal distribution of test types for fast, reliable feedback"
+    ratios:
+      unit_tests: "70% - Fast, isolated, many"
+      integration_tests: "20% - Component interactions"
+      e2e_tests: "10% - Critical user journeys only"
+    
+    principles:
+      - "Write tests at the lowest level possible"
+      - "E2E tests are expensive to maintain"
+      - "Fast tests enable frequent runs"
+      - "Failing tests should pinpoint the problem"
+
+  # ============ UNIT TESTING (PYTEST) ============
+  pytest:
+    
+    fixtures:
+      basic: |
+        import pytest
+        from datetime import datetime
+        
+        @pytest.fixture
+        def user():
+            """Create a test user."""
+            return User(
+                id="user-123",
+                email="test@example.com",
+                name="Test User",
+                created_at=datetime(2024, 1, 1)
+            )
+        
+        @pytest.fixture
+        def authenticated_client(user):
+            """Client with authentication headers."""
+            client = TestClient(app)
+            token = create_access_token(user.id)
+            client.headers["Authorization"] = f"Bearer {token}"
+            return client
+      
+      database_fixture: |
+        import pytest
+        from sqlalchemy import create_engine
+        from sqlalchemy.orm import sessionmaker
+        
+        @pytest.fixture(scope="session")
+        def engine():
+            """Create test database engine once per session."""
+            return create_engine("sqlite:///:memory:")
+        
+        @pytest.fixture(scope="session")
+        def tables(engine):
+            """Create all tables once per session."""
+            Base.metadata.create_all(engine)
+            yield
+            Base.metadata.drop_all(engine)
+        
+        @pytest.fixture
+        def db_session(engine, tables):
+            """Create new session for each test, rollback after."""
+            connection = engine.connect()
+            transaction = connection.begin()
+            session = sessionmaker(bind=connection)()
+            
+            yield session
+            
+            session.close()
+            transaction.rollback()
+            connection.close()
+      
+      factory_pattern: |
+        import pytest
+        from dataclasses import dataclass
+        from typing import Optional
+        import uuid
+        
+        @dataclass
+        class UserFactory:
+            """Factory for creating test users with sensible defaults."""
+            
+            @staticmethod
+            def create(
+                id: Optional[str] = None,
+                email: Optional[str] = None,
+                name: str = "Test User",
+                is_active: bool = True
+            ) -> User:
+                return User(
+                    id=id or str(uuid.uuid4()),
+                    email=email or f"user-{uuid.uuid4().hex[:8]}@test.com",
+                    name=name,
+                    is_active=is_active
+                )
+        
+        @pytest.fixture
+        def user_factory():
+            return UserFactory()
+        
+        # Usage in tests
+        def test_multiple_users(user_factory):
+            active_user = user_factory.create(is_active=True)
+            inactive_user = user_factory.create(is_active=False)
+    
+    parametrization: |
+      import pytest
+      
+      @pytest.mark.parametrize("input,expected", [
+          ("hello", "HELLO"),
+          ("Hello World", "HELLO WORLD"),
+          ("", ""),
+          ("123", "123"),
+      ])
+      def test_uppercase(input, expected):
+          assert uppercase(input) == expected
+      
+      # Multiple parameters with IDs
+      @pytest.mark.parametrize(
+          "amount,currency,expected",
+          [
+              (100, "USD", "$100.00"),
+              (100, "EUR", "€100.00"),
+              (1000.5, "GBP", "£1,000.50"),
+          ],
+          ids=["usd", "eur", "gbp"]
+      )
+      def test_format_currency(amount, currency, expected):
+          assert format_currency(amount, currency) == expected
+    
+    mocking: |
+      from unittest.mock import Mock, patch, MagicMock
+      import pytest
+      
+      # Patching external dependencies
+      @patch("myapp.services.external_api.fetch_user")
+      def test_get_user_profile(mock_fetch):
+          mock_fetch.return_value = {"id": "123", "name": "John"}
+          
+          result = get_user_profile("123")
+          
+          assert result["name"] == "John"
+          mock_fetch.assert_called_once_with("123")
+      
+      # Context manager patching
+      def test_send_email():
+          with patch("myapp.services.email.send") as mock_send:
+              mock_send.return_value = True
+              
+              result = notify_user("user@test.com", "Hello")
+              
+              assert result is True
+              mock_send.assert_called_with(
+                  to="user@test.com",
+                  subject=ANY,
+                  body="Hello"
+              )
+      
+      # Async mocking
+      @pytest.mark.asyncio
+      async def test_async_fetch():
+          with patch("myapp.client.fetch", new_callable=AsyncMock) as mock:
+              mock.return_value = {"data": "test"}
+              
+              result = await fetch_data()
+              
+              assert result["data"] == "test"
+    
+    async_testing: |
+      import pytest
+      import asyncio
+      
+      @pytest.mark.asyncio
+      async def test_async_function():
+          result = await async_fetch_data()
+          assert result is not None
+      
+      # Testing concurrent operations
+      @pytest.mark.asyncio
+      async def test_concurrent_requests():
+          results = await asyncio.gather(
+              fetch_user("1"),
+              fetch_user("2"),
+              fetch_user("3")
+          )
+          assert len(results) == 3
+          assert all(r is not None for r in results)
+      
+      # Timeout for long-running tests
+      @pytest.mark.asyncio
+      @pytest.mark.timeout(5)
+      async def test_with_timeout():
+          result = await potentially_slow_operation()
+          assert result is not None
+
+  # ============ E2E TESTING (PLAYWRIGHT) ============
+  playwright:
+    
+    page_object_model: |
+      # pages/login_page.py
+      from playwright.sync_api import Page, expect
+      
+      class LoginPage:
+          """Page Object for Login page."""
+          
+          def __init__(self, page: Page):
+              self.page = page
+              self.email_input = page.locator('[data-testid="email-input"]')
+              self.password_input = page.locator('[data-testid="password-input"]')
+              self.submit_button = page.locator('[data-testid="login-button"]')
+              self.error_message = page.locator('[data-testid="error-message"]')
+          
+          def navigate(self):
+              self.page.goto("/login")
+              return self
+          
+          def login(self, email: str, password: str):
+              self.email_input.fill(email)
+              self.password_input.fill(password)
+              self.submit_button.click()
+              return self
+          
+          def expect_error(self, message: str):
+              expect(self.error_message).to_contain_text(message)
+              return self
+          
+          def expect_redirect_to_dashboard(self):
+              expect(self.page).to_have_url("/dashboard")
+              return self
+      
+      # tests/test_login.py
+      from pages.login_page import LoginPage
+      
+      def test_successful_login(page):
+          login_page = LoginPage(page)
+          login_page.navigate()
+          login_page.login("user@test.com", "password123")
+          login_page.expect_redirect_to_dashboard()
+      
+      def test_invalid_credentials(page):
+          login_page = LoginPage(page)
+          login_page.navigate()
+          login_page.login("user@test.com", "wrongpassword")
+          login_page.expect_error("Invalid credentials")
+    
+    api_mocking: |
+      from playwright.sync_api import Page, Route
+      
+      def test_with_mocked_api(page: Page):
+          # Mock API response
+          def handle_route(route: Route):
+              route.fulfill(
+                  status=200,
+                  content_type="application/json",
+                  body='{"users": [{"id": "1", "name": "John"}]}'
+              )
+          
+          page.route("**/api/users", handle_route)
+          
+          page.goto("/users")
+          
+          # Verify mocked data is displayed
+          expect(page.locator("text=John")).to_be_visible()
+      
+      # Mock network errors
+      def test_network_error_handling(page: Page):
+          page.route("**/api/data", lambda route: route.abort())
+          
+          page.goto("/dashboard")
+          
+          expect(page.locator("text=Failed to load")).to_be_visible()
+    
+    visual_regression: |
+      def test_landing_page_screenshot(page: Page):
+          page.goto("/")
+          
+          # Full page screenshot comparison
+          expect(page).to_have_screenshot("landing-page.png")
+      
+      def test_component_screenshot(page: Page):
+          page.goto("/components")
+          
+          # Element screenshot
+          card = page.locator('[data-testid="feature-card"]')
+          expect(card).to_have_screenshot("feature-card.png")
+
+  # ============ PERFORMANCE TESTING ============
+  performance:
+    
+    k6_load_testing: |
+      // load-test.js
+      import http from 'k6/http';
+      import { check, sleep } from 'k6';
+      import { Rate, Trend } from 'k6/metrics';
+      
+      // Custom metrics
+      const errorRate = new Rate('errors');
+      const apiDuration = new Trend('api_duration');
+      
+      export const options = {
+        stages: [
+          { duration: '1m', target: 50 },   // Ramp up
+          { duration: '5m', target: 50 },   // Stay at 50 users
+          { duration: '1m', target: 100 },  // Spike to 100
+          { duration: '5m', target: 100 },  // Stay at 100
+          { duration: '2m', target: 0 },    // Ramp down
+        ],
+        thresholds: {
+          http_req_duration: ['p(95)<500'],  // 95% under 500ms
+          errors: ['rate<0.01'],              // Error rate under 1%
+        },
+      };
+      
+      export default function () {
+        const res = http.get('http://localhost:8000/api/users');
+        
+        check(res, {
+          'status is 200': (r) => r.status === 200,
+          'response time < 500ms': (r) => r.timings.duration < 500,
+        });
+        
+        errorRate.add(res.status !== 200);
+        apiDuration.add(res.timings.duration);
+        
+        sleep(1);
+      }
+    
+    locust_testing: |
+      # locustfile.py
+      from locust import HttpUser, task, between
+      
+      class APIUser(HttpUser):
+          wait_time = between(1, 3)
+          
+          @task(3)
+          def get_users(self):
+              self.client.get("/api/users")
+          
+          @task(1)
+          def create_user(self):
+              self.client.post(
+                  "/api/users",
+                  json={"name": "Test User", "email": "test@example.com"}
+              )
+          
+          @task(2)
+          def get_user_detail(self):
+              self.client.get("/api/users/1")
+      
+      # Run: locust -f locustfile.py --host=http://localhost:8000
+
+  # ============ CONTRACT TESTING ============
+  contract_testing:
+    
+    pact_consumer: |
+      # Consumer test (client side)
+      import pytest
+      from pact import Consumer, Provider
+      
+      @pytest.fixture
+      def pact():
+          pact = Consumer('UserService').has_pact_with(
+              Provider('UserAPI'),
+              pact_dir='./pacts'
+          )
+          pact.start_service()
+          yield pact
+          pact.stop_service()
+      
+      def test_get_user(pact):
+          expected = {
+              "id": "123",
+              "name": "John Doe",
+              "email": "john@example.com"
+          }
+          
+          (pact
+           .given('a user with ID 123 exists')
+           .upon_receiving('a request for user 123')
+           .with_request('GET', '/api/users/123')
+           .will_respond_with(200, body=expected))
+          
+          with pact:
+              result = UserClient(pact.uri).get_user("123")
+          
+          assert result["name"] == "John Doe"
+    
+    pact_provider: |
+      # Provider verification
+      from pact import Verifier
+      
+      def test_provider_against_pacts():
+          verifier = Verifier(
+              provider='UserAPI',
+              provider_base_url='http://localhost:8000'
+          )
+          
+          output, _ = verifier.verify_pacts(
+              './pacts/userservice-userapi.json',
+              provider_states_setup_url='http://localhost:8000/_pact/setup'
+          )
+          
+          assert output == 0
+
+  # ============ TEST PATTERNS ============
+  patterns:
+    
+    arrange_act_assert: |
+      def test_user_creation():
+          # Arrange: Set up test data and dependencies
+          user_data = {"name": "John", "email": "john@test.com"}
+          repository = MockUserRepository()
+          service = UserService(repository)
+          
+          # Act: Execute the code under test
+          result = service.create_user(user_data)
+          
+          # Assert: Verify the expected outcome
+          assert result.name == "John"
+          assert result.email == "john@test.com"
+          repository.save.assert_called_once()
+    
+    given_when_then: |
+      def test_order_discount():
+          """
+          Given a customer with premium status
+          When they place an order over $100
+          Then they should receive a 10% discount
+          """
+          # Given
+          customer = Customer(status="premium")
+          order = Order(customer=customer, total=150.00)
+          
+          # When
+          discounted_total = apply_discount(order)
+          
+          # Then
+          assert discounted_total == 135.00  # 10% off
+    
+    test_doubles:
+      types:
+        - name: "Dummy"
+          purpose: "Passed but never used"
+          example: "A null logger passed to satisfy a parameter"
+        
+        - name: "Stub"
+          purpose: "Returns canned responses"
+          example: "Repository that always returns same user"
+        
+        - name: "Spy"
+          purpose: "Records calls for later verification"
+          example: "Email service that tracks sent emails"
+        
+        - name: "Mock"
+          purpose: "Pre-programmed expectations"
+          example: "HTTP client expecting specific calls"
+        
+        - name: "Fake"
+          purpose: "Working implementation for tests"
+          example: "In-memory database"
+
+  # ============ TESTING BEST PRACTICES ============
+  best_practices:
+    
+    naming:
+      pattern: "test_<unit>_<scenario>_<expected>"
+      examples:
+        - "test_create_user_with_valid_data_returns_user"
+        - "test_create_user_with_duplicate_email_raises_error"
+        - "test_calculate_discount_for_premium_user_applies_10_percent"
+    
+    independence:
+      - "Tests should not depend on other tests"
+      - "Each test sets up its own data"
+      - "Tests can run in any order"
+      - "Tests clean up after themselves"
+    
+    deterministic:
+      - "Avoid time-dependent tests"
+      - "Mock external services"
+      - "Control randomness with seeds"
+      - "Use fixed test data"
+    
+    fast_feedback:
+      - "Unit tests should run in < 100ms"
+      - "Total suite should complete in < 5 minutes"
+      - "Use parallelization"
+      - "Avoid unnecessary I/O"
+
+  # ============ CODE COVERAGE ============
+  coverage:
+    
+    pytest_coverage: |
+      # pytest.ini
+      [pytest]
+      addopts = --cov=src --cov-report=html --cov-report=term-missing
+      
+      # Run with coverage
+      # pytest --cov=src --cov-fail-under=80
+    
+    coverage_targets:
+      minimum: "80% line coverage"
+      ideal: "90%+ with branch coverage"
+      focus_on:
+        - "Critical business logic"
+        - "Error handling paths"
+        - "Edge cases"
+      dont_chase:
+        - "100% coverage is not always valuable"
+        - "Configuration files"
+        - "Simple getters/setters"
+
+  # ============ CI INTEGRATION ============
+  ci_integration: |
+    # .github/workflows/test.yml
+    name: Tests
+    
+    on: [push, pull_request]
+    
+    jobs:
+      test:
+        runs-on: ubuntu-latest
+        
+        services:
+          postgres:
+            image: postgres:15
+            env:
+              POSTGRES_PASSWORD: test
+            options: >-
+              --health-cmd pg_isready
+              --health-interval 10s
+              --health-timeout 5s
+              --health-retries 5
+        
+        steps:
+          - uses: actions/checkout@v4
+          
+          - name: Set up Python
+            uses: actions/setup-python@v5
+            with:
+              python-version: '3.11'
+          
+          - name: Install dependencies
+            run: |
+              pip install -r requirements.txt
+              pip install pytest pytest-cov pytest-asyncio
+          
+          - name: Run unit tests
+            run: pytest tests/unit -v --cov=src --cov-report=xml
+          
+          - name: Run integration tests
+            run: pytest tests/integration -v
+          
+          - name: Upload coverage
+            uses: codecov/codecov-action@v3
+            with:
+              files: ./coverage.xml
+
+  # ============ REVIEW CHECKLIST ============
+  review_checklist:
+    test_quality:
+      - "Tests follow naming convention"
+      - "Each test has single assertion focus"
+      - "Tests are independent and isolated"
+      - "Mocks are minimal and focused"
+    
+    coverage:
+      - "New code has tests"
+      - "Edge cases covered"
+      - "Error paths tested"
+      - "Coverage threshold maintained"
+    
+    maintainability:
+      - "Tests are readable as documentation"
+      - "Fixtures are reusable"
+      - "No hardcoded values without context"
+      - "Test data is representative"

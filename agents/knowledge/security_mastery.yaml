@@ -1,0 +1,537 @@
+# Security Engineering Mastery (Application Security)
+# Comprehensive AppSec expertise
+
+security_mastery:
+
+  # ============ OWASP TOP 10 ============
+  owasp_top_10:
+    
+    A01_broken_access_control:
+      description: "Restrictions on authenticated users not properly enforced"
+      examples:
+        - "IDOR: Accessing other users' data by modifying IDs"
+        - "Privilege escalation by modifying roles/permissions"
+        - "Bypassing access control by manipulating URLs"
+      prevention: |
+        # Always verify ownership
+        def get_document(doc_id: str, user_id: str):
+            doc = db.get(doc_id)
+            if doc.owner_id != user_id:
+                raise ForbiddenError("Access denied")
+            return doc
+        
+        # Use secure random IDs instead of sequential
+        import secrets
+        doc_id = secrets.token_urlsafe(16)  # e.g., "Drmhze6EPcv0fN_81..."
+        
+        # RBAC middleware
+        def require_role(*roles):
+            def decorator(f):
+                @wraps(f)
+                async def wrapper(request, *args, **kwargs):
+                    if request.user.role not in roles:
+                        raise HTTPException(403, "Insufficient permissions")
+                    return await f(request, *args, **kwargs)
+                return wrapper
+            return decorator
+
+    A02_cryptographic_failures:
+      description: "Failures related to cryptography leading to data exposure"
+      prevention:
+        password_hashing: |
+          # Use Argon2id (preferred) or bcrypt
+          from argon2 import PasswordHasher
+          
+          ph = PasswordHasher(
+              time_cost=3,       # iterations
+              memory_cost=65536, # 64 MiB
+              parallelism=4,     # threads
+              hash_len=32,       # output length
+              salt_len=16        # salt length
+          )
+          
+          # Hash password
+          hash = ph.hash(password)
+          
+          # Verify password
+          try:
+              ph.verify(hash, password)
+          except VerifyMismatchError:
+              raise InvalidCredentials()
+        
+        encryption: |
+          # Use AES-GCM for authenticated encryption
+          from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+          import os
+          
+          # Generate key (store securely!)
+          key = AESGCM.generate_key(bit_length=256)
+          aesgcm = AESGCM(key)
+          
+          # Encrypt (nonce must be unique per encryption)
+          nonce = os.urandom(12)
+          ciphertext = aesgcm.encrypt(nonce, plaintext, associated_data)
+          
+          # Decrypt
+          plaintext = aesgcm.decrypt(nonce, ciphertext, associated_data)
+        
+        key_derivation: |
+          # Derive keys from passwords using PBKDF2 or scrypt
+          from cryptography.hazmat.primitives import hashes
+          from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+          
+          kdf = PBKDF2HMAC(
+              algorithm=hashes.SHA256(),
+              length=32,
+              salt=salt,
+              iterations=600000  # OWASP 2023 recommendation
+          )
+          key = kdf.derive(password.encode())
+
+    A03_injection:
+      description: "User-supplied data not validated, filtered, or sanitized"
+      sql_injection: |
+        # NEVER: String concatenation
+        query = f"SELECT * FROM users WHERE id = {user_id}"
+        
+        # ALWAYS: Parameterized queries
+        cursor.execute("SELECT * FROM users WHERE id = %s", (user_id,))
+        
+        # ORM example (SQLAlchemy)
+        user = session.query(User).filter(User.id == user_id).first()
+      
+      command_injection: |
+        # NEVER: Shell with user input
+        import os
+        os.system(f"convert {user_file} output.png")
+        
+        # ALWAYS: Use subprocess with list arguments
+        import subprocess
+        subprocess.run(["convert", user_file, "output.png"], check=True)
+        
+        # Or use shlex for shell commands
+        import shlex
+        subprocess.run(shlex.split(f"convert {shlex.quote(user_file)} output.png"))
+      
+      xss: |
+        <!-- NEVER: Raw HTML insertion -->
+        <div v-html="userContent"></div>
+        
+        <!-- ALWAYS: Text interpolation -->
+        <div>{{ userContent }}</div>
+        
+        // Server-side: Escape HTML
+        import html
+        safe_content = html.escape(user_input)
+
+    A04_insecure_design:
+      description: "Missing or ineffective security controls"
+      mitigations:
+        - "Threat modeling (STRIDE) during design"
+        - "Security requirements in user stories"
+        - "Defense in depth"
+        - "Principle of least privilege"
+      threat_modeling: |
+        # STRIDE categories
+        - Spoofing: Can attacker impersonate a user?
+        - Tampering: Can attacker modify data?
+        - Repudiation: Can attacker deny actions?
+        - Information Disclosure: Can attacker access sensitive data?
+        - Denial of Service: Can attacker disrupt service?
+        - Elevation of Privilege: Can attacker gain higher access?
+
+    A05_security_misconfiguration:
+      secure_headers: |
+        # FastAPI middleware for security headers
+        from starlette.middleware.base import BaseHTTPMiddleware
+        
+        class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+            async def dispatch(self, request, call_next):
+                response = await call_next(request)
+                response.headers["X-Content-Type-Options"] = "nosniff"
+                response.headers["X-Frame-Options"] = "DENY"
+                response.headers["X-XSS-Protection"] = "1; mode=block"
+                response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+                response.headers["Permissions-Policy"] = "geolocation=(), microphone=()"
+                response.headers["Content-Security-Policy"] = (
+                    "default-src 'self'; "
+                    "script-src 'self'; "
+                    "style-src 'self' 'unsafe-inline'; "
+                    "img-src 'self' data: https:; "
+                    "font-src 'self'; "
+                    "frame-ancestors 'none'"
+                )
+                return response
+      
+      flask_security: |
+        from flask import Flask
+        from flask_talisman import Talisman
+        
+        app = Flask(__name__)
+        Talisman(app, 
+            content_security_policy={
+                'default-src': "'self'",
+                'script-src': "'self'",
+            },
+            force_https=True
+        )
+
+  # ============ INPUT VALIDATION ============
+  input_validation:
+    
+    principles:
+      - "Validate on server side (never trust client)"
+      - "Allowlist over blocklist"
+      - "Validate type, length, format, range"
+      - "Canonicalize before validation"
+    
+    pydantic_validation: |
+      from pydantic import BaseModel, Field, validator, EmailStr
+      from typing import Optional
+      import re
+      
+      class UserCreate(BaseModel):
+          username: str = Field(..., min_length=3, max_length=30, regex=r'^[a-zA-Z0-9_]+$')
+          email: EmailStr
+          password: str = Field(..., min_length=12, max_length=128)
+          age: Optional[int] = Field(None, ge=13, le=120)
+          
+          @validator('password')
+          def password_complexity(cls, v):
+              if not re.search(r'[A-Z]', v):
+                  raise ValueError('Password must contain uppercase')
+              if not re.search(r'[a-z]', v):
+                  raise ValueError('Password must contain lowercase')
+              if not re.search(r'[0-9]', v):
+                  raise ValueError('Password must contain digit')
+              return v
+          
+          @validator('username')
+          def username_not_reserved(cls, v):
+              reserved = {'admin', 'root', 'system', 'null', 'undefined'}
+              if v.lower() in reserved:
+                  raise ValueError('Reserved username')
+              return v
+
+    file_upload_security: |
+      import magic
+      from pathlib import Path
+      import secrets
+      
+      ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'pdf'}
+      ALLOWED_MIMES = {
+          'image/png', 'image/jpeg', 'image/gif', 
+          'application/pdf'
+      }
+      MAX_SIZE = 10 * 1024 * 1024  # 10 MB
+      
+      def validate_upload(file) -> Path:
+          # Check file size
+          content = file.read()
+          if len(content) > MAX_SIZE:
+              raise ValueError("File too large")
+          file.seek(0)
+          
+          # Check extension
+          filename = Path(file.filename)
+          if filename.suffix.lower()[1:] not in ALLOWED_EXTENSIONS:
+              raise ValueError("Invalid file extension")
+          
+          # Check magic bytes (actual content)
+          mime = magic.from_buffer(content, mime=True)
+          if mime not in ALLOWED_MIMES:
+              raise ValueError("Invalid file type")
+          
+          # Generate safe filename
+          safe_name = f"{secrets.token_hex(16)}{filename.suffix}"
+          
+          # Store outside web root
+          storage_path = Path("/secure/uploads") / safe_name
+          storage_path.write_bytes(content)
+          
+          return storage_path
+
+  # ============ AUTHENTICATION ============
+  authentication:
+    
+    jwt_security:
+      best_practices:
+        - "Short access token lifetime (15 minutes)"
+        - "Longer refresh token with rotation"
+        - "Store refresh tokens server-side"
+        - "Use strong secret (256+ bits)"
+        - "Validate all claims"
+      
+      implementation: |
+        import jwt
+        from datetime import datetime, timedelta
+        import secrets
+        
+        SECRET_KEY = secrets.token_bytes(32)  # 256 bits
+        ALGORITHM = "HS256"
+        
+        def create_tokens(user_id: str) -> dict:
+            access_exp = datetime.utcnow() + timedelta(minutes=15)
+            refresh_exp = datetime.utcnow() + timedelta(days=7)
+            
+            access_token = jwt.encode({
+                "sub": user_id,
+                "type": "access",
+                "exp": access_exp,
+                "iat": datetime.utcnow(),
+                "jti": secrets.token_hex(16)  # Unique token ID
+            }, SECRET_KEY, algorithm=ALGORITHM)
+            
+            refresh_token = jwt.encode({
+                "sub": user_id,
+                "type": "refresh",
+                "exp": refresh_exp,
+                "iat": datetime.utcnow(),
+                "jti": secrets.token_hex(16)
+            }, SECRET_KEY, algorithm=ALGORITHM)
+            
+            # Store refresh token hash server-side
+            store_refresh_token(user_id, hash_token(refresh_token), refresh_exp)
+            
+            return {
+                "access_token": access_token,
+                "refresh_token": refresh_token,
+                "expires_in": 900
+            }
+        
+        def verify_access_token(token: str) -> dict:
+            try:
+                payload = jwt.decode(
+                    token,
+                    SECRET_KEY,
+                    algorithms=[ALGORITHM],
+                    options={"require": ["sub", "exp", "type", "jti"]}
+                )
+                if payload.get("type") != "access":
+                    raise InvalidTokenError("Invalid token type")
+                return payload
+            except jwt.ExpiredSignatureError:
+                raise TokenExpiredError()
+            except jwt.InvalidTokenError as e:
+                raise InvalidTokenError(str(e))
+
+    session_security: |
+      from flask import Flask, session
+      import os
+      
+      app = Flask(__name__)
+      app.config.update(
+          SECRET_KEY=os.environ['SECRET_KEY'],
+          SESSION_COOKIE_SECURE=True,        # HTTPS only
+          SESSION_COOKIE_HTTPONLY=True,      # No JavaScript access
+          SESSION_COOKIE_SAMESITE='Strict',  # CSRF protection
+          PERMANENT_SESSION_LIFETIME=timedelta(hours=1)
+      )
+
+    mfa_implementation: |
+      import pyotp
+      import qrcode
+      from io import BytesIO
+      
+      def enable_totp(user_id: str) -> tuple[str, bytes]:
+          """Generate TOTP secret and QR code."""
+          # Generate secret
+          secret = pyotp.random_base32()
+          
+          # Create TOTP URI
+          totp = pyotp.TOTP(secret)
+          uri = totp.provisioning_uri(
+              name=get_user_email(user_id),
+              issuer_name="MyApp"
+          )
+          
+          # Generate QR code
+          qr = qrcode.make(uri)
+          buffer = BytesIO()
+          qr.save(buffer, format='PNG')
+          
+          # Store secret (encrypted) for user
+          store_totp_secret(user_id, encrypt(secret))
+          
+          return secret, buffer.getvalue()
+      
+      def verify_totp(user_id: str, code: str) -> bool:
+          """Verify TOTP code with clock drift tolerance."""
+          secret = decrypt(get_totp_secret(user_id))
+          totp = pyotp.TOTP(secret)
+          return totp.verify(code, valid_window=1)
+
+  # ============ RATE LIMITING ============
+  rate_limiting:
+    
+    sliding_window: |
+      import redis
+      import time
+      
+      class RateLimiter:
+          def __init__(self, redis_client: redis.Redis):
+              self.redis = redis_client
+          
+          def is_allowed(
+              self, 
+              key: str, 
+              limit: int, 
+              window_seconds: int
+          ) -> tuple[bool, int]:
+              """
+              Sliding window rate limiter.
+              Returns (allowed, remaining_requests).
+              """
+              now = time.time()
+              window_start = now - window_seconds
+              
+              pipe = self.redis.pipeline()
+              
+              # Remove old entries
+              pipe.zremrangebyscore(key, 0, window_start)
+              
+              # Count current window
+              pipe.zcard(key)
+              
+              # Add current request
+              pipe.zadd(key, {f"{now}": now})
+              
+              # Set expiry
+              pipe.expire(key, window_seconds)
+              
+              results = pipe.execute()
+              request_count = results[1]
+              
+              if request_count >= limit:
+                  return False, 0
+              
+              return True, limit - request_count - 1
+
+    endpoint_limits:
+      description: "Different limits for different endpoints"
+      configuration:
+        login: "5 requests per minute (brute force protection)"
+        password_reset: "3 requests per hour"
+        api_general: "100 requests per minute"
+        api_expensive: "10 requests per minute"
+
+  # ============ SECURE CODING PRACTICES ============
+  secure_coding:
+    
+    secrets_management: |
+      # NEVER: Hardcoded secrets
+      API_KEY = "sk_live_abc123"
+      
+      # ALWAYS: Environment variables
+      import os
+      API_KEY = os.environ["API_KEY"]
+      
+      # BETTER: Secrets manager
+      from aws_secretsmanager_caching import SecretCache
+      
+      cache = SecretCache()
+      secret = cache.get_secret_string("prod/api/key")
+
+    timing_attack_prevention: |
+      import hmac
+      
+      # NEVER: Direct comparison (timing attack vulnerable)
+      if user_token == stored_token:
+          ...
+      
+      # ALWAYS: Constant-time comparison
+      if hmac.compare_digest(user_token, stored_token):
+          ...
+
+    secure_randomness: |
+      import secrets
+      import os
+      
+      # For tokens, IDs, passwords
+      token = secrets.token_urlsafe(32)
+      token_hex = secrets.token_hex(16)
+      
+      # For cryptographic keys
+      key = os.urandom(32)
+      
+      # NEVER: Use random module for security
+      import random  # NOT cryptographically secure!
+
+    logging_security: |
+      import logging
+      import re
+      
+      class SensitiveDataFilter(logging.Filter):
+          PATTERNS = [
+              (r'password["\']?\s*[:=]\s*["\']?[^"\',\s]+', 'password=***'),
+              (r'token["\']?\s*[:=]\s*["\']?[^"\',\s]+', 'token=***'),
+              (r'api[_-]?key["\']?\s*[:=]\s*["\']?[^"\',\s]+', 'api_key=***'),
+              (r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b', '[EMAIL]'),
+          ]
+          
+          def filter(self, record):
+              msg = record.getMessage()
+              for pattern, replacement in self.PATTERNS:
+                  msg = re.sub(pattern, replacement, msg, flags=re.IGNORECASE)
+              record.msg = msg
+              record.args = ()
+              return True
+
+  # ============ SECURITY TESTING ============
+  security_testing:
+    
+    sast_tools:
+      - name: "Bandit"
+        description: "Python security linter"
+        usage: "bandit -r src/ -f json -o report.json"
+      
+      - name: "Semgrep"
+        description: "Multi-language static analysis"
+        usage: "semgrep --config=auto src/"
+      
+      - name: "CodeQL"
+        description: "GitHub's semantic analysis"
+
+    dependency_scanning:
+      - name: "pip-audit"
+        description: "Python dependency vulnerabilities"
+        usage: "pip-audit --strict"
+      
+      - name: "npm audit"
+        description: "Node.js vulnerabilities"
+        usage: "npm audit --audit-level=high"
+      
+      - name: "Snyk"
+        description: "Multi-ecosystem scanning"
+
+  # ============ REVIEW CHECKLIST ============
+  security_review_checklist:
+    authentication:
+      - "Passwords hashed with Argon2id/bcrypt"
+      - "JWT tokens have short expiry"
+      - "Refresh token rotation implemented"
+      - "MFA available for sensitive operations"
+    
+    authorization:
+      - "Access control checked server-side"
+      - "Object ownership verified"
+      - "Principle of least privilege followed"
+      - "No IDOR vulnerabilities"
+    
+    input_validation:
+      - "All input validated server-side"
+      - "SQL parameterized queries used"
+      - "Output encoded for context"
+      - "File uploads validated"
+    
+    cryptography:
+      - "TLS 1.2+ enforced"
+      - "Strong algorithms (AES-256, SHA-256+)"
+      - "Secrets from environment/vault"
+      - "No custom crypto implementations"
+    
+    headers:
+      - "CSP configured"
+      - "HSTS enabled"
+      - "X-Frame-Options set"
+      - "Cookies secured"

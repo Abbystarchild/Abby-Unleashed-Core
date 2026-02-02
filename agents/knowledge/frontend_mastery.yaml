@@ -1,0 +1,725 @@
+# Frontend Development Mastery (React/TypeScript)
+# Comprehensive frontend engineering expertise
+
+frontend_mastery:
+
+  # ============ REACT 18+ PATTERNS ============
+  react_patterns:
+    
+    hooks_best_practices:
+      useState:
+        rules:
+          - "Initialize with proper type: useState<User | null>(null)"
+          - "Use functional updates for derived state"
+          - "Batch related state into objects"
+        good: |
+          // Functional update when deriving from previous
+          const [count, setCount] = useState(0);
+          const increment = () => setCount(prev => prev + 1);
+          
+          // Related state in object
+          const [form, setForm] = useState({ name: '', email: '' });
+          const updateField = (field: string, value: string) =>
+            setForm(prev => ({ ...prev, [field]: value }));
+        bad: |
+          // Multiple related states
+          const [name, setName] = useState('');
+          const [email, setEmail] = useState('');
+          const [phone, setPhone] = useState('');
+
+      useEffect:
+        rules:
+          - "Only for synchronizing with external systems"
+          - "Not for transforming data for rendering"
+          - "Not for handling user events"
+          - "Always clean up subscriptions"
+        good: |
+          // External system synchronization
+          useEffect(() => {
+            const subscription = api.subscribe(data => setData(data));
+            return () => subscription.unsubscribe();
+          }, []);
+          
+          // Document title sync
+          useEffect(() => {
+            document.title = `${count} items`;
+          }, [count]);
+        bad: |
+          // Don't use for derived data
+          useEffect(() => {
+            setFullName(`${firstName} ${lastName}`);
+          }, [firstName, lastName]);
+          
+          // Better: derive during render
+          const fullName = `${firstName} ${lastName}`;
+
+      useMemo_useCallback:
+        when_to_use:
+          - "Expensive calculations"
+          - "Referential equality for deps"
+          - "Passing callbacks to memoized children"
+        when_not_to_use:
+          - "Simple calculations"
+          - "Creating new objects/arrays (unless needed for deps)"
+        good: |
+          // Expensive calculation
+          const sortedItems = useMemo(
+            () => items.sort((a, b) => a.name.localeCompare(b.name)),
+            [items]
+          );
+          
+          // Callback for memoized child
+          const handleClick = useCallback((id: string) => {
+            setSelected(id);
+          }, []);
+          
+          return <MemoizedList items={sortedItems} onClick={handleClick} />;
+        bad: |
+          // Unnecessary memoization
+          const doubled = useMemo(() => count * 2, [count]);
+
+    memoization:
+      React_memo:
+        purpose: "Prevent re-renders when props haven't changed"
+        implementation: |
+          interface ListItemProps {
+            item: Item;
+            onSelect: (id: string) => void;
+          }
+          
+          const ListItem = memo(function ListItem({ item, onSelect }: ListItemProps) {
+            return (
+              <div onClick={() => onSelect(item.id)}>
+                {item.name}
+              </div>
+            );
+          });
+          
+          // Custom comparison for complex props
+          const ListItem = memo(
+            function ListItem({ item, onSelect }: ListItemProps) { ... },
+            (prevProps, nextProps) => prevProps.item.id === nextProps.item.id
+          );
+
+    error_boundaries:
+      implementation: |
+        import { Component, ReactNode } from 'react';
+        
+        interface Props {
+          children: ReactNode;
+          fallback: ReactNode;
+        }
+        
+        interface State {
+          hasError: boolean;
+          error?: Error;
+        }
+        
+        class ErrorBoundary extends Component<Props, State> {
+          state: State = { hasError: false };
+          
+          static getDerivedStateFromError(error: Error): State {
+            return { hasError: true, error };
+          }
+          
+          componentDidCatch(error: Error, info: React.ErrorInfo) {
+            console.error('Error caught:', error, info.componentStack);
+            // Send to error tracking service
+          }
+          
+          render() {
+            if (this.state.hasError) {
+              return this.props.fallback;
+            }
+            return this.props.children;
+          }
+        }
+        
+        // Usage
+        <ErrorBoundary fallback={<ErrorPage />}>
+          <App />
+        </ErrorBoundary>
+
+  # ============ TYPESCRIPT INTEGRATION ============
+  typescript:
+    
+    strict_mode:
+      tsconfig: |
+        {
+          "compilerOptions": {
+            "strict": true,
+            "noImplicitAny": true,
+            "strictNullChecks": true,
+            "strictFunctionTypes": true,
+            "noImplicitReturns": true,
+            "noFallthroughCasesInSwitch": true,
+            "noUncheckedIndexedAccess": true
+          }
+        }
+
+    type_vs_interface:
+      use_interface_for:
+        - "Object shapes that may be extended"
+        - "Class contracts"
+        - "Library public APIs"
+      use_type_for:
+        - "Union types"
+        - "Mapped types"
+        - "Conditional types"
+        - "Utility type compositions"
+      example: |
+        // Interface: extendable object shape
+        interface User {
+          id: string;
+          name: string;
+        }
+        
+        interface AdminUser extends User {
+          permissions: string[];
+        }
+        
+        // Type: unions and compositions
+        type Status = 'pending' | 'active' | 'disabled';
+        type UserWithStatus = User & { status: Status };
+        type AsyncState<T> = 
+          | { status: 'loading' }
+          | { status: 'success'; data: T }
+          | { status: 'error'; error: Error };
+
+    generic_components:
+      example: |
+        interface ListProps<T> {
+          items: T[];
+          renderItem: (item: T, index: number) => ReactNode;
+          keyExtractor: (item: T) => string;
+        }
+        
+        function List<T>({ items, renderItem, keyExtractor }: ListProps<T>) {
+          return (
+            <ul>
+              {items.map((item, index) => (
+                <li key={keyExtractor(item)}>
+                  {renderItem(item, index)}
+                </li>
+              ))}
+            </ul>
+          );
+        }
+        
+        // Usage with type inference
+        <List
+          items={users}
+          renderItem={(user) => <span>{user.name}</span>}
+          keyExtractor={(user) => user.id}
+        />
+
+    event_handlers:
+      common_types: |
+        // Click events
+        const handleClick: MouseEventHandler<HTMLButtonElement> = (e) => {
+          e.preventDefault();
+        };
+        
+        // Form events
+        const handleSubmit: FormEventHandler<HTMLFormElement> = (e) => {
+          e.preventDefault();
+          const formData = new FormData(e.currentTarget);
+        };
+        
+        // Input changes
+        const handleChange: ChangeEventHandler<HTMLInputElement> = (e) => {
+          setValue(e.target.value);
+        };
+        
+        // Keyboard events
+        const handleKeyDown: KeyboardEventHandler<HTMLInputElement> = (e) => {
+          if (e.key === 'Enter') submit();
+        };
+
+    utility_types:
+      common_patterns: |
+        // Partial: all properties optional
+        type UserUpdate = Partial<User>;
+        
+        // Required: all properties required
+        type RequiredUser = Required<User>;
+        
+        // Pick: select properties
+        type UserPreview = Pick<User, 'id' | 'name'>;
+        
+        // Omit: exclude properties
+        type UserInput = Omit<User, 'id' | 'createdAt'>;
+        
+        // Record: object with specific key/value types
+        type UsersByRole = Record<string, User[]>;
+        
+        // Extract/Exclude for unions
+        type ActiveStatuses = Extract<Status, 'active' | 'pending'>;
+
+  # ============ STATE MANAGEMENT ============
+  state_management:
+    
+    decision_guide:
+      use_useState_when:
+        - "Simple, local component state"
+        - "Form inputs"
+        - "Toggle states"
+      
+      use_useReducer_when:
+        - "Complex state logic"
+        - "Multiple related state updates"
+        - "State machine patterns"
+      
+      use_context_when:
+        - "Theme, locale, auth user"
+        - "Data needed by many components"
+        - "Avoiding prop drilling"
+      
+      use_external_store_when:
+        - "Server state (React Query)"
+        - "Complex client state (Zustand)"
+        - "Need for devtools"
+
+    context_optimization:
+      problem: "Context changes re-render all consumers"
+      solution: |
+        // Split context by update frequency
+        const UserContext = createContext<User | null>(null);
+        const UserActionsContext = createContext<UserActions | null>(null);
+        
+        function UserProvider({ children }: { children: ReactNode }) {
+          const [user, setUser] = useState<User | null>(null);
+          
+          // Memoize actions to prevent context changes
+          const actions = useMemo(() => ({
+            login: async (credentials: Credentials) => {
+              const user = await api.login(credentials);
+              setUser(user);
+            },
+            logout: () => setUser(null)
+          }), []);
+          
+          return (
+            <UserContext.Provider value={user}>
+              <UserActionsContext.Provider value={actions}>
+                {children}
+              </UserActionsContext.Provider>
+            </UserContext.Provider>
+          );
+        }
+
+    tanstack_query:
+      description: "Server state management"
+      patterns: |
+        import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+        
+        // Query with caching
+        function useUsers() {
+          return useQuery({
+            queryKey: ['users'],
+            queryFn: () => api.getUsers(),
+            staleTime: 5 * 60 * 1000,  // 5 minutes
+            gcTime: 10 * 60 * 1000,    // 10 minutes (was cacheTime)
+          });
+        }
+        
+        // Mutation with cache invalidation
+        function useCreateUser() {
+          const queryClient = useQueryClient();
+          
+          return useMutation({
+            mutationFn: (data: CreateUserData) => api.createUser(data),
+            onSuccess: () => {
+              queryClient.invalidateQueries({ queryKey: ['users'] });
+            },
+            onError: (error) => {
+              toast.error(error.message);
+            }
+          });
+        }
+        
+        // Optimistic updates
+        function useUpdateUser() {
+          const queryClient = useQueryClient();
+          
+          return useMutation({
+            mutationFn: ({ id, data }: { id: string; data: Partial<User> }) =>
+              api.updateUser(id, data),
+            onMutate: async ({ id, data }) => {
+              await queryClient.cancelQueries({ queryKey: ['users', id] });
+              const previous = queryClient.getQueryData(['users', id]);
+              queryClient.setQueryData(['users', id], (old: User) => ({
+                ...old,
+                ...data
+              }));
+              return { previous };
+            },
+            onError: (err, variables, context) => {
+              queryClient.setQueryData(['users', variables.id], context?.previous);
+            }
+          });
+        }
+
+    zustand:
+      description: "Lightweight client state"
+      pattern: |
+        import { create } from 'zustand';
+        import { devtools, persist } from 'zustand/middleware';
+        
+        interface CartStore {
+          items: CartItem[];
+          addItem: (item: CartItem) => void;
+          removeItem: (id: string) => void;
+          clearCart: () => void;
+          total: () => number;
+        }
+        
+        export const useCartStore = create<CartStore>()(
+          devtools(
+            persist(
+              (set, get) => ({
+                items: [],
+                addItem: (item) => set((state) => ({
+                  items: [...state.items, item]
+                })),
+                removeItem: (id) => set((state) => ({
+                  items: state.items.filter(i => i.id !== id)
+                })),
+                clearCart: () => set({ items: [] }),
+                total: () => get().items.reduce((sum, item) => sum + item.price, 0)
+              }),
+              { name: 'cart-storage' }
+            )
+          )
+        );
+
+  # ============ COMPONENT ARCHITECTURE ============
+  component_patterns:
+    
+    composition:
+      description: "Favor composition over inheritance"
+      patterns:
+        children: |
+          interface CardProps {
+            children: ReactNode;
+            className?: string;
+          }
+          
+          function Card({ children, className }: CardProps) {
+            return (
+              <div className={cn('rounded-lg shadow p-4', className)}>
+                {children}
+              </div>
+            );
+          }
+          
+          // Usage
+          <Card>
+            <h2>Title</h2>
+            <p>Content</p>
+          </Card>
+
+        compound_components: |
+          interface TabsContextType {
+            activeTab: string;
+            setActiveTab: (tab: string) => void;
+          }
+          
+          const TabsContext = createContext<TabsContextType | null>(null);
+          
+          function Tabs({ children, defaultTab }: { children: ReactNode; defaultTab: string }) {
+            const [activeTab, setActiveTab] = useState(defaultTab);
+            return (
+              <TabsContext.Provider value={{ activeTab, setActiveTab }}>
+                <div className="tabs">{children}</div>
+              </TabsContext.Provider>
+            );
+          }
+          
+          function TabList({ children }: { children: ReactNode }) {
+            return <div className="tab-list" role="tablist">{children}</div>;
+          }
+          
+          function Tab({ id, children }: { id: string; children: ReactNode }) {
+            const { activeTab, setActiveTab } = useContext(TabsContext)!;
+            return (
+              <button
+                role="tab"
+                aria-selected={activeTab === id}
+                onClick={() => setActiveTab(id)}
+              >
+                {children}
+              </button>
+            );
+          }
+          
+          function TabPanel({ id, children }: { id: string; children: ReactNode }) {
+            const { activeTab } = useContext(TabsContext)!;
+            if (activeTab !== id) return null;
+            return <div role="tabpanel">{children}</div>;
+          }
+          
+          // Attach to parent
+          Tabs.List = TabList;
+          Tabs.Tab = Tab;
+          Tabs.Panel = TabPanel;
+          
+          // Usage
+          <Tabs defaultTab="one">
+            <Tabs.List>
+              <Tabs.Tab id="one">Tab 1</Tabs.Tab>
+              <Tabs.Tab id="two">Tab 2</Tabs.Tab>
+            </Tabs.List>
+            <Tabs.Panel id="one">Content 1</Tabs.Panel>
+            <Tabs.Panel id="two">Content 2</Tabs.Panel>
+          </Tabs>
+
+    custom_hooks:
+      patterns: |
+        // Data fetching hook
+        function useAsync<T>(asyncFn: () => Promise<T>, deps: DependencyList) {
+          const [state, setState] = useState<{
+            data: T | null;
+            error: Error | null;
+            loading: boolean;
+          }>({ data: null, error: null, loading: true });
+          
+          useEffect(() => {
+            let cancelled = false;
+            setState(s => ({ ...s, loading: true }));
+            
+            asyncFn()
+              .then(data => {
+                if (!cancelled) setState({ data, error: null, loading: false });
+              })
+              .catch(error => {
+                if (!cancelled) setState({ data: null, error, loading: false });
+              });
+            
+            return () => { cancelled = true; };
+          }, deps);
+          
+          return state;
+        }
+        
+        // Local storage hook
+        function useLocalStorage<T>(key: string, initialValue: T) {
+          const [stored, setStored] = useState<T>(() => {
+            try {
+              const item = localStorage.getItem(key);
+              return item ? JSON.parse(item) : initialValue;
+            } catch {
+              return initialValue;
+            }
+          });
+          
+          const setValue = (value: T | ((prev: T) => T)) => {
+            const valueToStore = value instanceof Function ? value(stored) : value;
+            setStored(valueToStore);
+            localStorage.setItem(key, JSON.stringify(valueToStore));
+          };
+          
+          return [stored, setValue] as const;
+        }
+
+  # ============ PERFORMANCE ============
+  performance:
+    
+    code_splitting:
+      route_based: |
+        import { lazy, Suspense } from 'react';
+        import { Routes, Route } from 'react-router-dom';
+        
+        const Dashboard = lazy(() => import('./pages/Dashboard'));
+        const Settings = lazy(() => import('./pages/Settings'));
+        
+        function App() {
+          return (
+            <Suspense fallback={<LoadingSpinner />}>
+              <Routes>
+                <Route path="/dashboard" element={<Dashboard />} />
+                <Route path="/settings" element={<Settings />} />
+              </Routes>
+            </Suspense>
+          );
+        }
+
+      component_based: |
+        const HeavyChart = lazy(() => import('./HeavyChart'));
+        
+        function Dashboard() {
+          const [showChart, setShowChart] = useState(false);
+          
+          return (
+            <div>
+              <button onClick={() => setShowChart(true)}>Show Chart</button>
+              {showChart && (
+                <Suspense fallback={<ChartSkeleton />}>
+                  <HeavyChart data={data} />
+                </Suspense>
+              )}
+            </div>
+          );
+        }
+
+    virtualization:
+      description: "Render only visible items for large lists"
+      implementation: |
+        import { useVirtualizer } from '@tanstack/react-virtual';
+        
+        function VirtualList({ items }: { items: Item[] }) {
+          const parentRef = useRef<HTMLDivElement>(null);
+          
+          const virtualizer = useVirtualizer({
+            count: items.length,
+            getScrollElement: () => parentRef.current,
+            estimateSize: () => 50,  // Estimated row height
+            overscan: 5,  // Extra items to render
+          });
+          
+          return (
+            <div ref={parentRef} style={{ height: '400px', overflow: 'auto' }}>
+              <div style={{ height: `${virtualizer.getTotalSize()}px`, position: 'relative' }}>
+                {virtualizer.getVirtualItems().map((virtualRow) => (
+                  <div
+                    key={virtualRow.key}
+                    style={{
+                      position: 'absolute',
+                      top: 0,
+                      left: 0,
+                      width: '100%',
+                      height: `${virtualRow.size}px`,
+                      transform: `translateY(${virtualRow.start}px)`,
+                    }}
+                  >
+                    {items[virtualRow.index].name}
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        }
+
+  # ============ ACCESSIBILITY ============
+  accessibility:
+    
+    aria_patterns:
+      interactive_elements: |
+        // Button with loading state
+        <button
+          type="button"
+          disabled={isLoading}
+          aria-busy={isLoading}
+          aria-label={isLoading ? 'Saving...' : 'Save changes'}
+        >
+          {isLoading ? <Spinner /> : 'Save'}
+        </button>
+        
+        // Toggle button
+        <button
+          type="button"
+          aria-pressed={isActive}
+          onClick={() => setIsActive(!isActive)}
+        >
+          {isActive ? 'Enabled' : 'Disabled'}
+        </button>
+
+    keyboard_navigation:
+      focus_management: |
+        // Focus first input in modal on open
+        function Modal({ isOpen, onClose, children }: ModalProps) {
+          const firstFocusRef = useRef<HTMLButtonElement>(null);
+          const lastFocusRef = useRef<HTMLButtonElement>(null);
+          
+          useEffect(() => {
+            if (isOpen) {
+              firstFocusRef.current?.focus();
+            }
+          }, [isOpen]);
+          
+          // Trap focus within modal
+          const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.key === 'Tab') {
+              if (e.shiftKey && document.activeElement === firstFocusRef.current) {
+                e.preventDefault();
+                lastFocusRef.current?.focus();
+              } else if (!e.shiftKey && document.activeElement === lastFocusRef.current) {
+                e.preventDefault();
+                firstFocusRef.current?.focus();
+              }
+            }
+            if (e.key === 'Escape') onClose();
+          };
+          
+          return createPortal(
+            <div role="dialog" aria-modal="true" onKeyDown={handleKeyDown}>
+              <button ref={firstFocusRef}>First focusable</button>
+              {children}
+              <button ref={lastFocusRef} onClick={onClose}>Close</button>
+            </div>,
+            document.body
+          );
+        }
+
+    screen_reader:
+      live_regions: |
+        // Announce dynamic content
+        <div aria-live="polite" aria-atomic="true" className="sr-only">
+          {message}
+        </div>
+        
+        // Status messages
+        <div role="status" aria-live="polite">
+          {itemCount} items found
+        </div>
+        
+        // Error announcements
+        <div role="alert" aria-live="assertive">
+          {errorMessage}
+        </div>
+
+  # ============ ANTI-PATTERNS ============
+  anti_patterns:
+    
+    - name: "Prop drilling"
+      problem: "Passing props through many intermediate components"
+      solution: "Use Context or state management library"
+    
+    - name: "Derived state in useEffect"
+      problem: "Using useEffect to compute values from props/state"
+      solution: "Compute during render or use useMemo"
+    
+    - name: "Object/array literals in JSX"
+      problem: "Creating new references on every render"
+      solution: "Define outside component or useMemo"
+      example: |
+        // Bad: new array every render
+        <Component items={[1, 2, 3]} />
+        
+        // Good: stable reference
+        const ITEMS = [1, 2, 3];
+        <Component items={ITEMS} />
+
+  # ============ REVIEW CHECKLIST ============
+  review_checklist:
+    performance:
+      - "Code splitting used for routes and heavy components"
+      - "Lists over 50 items use virtualization"
+      - "Images have explicit width/height"
+      - "No unnecessary re-renders (check with React DevTools)"
+    
+    accessibility:
+      - "All interactive elements are keyboard accessible"
+      - "ARIA labels for non-text content"
+      - "Focus is managed for modals and dynamic content"
+      - "Color contrast meets WCAG AA (4.5:1)"
+    
+    typescript:
+      - "No 'any' types without justification"
+      - "Props interfaces defined for components"
+      - "Event handlers properly typed"
+    
+    state:
+      - "Server state uses React Query/SWR"
+      - "Local state is colocated with component"
+      - "Context used sparingly (performance implications)"

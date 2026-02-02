@@ -1,0 +1,556 @@
+# ML Engineering Mastery
+# Comprehensive MLOps and production ML expertise
+
+ml_engineering_mastery:
+
+  # ============ EXPERIMENT TRACKING ============
+  experiment_tracking:
+    
+    mlflow:
+      setup: |
+        import mlflow
+        from mlflow.tracking import MlflowClient
+        
+        # Set tracking URI (local or remote)
+        mlflow.set_tracking_uri("http://mlflow-server:5000")
+        mlflow.set_experiment("fraud-detection-v2")
+        
+        # Enable autologging for frameworks
+        mlflow.sklearn.autolog()
+        mlflow.pytorch.autolog()
+        mlflow.tensorflow.autolog()
+      
+      experiment_logging: |
+        import mlflow
+        from sklearn.ensemble import RandomForestClassifier
+        from sklearn.metrics import accuracy_score, f1_score, roc_auc_score
+        
+        with mlflow.start_run(run_name="rf_experiment_001"):
+            # Log parameters
+            params = {
+                "n_estimators": 100,
+                "max_depth": 10,
+                "min_samples_split": 5,
+                "class_weight": "balanced"
+            }
+            mlflow.log_params(params)
+            
+            # Train model
+            model = RandomForestClassifier(**params)
+            model.fit(X_train, y_train)
+            
+            # Log metrics
+            y_pred = model.predict(X_test)
+            y_proba = model.predict_proba(X_test)[:, 1]
+            
+            mlflow.log_metrics({
+                "accuracy": accuracy_score(y_test, y_pred),
+                "f1": f1_score(y_test, y_pred),
+                "roc_auc": roc_auc_score(y_test, y_proba)
+            })
+            
+            # Log artifacts
+            mlflow.log_artifact("feature_importance.png")
+            mlflow.log_artifact("confusion_matrix.png")
+            
+            # Log model
+            mlflow.sklearn.log_model(
+                model, 
+                "model",
+                registered_model_name="fraud-detector"
+            )
+            
+            # Log input data signature
+            from mlflow.models.signature import infer_signature
+            signature = infer_signature(X_train, y_pred)
+            mlflow.sklearn.log_model(model, "model", signature=signature)
+      
+      model_registry: |
+        from mlflow.tracking import MlflowClient
+        
+        client = MlflowClient()
+        
+        # Transition model to production
+        client.transition_model_version_stage(
+            name="fraud-detector",
+            version=3,
+            stage="Production"
+        )
+        
+        # Archive old production model
+        client.transition_model_version_stage(
+            name="fraud-detector",
+            version=2,
+            stage="Archived"
+        )
+        
+        # Load production model
+        model = mlflow.pyfunc.load_model(
+            "models:/fraud-detector/Production"
+        )
+
+  # ============ FEATURE STORES ============
+  feature_stores:
+    
+    feast:
+      feature_definition: |
+        # features/customer_features.py
+        from feast import Entity, Feature, FeatureView, FileSource, ValueType
+        from datetime import timedelta
+        
+        # Entity definition
+        customer = Entity(
+            name="customer_id",
+            value_type=ValueType.STRING,
+            description="Unique customer identifier"
+        )
+        
+        # Data source
+        customer_features_source = FileSource(
+            path="s3://features/customer_features.parquet",
+            event_timestamp_column="event_timestamp",
+            created_timestamp_column="created_timestamp"
+        )
+        
+        # Feature view
+        customer_features = FeatureView(
+            name="customer_features",
+            entities=["customer_id"],
+            ttl=timedelta(days=30),
+            features=[
+                Feature(name="total_orders_30d", dtype=ValueType.INT64),
+                Feature(name="total_spend_30d", dtype=ValueType.FLOAT),
+                Feature(name="avg_order_value", dtype=ValueType.FLOAT),
+                Feature(name="days_since_last_order", dtype=ValueType.INT64),
+                Feature(name="is_premium", dtype=ValueType.BOOL),
+            ],
+            online=True,  # Enable online serving
+            batch_source=customer_features_source,
+        )
+      
+      training_data: |
+        from feast import FeatureStore
+        import pandas as pd
+        
+        store = FeatureStore(repo_path=".")
+        
+        # Entity DataFrame with timestamps
+        entity_df = pd.DataFrame({
+            "customer_id": ["C001", "C002", "C003"],
+            "event_timestamp": pd.to_datetime([
+                "2024-01-15", "2024-01-15", "2024-01-15"
+            ])
+        })
+        
+        # Get historical features for training
+        training_df = store.get_historical_features(
+            entity_df=entity_df,
+            features=[
+                "customer_features:total_orders_30d",
+                "customer_features:total_spend_30d",
+                "customer_features:avg_order_value",
+            ]
+        ).to_df()
+      
+      online_serving: |
+        from feast import FeatureStore
+        
+        store = FeatureStore(repo_path=".")
+        
+        # Materialize features to online store (run periodically)
+        store.materialize_incremental(end_date=datetime.now())
+        
+        # Get features for inference
+        feature_vector = store.get_online_features(
+            features=[
+                "customer_features:total_orders_30d",
+                "customer_features:avg_order_value",
+            ],
+            entity_rows=[{"customer_id": "C001"}]
+        ).to_dict()
+
+  # ============ MODEL SERVING ============
+  model_serving:
+    
+    fastapi_deployment: |
+      from fastapi import FastAPI, HTTPException
+      from pydantic import BaseModel
+      import mlflow
+      import numpy as np
+      
+      app = FastAPI(title="Fraud Detection API", version="1.0.0")
+      
+      # Load model at startup
+      model = None
+      
+      @app.on_event("startup")
+      async def load_model():
+          global model
+          model = mlflow.pyfunc.load_model("models:/fraud-detector/Production")
+      
+      class PredictionRequest(BaseModel):
+          customer_id: str
+          transaction_amount: float
+          merchant_category: str
+          time_since_last_txn: int
+          
+          class Config:
+              schema_extra = {
+                  "example": {
+                      "customer_id": "C001",
+                      "transaction_amount": 150.00,
+                      "merchant_category": "retail",
+                      "time_since_last_txn": 3600
+                  }
+              }
+      
+      class PredictionResponse(BaseModel):
+          is_fraud: bool
+          fraud_probability: float
+          risk_level: str
+      
+      @app.post("/predict", response_model=PredictionResponse)
+      async def predict(request: PredictionRequest):
+          try:
+              # Prepare features
+              features = prepare_features(request)
+              
+              # Get prediction
+              proba = model.predict(features)[0]
+              is_fraud = proba > 0.5
+              
+              # Determine risk level
+              if proba > 0.8:
+                  risk_level = "high"
+              elif proba > 0.5:
+                  risk_level = "medium"
+              else:
+                  risk_level = "low"
+              
+              return PredictionResponse(
+                  is_fraud=is_fraud,
+                  fraud_probability=round(proba, 4),
+                  risk_level=risk_level
+              )
+          except Exception as e:
+              raise HTTPException(status_code=500, detail=str(e))
+      
+      @app.get("/health")
+      async def health():
+          return {"status": "healthy", "model_loaded": model is not None}
+    
+    batch_inference: |
+      import pandas as pd
+      import mlflow
+      from pyspark.sql import SparkSession
+      
+      # For large-scale batch inference
+      spark = SparkSession.builder.getOrCreate()
+      
+      # Load model as Spark UDF
+      model_uri = "models:/fraud-detector/Production"
+      predict_udf = mlflow.pyfunc.spark_udf(spark, model_uri)
+      
+      # Load data
+      transactions = spark.read.parquet("s3://data/transactions/")
+      
+      # Apply predictions
+      predictions = transactions.withColumn(
+          "fraud_probability",
+          predict_udf(
+              struct("transaction_amount", "merchant_category", "time_since_last_txn")
+          )
+      )
+      
+      # Write results
+      predictions.write \
+          .partitionBy("date") \
+          .parquet("s3://data/predictions/")
+
+  # ============ MODEL MONITORING ============
+  monitoring:
+    
+    drift_detection:
+      evidently: |
+        from evidently.report import Report
+        from evidently.metric_preset import DataDriftPreset, TargetDriftPreset
+        from evidently.metrics import (
+            DataDriftTable,
+            DatasetDriftMetric,
+            ColumnDriftMetric
+        )
+        
+        # Create report
+        report = Report(metrics=[
+            DatasetDriftMetric(),
+            DataDriftTable(),
+            ColumnDriftMetric(column_name="transaction_amount"),
+            ColumnDriftMetric(column_name="merchant_category"),
+        ])
+        
+        # Run comparison
+        report.run(
+            reference_data=training_data,
+            current_data=production_data
+        )
+        
+        # Get results
+        result = report.as_dict()
+        
+        if result["metrics"][0]["result"]["dataset_drift"]:
+            # Alert: significant drift detected
+            send_alert("Data drift detected in production")
+        
+        # Save HTML report
+        report.save_html("drift_report.html")
+      
+      custom_monitoring: |
+        import numpy as np
+        from scipy import stats
+        from dataclasses import dataclass
+        
+        @dataclass
+        class DriftResult:
+            feature_name: str
+            statistic: float
+            p_value: float
+            is_drifted: bool
+        
+        def detect_drift(
+            reference: np.ndarray,
+            current: np.ndarray,
+            threshold: float = 0.05
+        ) -> DriftResult:
+            """
+            Kolmogorov-Smirnov test for distribution drift.
+            """
+            statistic, p_value = stats.ks_2samp(reference, current)
+            
+            return DriftResult(
+                feature_name="",
+                statistic=statistic,
+                p_value=p_value,
+                is_drifted=p_value < threshold
+            )
+        
+        def monitor_features(reference_df, current_df, columns):
+            """Monitor all numeric columns for drift."""
+            results = []
+            for col in columns:
+                result = detect_drift(
+                    reference_df[col].values,
+                    current_df[col].values
+                )
+                result.feature_name = col
+                results.append(result)
+            return results
+    
+    performance_monitoring: |
+      from prometheus_client import Counter, Histogram, Gauge, start_http_server
+      import time
+      
+      # Define metrics
+      PREDICTIONS_TOTAL = Counter(
+          "model_predictions_total",
+          "Total predictions made",
+          ["model_name", "model_version"]
+      )
+      
+      PREDICTION_LATENCY = Histogram(
+          "model_prediction_latency_seconds",
+          "Prediction latency in seconds",
+          ["model_name"],
+          buckets=[0.01, 0.05, 0.1, 0.25, 0.5, 1.0]
+      )
+      
+      FRAUD_RATE = Gauge(
+          "model_fraud_rate",
+          "Rolling fraud detection rate",
+          ["model_name"]
+      )
+      
+      def predict_with_monitoring(features):
+          start_time = time.time()
+          
+          # Make prediction
+          result = model.predict(features)
+          
+          # Record metrics
+          PREDICTIONS_TOTAL.labels(
+              model_name="fraud-detector",
+              model_version="v3"
+          ).inc()
+          
+          PREDICTION_LATENCY.labels(
+              model_name="fraud-detector"
+          ).observe(time.time() - start_time)
+          
+          return result
+
+  # ============ PIPELINE ORCHESTRATION ============
+  pipelines:
+    
+    training_pipeline: |
+      # Kubeflow Pipeline example
+      from kfp import dsl
+      from kfp.components import create_component_from_func
+      
+      @dsl.component
+      def preprocess_data(
+          input_path: str,
+          output_path: str
+      ):
+          import pandas as pd
+          from sklearn.preprocessing import StandardScaler
+          
+          df = pd.read_parquet(input_path)
+          
+          # Preprocessing steps
+          scaler = StandardScaler()
+          df[numeric_cols] = scaler.fit_transform(df[numeric_cols])
+          
+          df.to_parquet(output_path)
+      
+      @dsl.component
+      def train_model(
+          data_path: str,
+          model_path: str,
+          hyperparameters: dict
+      ):
+          import mlflow
+          from sklearn.ensemble import RandomForestClassifier
+          
+          df = pd.read_parquet(data_path)
+          X, y = df.drop("label", axis=1), df["label"]
+          
+          with mlflow.start_run():
+              model = RandomForestClassifier(**hyperparameters)
+              model.fit(X, y)
+              mlflow.sklearn.log_model(model, "model")
+      
+      @dsl.component
+      def evaluate_model(
+          model_path: str,
+          test_data_path: str
+      ) -> float:
+          import mlflow
+          from sklearn.metrics import f1_score
+          
+          model = mlflow.sklearn.load_model(model_path)
+          test_df = pd.read_parquet(test_data_path)
+          
+          y_pred = model.predict(test_df.drop("label", axis=1))
+          return f1_score(test_df["label"], y_pred)
+      
+      @dsl.pipeline(name="training-pipeline")
+      def training_pipeline(
+          input_data: str,
+          hyperparameters: dict
+      ):
+          preprocess_task = preprocess_data(input_path=input_data)
+          
+          train_task = train_model(
+              data_path=preprocess_task.output,
+              hyperparameters=hyperparameters
+          )
+          
+          evaluate_task = evaluate_model(
+              model_path=train_task.output,
+              test_data_path=preprocess_task.output
+          )
+
+  # ============ BEST PRACTICES ============
+  best_practices:
+    
+    reproducibility:
+      - "Version control for code, data, and models"
+      - "Pin all dependency versions"
+      - "Set random seeds everywhere"
+      - "Use deterministic operations when possible"
+      
+      code_example: |
+        import random
+        import numpy as np
+        import torch
+        
+        def set_seed(seed: int = 42):
+            """Set all random seeds for reproducibility."""
+            random.seed(seed)
+            np.random.seed(seed)
+            torch.manual_seed(seed)
+            torch.cuda.manual_seed_all(seed)
+            
+            # For deterministic operations
+            torch.backends.cudnn.deterministic = True
+            torch.backends.cudnn.benchmark = False
+    
+    testing:
+      data_validation: |
+        import great_expectations as gx
+        
+        def validate_training_data(df):
+            """Validate training data before model training."""
+            context = gx.get_context()
+            
+            validator = context.get_validator(dataframe=df)
+            
+            # Data quality expectations
+            validator.expect_column_values_to_not_be_null("label")
+            validator.expect_column_values_to_be_in_set(
+                "label", [0, 1]
+            )
+            validator.expect_table_row_count_to_be_between(
+                min_value=1000
+            )
+            
+            results = validator.validate()
+            
+            if not results.success:
+                raise ValueError(f"Data validation failed: {results}")
+      
+      model_testing: |
+        import pytest
+        import numpy as np
+        
+        class TestModel:
+            def test_prediction_shape(self, model, sample_input):
+                """Predictions should have correct shape."""
+                predictions = model.predict(sample_input)
+                assert predictions.shape[0] == sample_input.shape[0]
+            
+            def test_prediction_range(self, model, sample_input):
+                """Probability predictions should be in [0, 1]."""
+                proba = model.predict_proba(sample_input)
+                assert np.all(proba >= 0) and np.all(proba <= 1)
+            
+            def test_model_deterministic(self, model, sample_input):
+                """Same input should give same output."""
+                pred1 = model.predict(sample_input)
+                pred2 = model.predict(sample_input)
+                np.testing.assert_array_equal(pred1, pred2)
+            
+            def test_minimum_accuracy(self, model, test_data):
+                """Model should meet minimum accuracy threshold."""
+                X_test, y_test = test_data
+                accuracy = model.score(X_test, y_test)
+                assert accuracy >= 0.8, f"Accuracy {accuracy} below threshold"
+
+  # ============ REVIEW CHECKLIST ============
+  review_checklist:
+    experiment_management:
+      - "All experiments logged with parameters and metrics"
+      - "Model artifacts versioned and stored"
+      - "Reproducibility ensured (seeds, versions)"
+      - "Clear experiment naming convention"
+    
+    deployment:
+      - "Model validated before deployment"
+      - "Rollback mechanism in place"
+      - "Health checks implemented"
+      - "Load testing completed"
+    
+    monitoring:
+      - "Prediction latency tracked"
+      - "Input data drift monitored"
+      - "Model performance metrics collected"
+      - "Alerting configured for anomalies"

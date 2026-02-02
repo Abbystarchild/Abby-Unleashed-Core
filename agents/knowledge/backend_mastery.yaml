@@ -1,0 +1,582 @@
+# Backend Development Mastery
+# Comprehensive REST API development expertise
+
+backend_mastery:
+
+  # ============ REST API DESIGN ============
+  rest_design:
+    
+    http_semantics:
+      methods:
+        GET:
+          purpose: "Retrieve resources"
+          idempotent: true
+          safe: true
+          cacheable: true
+          body: "No request body"
+          example: "GET /api/users/123"
+        
+        POST:
+          purpose: "Create new resources or trigger actions"
+          idempotent: false
+          safe: false
+          cacheable: false
+          body: "Request body required"
+          example: "POST /api/users"
+        
+        PUT:
+          purpose: "Replace entire resource"
+          idempotent: true
+          safe: false
+          body: "Full resource representation"
+          example: "PUT /api/users/123"
+        
+        PATCH:
+          purpose: "Partial update"
+          idempotent: false
+          safe: false
+          body: "Only fields to update"
+          example: "PATCH /api/users/123"
+        
+        DELETE:
+          purpose: "Remove resource"
+          idempotent: true
+          safe: false
+          body: "Usually no body"
+          example: "DELETE /api/users/123"
+
+      status_codes:
+        "2xx_success":
+          200: "OK - Standard success response"
+          201: "Created - Resource created, include Location header"
+          202: "Accepted - Async operation started"
+          204: "No Content - Success with no response body"
+        
+        "4xx_client_error":
+          400: "Bad Request - Malformed syntax or invalid data"
+          401: "Unauthorized - Missing or invalid authentication"
+          403: "Forbidden - Authenticated but not authorized"
+          404: "Not Found - Resource doesn't exist"
+          409: "Conflict - State conflict (e.g., duplicate)"
+          422: "Unprocessable Entity - Validation failed"
+          429: "Too Many Requests - Rate limit exceeded"
+        
+        "5xx_server_error":
+          500: "Internal Server Error - Unexpected server error"
+          502: "Bad Gateway - Upstream service error"
+          503: "Service Unavailable - Temporarily unavailable"
+          504: "Gateway Timeout - Upstream timeout"
+
+    url_best_practices:
+      - name: "Use nouns, not verbs"
+        good: |
+          GET /api/users
+          POST /api/orders
+          DELETE /api/users/123
+        bad: |
+          GET /api/getUsers
+          POST /api/createOrder
+          POST /api/deleteUser
+        why: "HTTP methods already indicate the action"
+
+      - name: "Use plural nouns consistently"
+        good: "/api/users, /api/orders, /api/products"
+        bad: "/api/user, /api/order"
+        why: "Consistency makes API predictable"
+
+      - name: "Limit nesting depth to 2-3 levels"
+        good: |
+          GET /api/users/123/orders
+          GET /api/orders/456/items
+        bad: |
+          GET /api/users/123/orders/456/items/789/details
+        why: "Deep nesting creates unwieldy URLs"
+
+      - name: "Use query parameters for filtering"
+        good: |
+          GET /api/users?status=active&role=admin
+          GET /api/orders?created_after=2024-01-01
+        bad: |
+          GET /api/users/status/active/role/admin
+        why: "Query params are designed for filtering"
+
+    versioning_strategies:
+      url_path:
+        pattern: "/api/v1/users"
+        pros: ["Explicit", "Easy to route", "Clear in logs"]
+        cons: ["URL pollution", "Hard to sunset"]
+        recommendation: "Best for external APIs"
+      
+      header:
+        pattern: "Accept: application/vnd.api+json; version=1"
+        pros: ["Clean URLs", "Follows REST purity"]
+        cons: ["Harder to test", "Hidden from logs"]
+        recommendation: "Best for internal APIs"
+      
+      deprecation:
+        headers:
+          - "Deprecation: true"
+          - "Sunset: Sat, 31 Dec 2024 23:59:59 GMT"
+        body_warning: |
+          {
+            "_deprecation": {
+              "message": "This endpoint will be removed",
+              "sunset_date": "2024-12-31",
+              "migration_guide": "/docs/migration-v1-to-v2"
+            }
+          }
+
+  # ============ PAGINATION ============
+  pagination:
+    
+    cursor_based:
+      description: "Use opaque cursor for stable pagination"
+      when_to_use: "Real-time feeds, infinite scroll, large datasets"
+      implementation: |
+        # Good: Cursor-based (stable, performant)
+        @app.route('/api/users')
+        def list_users():
+            cursor = request.args.get('cursor')
+            limit = min(int(request.args.get('limit', 20)), 100)
+            
+            query = User.query.order_by(User.created_at.desc())
+            
+            if cursor:
+                cursor_data = decode_cursor(cursor)
+                query = query.filter(User.created_at < cursor_data['created_at'])
+            
+            users = query.limit(limit + 1).all()
+            has_more = len(users) > limit
+            users = users[:limit]
+            
+            next_cursor = None
+            if has_more and users:
+                next_cursor = encode_cursor({'created_at': users[-1].created_at})
+            
+            return jsonify({
+                'data': [u.to_dict() for u in users],
+                'pagination': {
+                    'next_cursor': next_cursor,
+                    'has_more': has_more
+                }
+            })
+      pros: ["Stable across inserts/deletes", "Efficient with indexes"]
+      cons: ["Can't jump to page N", "Cursor must be opaque"]
+
+    offset_based:
+      description: "Traditional page/offset pagination"
+      when_to_use: "Admin panels, search results with total count"
+      implementation: |
+        @app.route('/api/users')
+        def list_users():
+            page = int(request.args.get('page', 1))
+            per_page = min(int(request.args.get('per_page', 20)), 100)
+            
+            pagination = User.query.order_by(User.id).paginate(
+                page=page, per_page=per_page, error_out=False
+            )
+            
+            return jsonify({
+                'data': [u.to_dict() for u in pagination.items],
+                'pagination': {
+                    'page': page,
+                    'per_page': per_page,
+                    'total': pagination.total,
+                    'pages': pagination.pages,
+                    'has_next': pagination.has_next,
+                    'has_prev': pagination.has_prev
+                }
+            })
+      pros: ["Familiar pattern", "Can show total count"]
+      cons: ["Inconsistent if data changes", "Slow for large offsets (OFFSET 10000)"]
+
+  # ============ AUTHENTICATION ============
+  authentication:
+    
+    jwt_best_practices:
+      token_structure:
+        access_token:
+          expiry: "15 minutes"
+          claims: ["sub (user_id)", "exp", "iat", "scope", "roles"]
+          storage: "Memory only (never localStorage for sensitive apps)"
+        
+        refresh_token:
+          expiry: "7-30 days"
+          storage: "HttpOnly, Secure, SameSite=Strict cookie"
+          rotation: "Issue new refresh token on each use"
+
+      implementation: |
+        from datetime import datetime, timedelta
+        import jwt
+        from functools import wraps
+        
+        def create_tokens(user_id: str, roles: list[str]) -> dict:
+            now = datetime.utcnow()
+            
+            access_token = jwt.encode({
+                'sub': user_id,
+                'roles': roles,
+                'type': 'access',
+                'iat': now,
+                'exp': now + timedelta(minutes=15)
+            }, SECRET_KEY, algorithm='RS256')  # Use RS256 for production
+            
+            refresh_token = jwt.encode({
+                'sub': user_id,
+                'type': 'refresh',
+                'jti': str(uuid.uuid4()),  # Unique ID for revocation
+                'iat': now,
+                'exp': now + timedelta(days=7)
+            }, SECRET_KEY, algorithm='RS256')
+            
+            return {'access_token': access_token, 'refresh_token': refresh_token}
+        
+        def require_auth(roles: list[str] = None):
+            def decorator(f):
+                @wraps(f)
+                def decorated(*args, **kwargs):
+                    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+                    try:
+                        payload = jwt.decode(token, PUBLIC_KEY, algorithms=['RS256'])
+                        if roles and not any(r in payload.get('roles', []) for r in roles):
+                            return jsonify({'error': 'Insufficient permissions'}), 403
+                        g.current_user = payload['sub']
+                        g.user_roles = payload.get('roles', [])
+                    except jwt.ExpiredSignatureError:
+                        return jsonify({'error': 'Token expired'}), 401
+                    except jwt.InvalidTokenError:
+                        return jsonify({'error': 'Invalid token'}), 401
+                    return f(*args, **kwargs)
+                return decorated
+            return decorator
+
+      security_rules:
+        - "Use RS256 (asymmetric) over HS256 in production"
+        - "Never store sensitive data in JWT payload"
+        - "Implement token revocation for refresh tokens"
+        - "Use short expiry for access tokens"
+        - "Rotate refresh tokens on use"
+
+    api_key_management:
+      best_practices:
+        - "Prefix keys for identification: sk_live_, pk_test_"
+        - "Hash keys before storage (SHA-256)"
+        - "Support key rotation with overlap period"
+        - "Scope keys to specific permissions"
+        - "Log key usage for audit trail"
+      
+      implementation: |
+        import hashlib
+        import secrets
+        
+        def generate_api_key(prefix: str = 'sk_live_') -> tuple[str, str]:
+            """Returns (full_key, hashed_key)"""
+            raw_key = secrets.token_urlsafe(32)
+            full_key = f"{prefix}{raw_key}"
+            hashed = hashlib.sha256(full_key.encode()).hexdigest()
+            return full_key, hashed
+        
+        def verify_api_key(provided_key: str) -> Optional[ApiKey]:
+            hashed = hashlib.sha256(provided_key.encode()).hexdigest()
+            return ApiKey.query.filter_by(key_hash=hashed, revoked=False).first()
+
+  # ============ RATE LIMITING ============
+  rate_limiting:
+    
+    algorithms:
+      sliding_window:
+        description: "Smooth rate limiting without burst at window edges"
+        best_for: "Most API rate limiting scenarios"
+        implementation: |
+          import time
+          import redis
+          
+          class SlidingWindowRateLimiter:
+              def __init__(self, redis_client, limit: int, window: int):
+                  self.redis = redis_client
+                  self.limit = limit
+                  self.window = window
+              
+              def is_allowed(self, key: str) -> tuple[bool, dict]:
+                  now = time.time()
+                  window_start = int(now // self.window) * self.window
+                  
+                  current_key = f"rate:{key}:{window_start}"
+                  previous_key = f"rate:{key}:{window_start - self.window}"
+                  
+                  pipe = self.redis.pipeline()
+                  pipe.get(current_key)
+                  pipe.get(previous_key)
+                  current, previous = pipe.execute()
+                  
+                  current_count = int(current or 0)
+                  previous_count = int(previous or 0)
+                  
+                  # Weighted count based on position in window
+                  elapsed = now - window_start
+                  weight = (self.window - elapsed) / self.window
+                  weighted_count = previous_count * weight + current_count
+                  
+                  if weighted_count >= self.limit:
+                      return False, {
+                          'limit': self.limit,
+                          'remaining': 0,
+                          'reset': int(window_start + self.window - now)
+                      }
+                  
+                  # Increment and set expiry
+                  pipe = self.redis.pipeline()
+                  pipe.incr(current_key)
+                  pipe.expire(current_key, self.window * 2)
+                  pipe.execute()
+                  
+                  return True, {
+                      'limit': self.limit,
+                      'remaining': int(self.limit - weighted_count - 1),
+                      'reset': int(window_start + self.window - now)
+                  }
+
+      token_bucket:
+        description: "Allows controlled bursts while maintaining average rate"
+        best_for: "APIs that need burst tolerance"
+
+    response_headers:
+      standard:
+        - "X-RateLimit-Limit: 100"
+        - "X-RateLimit-Remaining: 75"
+        - "X-RateLimit-Reset: 1609459200"
+        - "Retry-After: 60 (when rate limited)"
+
+  # ============ ERROR HANDLING ============
+  error_handling:
+    
+    rfc7807_problem_details:
+      description: "Standardized error response format"
+      implementation: |
+        from dataclasses import dataclass
+        from typing import Optional
+        
+        @dataclass
+        class ProblemDetail:
+            type: str  # URI identifying error type
+            title: str  # Human-readable summary
+            status: int  # HTTP status code
+            detail: Optional[str] = None  # Specific explanation
+            instance: Optional[str] = None  # URI of specific occurrence
+            
+            def to_dict(self) -> dict:
+                d = {
+                    'type': self.type,
+                    'title': self.title,
+                    'status': self.status
+                }
+                if self.detail:
+                    d['detail'] = self.detail
+                if self.instance:
+                    d['instance'] = self.instance
+                return d
+        
+        # Error registry
+        ERRORS = {
+            'validation_error': ProblemDetail(
+                type='https://api.example.com/errors/validation',
+                title='Validation Error',
+                status=422
+            ),
+            'not_found': ProblemDetail(
+                type='https://api.example.com/errors/not-found',
+                title='Resource Not Found',
+                status=404
+            ),
+            'rate_limited': ProblemDetail(
+                type='https://api.example.com/errors/rate-limited',
+                title='Rate Limit Exceeded',
+                status=429
+            )
+        }
+        
+        @app.errorhandler(422)
+        def validation_error(e):
+            error = ERRORS['validation_error']
+            error.detail = str(e)
+            return jsonify(error.to_dict()), 422
+
+    validation_errors:
+      structure: |
+        {
+          "type": "https://api.example.com/errors/validation",
+          "title": "Validation Error",
+          "status": 422,
+          "detail": "Request body contains invalid data",
+          "errors": [
+            {
+              "field": "email",
+              "message": "Invalid email format",
+              "code": "invalid_format"
+            },
+            {
+              "field": "password",
+              "message": "Must be at least 8 characters",
+              "code": "min_length"
+            }
+          ]
+        }
+
+  # ============ DATABASE INTEGRATION ============
+  database:
+    
+    connection_pooling:
+      formula: "connections = (cpu_cores * 2) + effective_spindle_count"
+      sqlalchemy_config: |
+        from sqlalchemy import create_engine
+        from sqlalchemy.pool import QueuePool
+        
+        engine = create_engine(
+            DATABASE_URL,
+            poolclass=QueuePool,
+            pool_size=5,           # Persistent connections
+            max_overflow=10,       # Extra connections under load
+            pool_timeout=30,       # Wait time for connection
+            pool_recycle=1800,     # Recycle connections after 30 min
+            pool_pre_ping=True     # Check connection health
+        )
+
+    n_plus_one_prevention:
+      problem: "Loading N related records with N+1 queries"
+      solutions:
+        joinedload: |
+          # Use when you need the related data immediately
+          users = db.session.query(User).options(
+              joinedload(User.orders)  # Single JOIN query
+          ).all()
+        
+        selectinload: |
+          # Use for collections or when JOIN would duplicate
+          users = db.session.query(User).options(
+              selectinload(User.orders)  # 2 queries total
+          ).all()
+        
+        subqueryload: |
+          # Alternative to selectinload
+          users = db.session.query(User).options(
+              subqueryload(User.orders)
+          ).all()
+
+    transaction_patterns:
+      unit_of_work: |
+        from contextlib import contextmanager
+        
+        @contextmanager
+        def transaction():
+            try:
+                yield db.session
+                db.session.commit()
+            except Exception:
+                db.session.rollback()
+                raise
+            finally:
+                db.session.close()
+        
+        # Usage
+        with transaction() as session:
+            user = User(name='Alice')
+            session.add(user)
+            order = Order(user=user)
+            session.add(order)
+
+  # ============ CACHING ============
+  caching:
+    
+    http_caching:
+      cache_control:
+        public: "Response can be cached by any cache"
+        private: "Response for single user only"
+        max_age: "Seconds the response is fresh"
+        no_cache: "Must revalidate before using"
+        no_store: "Never cache this response"
+      
+      etag_implementation: |
+        import hashlib
+        
+        @app.route('/api/users/<user_id>')
+        def get_user(user_id):
+            user = User.query.get_or_404(user_id)
+            data = user.to_dict()
+            
+            # Generate ETag from content
+            etag = hashlib.md5(json.dumps(data, sort_keys=True).encode()).hexdigest()
+            
+            # Check If-None-Match header
+            if request.headers.get('If-None-Match') == etag:
+                return '', 304
+            
+            response = jsonify(data)
+            response.headers['ETag'] = etag
+            response.headers['Cache-Control'] = 'private, max-age=60'
+            return response
+
+    application_caching:
+      cache_aside: |
+        import redis
+        import json
+        
+        cache = redis.Redis()
+        
+        def get_user(user_id: str) -> dict:
+            # Try cache first
+            cached = cache.get(f"user:{user_id}")
+            if cached:
+                return json.loads(cached)
+            
+            # Miss: load from DB
+            user = db.session.query(User).get(user_id)
+            if not user:
+                return None
+            
+            data = user.to_dict()
+            
+            # Store in cache with expiry
+            cache.setex(f"user:{user_id}", 300, json.dumps(data))
+            
+            return data
+        
+        def update_user(user_id: str, data: dict):
+            user = db.session.query(User).get(user_id)
+            for key, value in data.items():
+                setattr(user, key, value)
+            db.session.commit()
+            
+            # Invalidate cache
+            cache.delete(f"user:{user_id}")
+
+  # ============ CODE REVIEW CHECKLIST ============
+  review_checklist:
+    api_design:
+      - "HTTP methods used correctly (GET=read, POST=create, etc.)"
+      - "Status codes are appropriate (201 for create, 204 for delete)"
+      - "URLs are RESTful (nouns, not verbs)"
+      - "Pagination implemented for list endpoints"
+      - "Proper error responses with Problem Details"
+    
+    authentication:
+      - "Tokens have appropriate expiry times"
+      - "Refresh token rotation implemented"
+      - "API keys are hashed before storage"
+      - "Rate limiting on auth endpoints"
+    
+    database:
+      - "Connection pooling configured"
+      - "N+1 queries prevented with eager loading"
+      - "Transactions used for multi-step operations"
+      - "Indexes exist for query patterns"
+    
+    caching:
+      - "Cache-Control headers set appropriately"
+      - "ETags implemented for conditional requests"
+      - "Cache invalidation strategy defined"
+    
+    security:
+      - "Input validation on all endpoints"
+      - "SQL injection prevented (parameterized queries)"
+      - "Sensitive data not logged"
+      - "CORS configured appropriately"

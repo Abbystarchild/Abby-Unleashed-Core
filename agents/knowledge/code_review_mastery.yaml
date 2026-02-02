@@ -1,0 +1,1029 @@
+# Code Review Mastery
+# Professional practices for effective code reviews
+
+code_review_mastery:
+  
+  # ============ CORE PHILOSOPHY ============
+  philosophy:
+    purpose: |
+      Code review is a quality assurance practice where one or more developers 
+      examine code written by another developer. The goals are to:
+      - Catch bugs and security vulnerabilities early
+      - Ensure code quality and maintainability
+      - Share knowledge across the team
+      - Enforce consistent coding standards
+    
+    mindset:
+      reviewer: |
+        "Review the code, not the coder. Your job is to help ship 
+        better software, not to prove you're smarter."
+      
+      author: |
+        "Your code is not your identity. Feedback on code is not 
+        criticism of you as a person. Embrace reviews as learning."
+    
+    industry_standard:
+      google: "All code requires review before merge"
+      microsoft: "Pull requests with at least one approval"
+      meta: "Ship-blocker reviews for critical paths"
+      netflix: "Trust but verify - automated + human review"
+
+  # ============ REVIEW PROCESS ============
+  review_process:
+    
+    when_to_approve:
+      criteria:
+        - "Code is correct and handles edge cases"
+        - "Tests adequately cover the changes"
+        - "No security vulnerabilities introduced"
+        - "Code is readable and maintainable"
+        - "Follows team coding standards"
+        - "Documentation updated if needed"
+      
+      approval_message_examples:
+        simple: "LGTM (Looks Good To Me)"
+        with_praise: "LGTM! Clean implementation of the caching layer."
+        conditional: "LGTM after addressing the minor nits."
+      
+      approval_threshold:
+        description: "When 'good enough' is good enough"
+        principle: |
+          Don't block merges for perfection. If the code is better than 
+          what exists and doesn't introduce problems, approve it.
+          "Better is good, perfect is the enemy of shipped."
+    
+    when_to_request_changes:
+      blocking_issues:
+        - "Bugs that will cause production failures"
+        - "Security vulnerabilities (SQL injection, XSS, etc.)"
+        - "Data loss or corruption risks"
+        - "Breaking API contracts without migration"
+        - "Missing critical test coverage"
+        - "Severe performance regressions"
+        - "License violations"
+      
+      phrasing_examples:
+        bug: |
+          "This will cause a NullPointerException when `user` is None. 
+          Please add a null check or use Optional."
+        security: |
+          "This SQL query is vulnerable to injection. Please use 
+          parameterized queries instead of string concatenation."
+        breaking_change: |
+          "This changes the API response format without versioning. 
+          Existing clients will break. Let's discuss migration strategy."
+    
+    when_to_comment_only:
+      non_blocking_feedback:
+        - "Style preferences not in the style guide"
+        - "Alternative approaches (equally valid)"
+        - "Questions for understanding"
+        - "Suggestions for future improvement"
+        - "Educational notes"
+        - "Minor optimizations"
+      
+      marking_non_blocking:
+        conventions:
+          - "nit: Variable name could be more descriptive"
+          - "optional: Consider using a list comprehension here"
+          - "suggestion: This could be extracted to a utility function"
+          - "question: Why did you choose this approach over X?"
+          - "FYI: There's a helper function in utils.py for this"
+    
+    review_workflow:
+      steps:
+        1_self_review:
+          description: "Author reviews their own PR before requesting review"
+          checklist:
+            - "Remove debug code and console.logs"
+            - "Add meaningful commit messages"
+            - "Write PR description explaining the change"
+            - "Run tests locally"
+            - "Check for merge conflicts"
+        
+        2_automated_checks:
+          description: "CI/CD runs before human review"
+          checks:
+            - "Linting passes"
+            - "Tests pass"
+            - "Build succeeds"
+            - "Security scan clean"
+            - "Coverage thresholds met"
+        
+        3_human_review:
+          description: "One or more reviewers examine the code"
+          best_practices:
+            - "Review within 24 hours (4 hours ideal)"
+            - "Limit review sessions to 60-90 minutes"
+            - "Review no more than 400 lines at once"
+            - "Take breaks between large reviews"
+        
+        4_address_feedback:
+          description: "Author responds to all comments"
+          options:
+            - "Fix the issue"
+            - "Explain why current approach is preferred"
+            - "Ask for clarification"
+            - "Acknowledge and create follow-up issue"
+        
+        5_re_review:
+          description: "Reviewer verifies fixes"
+          tip: "Focus only on changed areas, don't re-review entire PR"
+        
+        6_approval_and_merge:
+          description: "Reviewer approves, author merges"
+          merge_strategies:
+            squash: "Combines all commits into one (clean history)"
+            rebase: "Linear history, preserves individual commits"
+            merge_commit: "Preserves branch history with merge commit"
+
+  # ============ WHAT TO LOOK FOR ============
+  review_checklist:
+    
+    correctness:
+      description: "Does the code do what it's supposed to do?"
+      checks:
+        - "Logic handles all cases (happy path, edge cases, errors)"
+        - "Boundary conditions are correct (off-by-one errors)"
+        - "Null/undefined values are handled"
+        - "Race conditions in concurrent code"
+        - "Resource cleanup (files, connections, memory)"
+      
+      example_issues:
+        off_by_one: |
+          # Bug: misses last element
+          for i in range(len(items) - 1):  # Should be range(len(items))
+              process(items[i])
+        
+        null_handling: |
+          # Bug: will crash if user is None
+          def greet(user):
+              return f"Hello, {user.name}"  # Add: if user else "Hello, Guest"
+        
+        race_condition: |
+          # Bug: check-then-act race condition
+          if not file_exists(path):
+              create_file(path)  # Another thread might create it first
+
+    security:
+      description: "Does the code introduce vulnerabilities?"
+      checks:
+        - "Input validation on all external data"
+        - "No SQL/command injection vulnerabilities"
+        - "Authentication and authorization checks"
+        - "Sensitive data not logged or exposed"
+        - "Secrets not hardcoded"
+        - "HTTPS for sensitive data transmission"
+      
+      red_flags:
+        sql_injection: |
+          # DANGEROUS
+          query = f"SELECT * FROM users WHERE id = {user_input}"
+        
+        command_injection: |
+          # DANGEROUS
+          os.system(f"convert {filename} output.png")
+        
+        hardcoded_secrets: |
+          # DANGEROUS
+          API_KEY = "sk-1234567890abcdef"
+          password = "admin123"
+        
+        missing_auth: |
+          # DANGEROUS - no authorization check
+          @app.delete("/users/{user_id}")
+          def delete_user(user_id: int):
+              db.delete_user(user_id)  # Who can delete whom?
+
+    performance:
+      description: "Will the code perform acceptably at scale?"
+      checks:
+        - "No N+1 query problems"
+        - "Appropriate data structures used"
+        - "No unnecessary loops or iterations"
+        - "Expensive operations are cached"
+        - "Database queries are indexed"
+        - "No blocking operations in async code"
+      
+      red_flags:
+        n_plus_one: |
+          # BAD: N+1 queries
+          users = get_all_users()
+          for user in users:
+              orders = get_orders(user.id)  # Query per user!
+          
+          # GOOD: Eager loading
+          users = get_all_users_with_orders()  # Single query with JOIN
+        
+        wrong_data_structure: |
+          # BAD: O(n) lookup in loop = O(n²)
+          for item in items:
+              if item in large_list:  # list lookup is O(n)
+                  process(item)
+          
+          # GOOD: O(1) lookup
+          large_set = set(large_list)
+          for item in items:
+              if item in large_set:  # set lookup is O(1)
+                  process(item)
+        
+        unbounded_memory: |
+          # BAD: Loads entire table into memory
+          all_records = db.fetch_all_records()  # Millions of rows!
+          
+          # GOOD: Pagination or streaming
+          for batch in db.fetch_in_batches(size=1000):
+              process_batch(batch)
+
+    maintainability:
+      description: "Can future developers understand and modify this code?"
+      checks:
+        - "Functions have single responsibility"
+        - "Clear, descriptive naming"
+        - "Complex logic has comments explaining 'why'"
+        - "No magic numbers or strings"
+        - "DRY - Don't Repeat Yourself"
+        - "Appropriate abstraction level"
+      
+      example_improvements:
+        unclear_naming: |
+          # BAD
+          def proc(d, f):
+              return [x for x in d if f(x)]
+          
+          # GOOD
+          def filter_items(items, predicate):
+              return [item for item in items if predicate(item)]
+        
+        magic_numbers: |
+          # BAD
+          if status == 3:
+              retry()
+          elif status == 7:
+              abort()
+          
+          # GOOD
+          class OrderStatus:
+              PENDING_RETRY = 3
+              FAILED_PERMANENTLY = 7
+          
+          if status == OrderStatus.PENDING_RETRY:
+              retry()
+        
+        missing_why_comment: |
+          # BAD - no explanation for magic
+          time.sleep(0.1)
+          
+          # GOOD - explains the reason
+          # Wait for database replication lag (100ms typical)
+          time.sleep(0.1)
+
+    testing:
+      description: "Is the code adequately tested?"
+      checks:
+        - "New code has corresponding tests"
+        - "Tests cover happy path and error cases"
+        - "Tests are not flaky (deterministic)"
+        - "Tests are readable and maintainable"
+        - "Mocks are used appropriately"
+        - "Integration tests for critical paths"
+      
+      test_quality_indicators:
+        good:
+          - "Test names describe what is being tested"
+          - "Each test tests one thing"
+          - "Tests don't depend on each other"
+          - "Arrange-Act-Assert pattern used"
+        
+        bad:
+          - "Tests with no assertions"
+          - "Tests that always pass"
+          - "Tests that test implementation details"
+          - "Flaky tests that sometimes fail"
+
+    documentation:
+      description: "Is the change properly documented?"
+      checks:
+        - "Public APIs have docstrings"
+        - "README updated for new features"
+        - "Breaking changes documented in CHANGELOG"
+        - "Configuration options documented"
+        - "Architecture decisions recorded (ADRs)"
+
+  # ============ COMMON ISSUES ============
+  common_issues:
+    
+    code_smells:
+      long_method:
+        description: "Method does too much, hard to understand"
+        symptom: "More than 20-30 lines of code"
+        fix: "Extract smaller, focused functions"
+        example: |
+          # BAD: Method does 5 different things
+          def process_order(order):
+              # 50 lines of validation...
+              # 30 lines of price calculation...
+              # 20 lines of inventory check...
+              # 40 lines of payment processing...
+              # 30 lines of notification sending...
+          
+          # GOOD: Each responsibility extracted
+          def process_order(order):
+              validate_order(order)
+              total = calculate_total(order)
+              check_inventory(order.items)
+              charge_payment(order.customer, total)
+              send_confirmation(order)
+      
+      god_class:
+        description: "Class that knows too much and does too much"
+        symptom: "Hundreds of methods, thousands of lines"
+        fix: "Split into focused, cohesive classes"
+      
+      feature_envy:
+        description: "Method uses another class's data more than its own"
+        symptom: "Lots of calls to other object's getters"
+        fix: "Move the method to the class it envies"
+        example: |
+          # BAD: Order method envies Customer data
+          class Order:
+              def get_shipping_address(self):
+                  return (self.customer.street + ", " + 
+                          self.customer.city + ", " + 
+                          self.customer.zip_code)
+          
+          # GOOD: Move to Customer where data lives
+          class Customer:
+              def get_full_address(self):
+                  return f"{self.street}, {self.city}, {self.zip_code}"
+      
+      primitive_obsession:
+        description: "Using primitives instead of small objects"
+        symptom: "Strings for emails, ints for money, tuples for coordinates"
+        fix: "Create value objects"
+        example: |
+          # BAD: Primitives everywhere
+          def send_money(from_account: str, to_account: str, amount: float, currency: str):
+              pass
+          
+          # GOOD: Value objects
+          def transfer(from_account: AccountId, to_account: AccountId, amount: Money):
+              pass
+      
+      duplicated_code:
+        description: "Same logic repeated in multiple places"
+        symptom: "Copy-paste patterns, similar methods"
+        fix: "Extract to shared function or base class"
+
+    anti_patterns:
+      
+      stringly_typed:
+        description: "Using strings where enums or types should be used"
+        bad: |
+          def set_status(status: str):
+              if status == "active":  # Typo "actve" won't be caught
+                  ...
+        good: |
+          class Status(Enum):
+              ACTIVE = "active"
+              INACTIVE = "inactive"
+          
+          def set_status(status: Status):
+              if status == Status.ACTIVE:  # Type-checked
+                  ...
+      
+      boolean_blindness:
+        description: "Using boolean parameters that make call sites confusing"
+        bad: |
+          # What do these booleans mean?
+          process_file("data.txt", True, False, True)
+        good: |
+          # Named parameters or options object
+          process_file("data.txt", 
+                       validate=True, 
+                       backup=False, 
+                       compress=True)
+      
+      shotgun_surgery:
+        description: "One change requires many small changes across files"
+        symptom: "Adding a field requires changing 10+ files"
+        cause: "Poor encapsulation, scattered related code"
+        fix: "Consolidate related logic, use abstractions"
+      
+      leaky_abstraction:
+        description: "Implementation details leak through interface"
+        example: |
+          # BAD: Exposes database implementation details
+          class UserRepository:
+              def get_user_sql(self, query: str) -> User:  # Leaks SQL
+                  pass
+          
+          # GOOD: Hides implementation
+          class UserRepository:
+              def get_user_by_id(self, user_id: UserId) -> User:
+                  pass
+
+    solid_violations:
+      
+      single_responsibility_violation:
+        description: "Class has more than one reason to change"
+        example: |
+          # BAD: Report class does reporting AND persistence
+          class Report:
+              def generate(self, data):
+                  ...
+              def save_to_file(self, path):
+                  ...
+              def send_email(self, recipient):
+                  ...
+          
+          # GOOD: Separate responsibilities
+          class Report:
+              def generate(self, data): ...
+          
+          class ReportExporter:
+              def save_to_file(self, report, path): ...
+          
+          class ReportNotifier:
+              def send_email(self, report, recipient): ...
+      
+      open_closed_violation:
+        description: "Must modify existing code to add new behavior"
+        example: |
+          # BAD: Adding new shape requires modifying function
+          def calculate_area(shape):
+              if shape.type == "circle":
+                  return 3.14 * shape.radius ** 2
+              elif shape.type == "rectangle":
+                  return shape.width * shape.height
+              # Must add elif for every new shape!
+          
+          # GOOD: Open for extension, closed for modification
+          class Shape(ABC):
+              @abstractmethod
+              def area(self) -> float: pass
+          
+          class Circle(Shape):
+              def area(self): return 3.14 * self.radius ** 2
+          
+          class Rectangle(Shape):
+              def area(self): return self.width * self.height
+      
+      liskov_substitution_violation:
+        description: "Subclass can't be used in place of parent"
+        example: |
+          # BAD: Square violates Rectangle contract
+          class Rectangle:
+              def set_width(self, w): self.width = w
+              def set_height(self, h): self.height = h
+          
+          class Square(Rectangle):  # Problematic inheritance
+              def set_width(self, w):
+                  self.width = w
+                  self.height = w  # Surprises callers!
+          
+          # GOOD: Don't inherit, use composition or interfaces
+      
+      interface_segregation_violation:
+        description: "Clients forced to depend on methods they don't use"
+        example: |
+          # BAD: Printer interface forces all printers to implement all methods
+          class Printer(ABC):
+              @abstractmethod
+              def print(self): pass
+              @abstractmethod
+              def scan(self): pass
+              @abstractmethod
+              def fax(self): pass
+          
+          class SimplePrinter(Printer):
+              def scan(self): raise NotImplementedError()  # Forced to implement!
+              def fax(self): raise NotImplementedError()
+          
+          # GOOD: Segregated interfaces
+          class Printable(ABC):
+              @abstractmethod
+              def print(self): pass
+          
+          class Scannable(ABC):
+              @abstractmethod
+              def scan(self): pass
+      
+      dependency_inversion_violation:
+        description: "High-level modules depend on low-level modules"
+        example: |
+          # BAD: OrderService directly depends on MySQLDatabase
+          class OrderService:
+              def __init__(self):
+                  self.db = MySQLDatabase()  # Tight coupling!
+          
+          # GOOD: Depend on abstraction
+          class OrderService:
+              def __init__(self, repository: OrderRepository):
+                  self.repository = repository  # Injected abstraction
+
+  # ============ FEEDBACK TECHNIQUES ============
+  feedback_techniques:
+    
+    constructive_criticism:
+      principles:
+        - "Focus on the code, not the person"
+        - "Explain the 'why' behind your feedback"
+        - "Offer solutions, not just problems"
+        - "Be specific and actionable"
+        - "Acknowledge good work too"
+      
+      bad_vs_good:
+        - bad: "This code is terrible."
+          good: "This approach has O(n²) complexity which will cause timeouts with large datasets. Consider using a hash map for O(1) lookups."
+        
+        - bad: "Wrong."
+          good: "This won't work when the input is None. Consider adding a null check: `if value is not None:`"
+        
+        - bad: "Don't do it this way."
+          good: "This works, but using a context manager would ensure the file is closed even if an exception occurs: `with open(file) as f:`"
+        
+        - bad: "This is confusing."
+          good: "I had trouble following this logic. Would you consider extracting the validation into a separate function with a descriptive name?"
+    
+    asking_questions:
+      purpose: "Questions are less confrontational and encourage discussion"
+      
+      examples:
+        understanding:
+          - "What happens if this list is empty?"
+          - "Is this expected to be called from multiple threads?"
+          - "What's the expected size of this data set?"
+        
+        socratic_method:
+          - "Have you considered what happens when X?"
+          - "What would happen if we needed to add a new type of Y?"
+          - "How would we test this in isolation?"
+        
+        genuine_curiosity:
+          - "I'm not familiar with this library—what does X do?"
+          - "Is there a reason you chose approach A over B?"
+          - "What's the performance characteristic of this operation?"
+    
+    giving_praise:
+      importance: |
+        Praise reinforces good practices, builds morale, and makes 
+        critical feedback easier to receive. Don't be stingy with it.
+      
+      examples:
+        - "Great use of the factory pattern here—it'll make testing much easier."
+        - "This is a really clean implementation. I like how you separated the concerns."
+        - "Good catch on that edge case. I wouldn't have thought of it."
+        - "Excellent test coverage! The parametrized tests are particularly nice."
+        - "Thanks for adding the docstrings—future maintainers will appreciate it."
+      
+      what_to_praise:
+        - "Clean, readable code"
+        - "Comprehensive test coverage"
+        - "Good error handling"
+        - "Thoughtful API design"
+        - "Clear documentation"
+        - "Performance optimizations"
+        - "Security considerations"
+    
+    feedback_examples:
+      
+      security_issue:
+        comment: |
+          🔴 **Security: SQL Injection Vulnerability**
+          
+          This query is vulnerable to SQL injection because user input is 
+          directly interpolated into the SQL string.
+          
+          ```python
+          # Current (vulnerable)
+          query = f"SELECT * FROM users WHERE id = {user_id}"
+          
+          # Suggested (safe)
+          query = "SELECT * FROM users WHERE id = %s"
+          cursor.execute(query, (user_id,))
+          ```
+          
+          See: [OWASP SQL Injection](https://owasp.org/www-community/attacks/SQL_Injection)
+        
+        severity: "Blocking - must fix before merge"
+      
+      performance_concern:
+        comment: |
+          ⚠️ **Performance: N+1 Query Problem**
+          
+          This loop executes a database query for each user, resulting in 
+          N+1 queries total. With 1000 users, that's 1001 queries.
+          
+          Consider using eager loading or a JOIN to fetch all data in one query:
+          
+          ```python
+          # Instead of
+          for user in users:
+              orders = get_orders(user.id)
+          
+          # Use
+          users_with_orders = (
+              session.query(User)
+              .options(joinedload(User.orders))
+              .all()
+          )
+          ```
+          
+          This reduces it to 1-2 queries regardless of user count.
+        
+        severity: "Blocking if data volume is significant"
+      
+      style_suggestion:
+        comment: |
+          💡 **nit:** Consider using a list comprehension here for brevity:
+          
+          ```python
+          # Current
+          result = []
+          for item in items:
+              if item.is_valid():
+                  result.append(item.value)
+          
+          # Alternative
+          result = [item.value for item in items if item.is_valid()]
+          ```
+          
+          Either is fine—just a style preference.
+        
+        severity: "Non-blocking"
+      
+      architectural_discussion:
+        comment: |
+          🤔 **Question: Architecture**
+          
+          I notice this service now handles both user authentication and 
+          order processing. Should we consider splitting these concerns?
+          
+          Benefits of splitting:
+          - Easier to test in isolation
+          - Can scale independently
+          - Clearer ownership
+          
+          Happy to discuss or leave for a follow-up PR if you prefer.
+        
+        severity: "Discussion - not blocking"
+
+  # ============ AUTOMATION ============
+  automation:
+    
+    linters:
+      purpose: "Catch style issues and simple bugs automatically"
+      
+      python:
+        tools:
+          flake8: "Style guide enforcement (PEP 8)"
+          pylint: "Comprehensive linting with many checks"
+          ruff: "Fast linter written in Rust (replaces flake8, isort, etc.)"
+          black: "Opinionated code formatter"
+          isort: "Import sorting"
+        
+        configuration: |
+          # pyproject.toml
+          [tool.ruff]
+          line-length = 88
+          select = ["E", "F", "I", "N", "W", "UP"]
+          
+          [tool.black]
+          line-length = 88
+          target-version = ["py311"]
+          
+          [tool.isort]
+          profile = "black"
+      
+      javascript_typescript:
+        tools:
+          eslint: "Pluggable linting"
+          prettier: "Code formatting"
+          typescript: "Type checking"
+        
+        configuration: |
+          // .eslintrc.js
+          module.exports = {
+            extends: [
+              'eslint:recommended',
+              'plugin:@typescript-eslint/recommended',
+              'prettier'
+            ],
+            rules: {
+              'no-console': 'warn',
+              '@typescript-eslint/explicit-function-return-type': 'error'
+            }
+          };
+    
+    static_analysis:
+      purpose: "Detect bugs, security issues, and code smells"
+      
+      tools:
+        python:
+          mypy: "Static type checking"
+          bandit: "Security linting"
+          safety: "Dependency vulnerability checking"
+          vulture: "Dead code detection"
+        
+        javascript:
+          typescript: "Type checking"
+          snyk: "Dependency vulnerabilities"
+          sonarqube: "Code quality and security"
+        
+        multi_language:
+          semgrep: "Pattern-based analysis for many languages"
+          codeclimate: "Automated code review"
+          sonarqube: "Comprehensive quality gate"
+      
+      example_config: |
+        # mypy.ini
+        [mypy]
+        python_version = 3.11
+        strict = True
+        warn_return_any = True
+        warn_unused_ignores = True
+        
+        # bandit configuration in pyproject.toml
+        [tool.bandit]
+        exclude_dirs = ["tests", "venv"]
+        skips = ["B101"]  # Skip assert warnings in tests
+    
+    pre_commit_hooks:
+      purpose: "Run checks before code is committed"
+      
+      configuration: |
+        # .pre-commit-config.yaml
+        repos:
+          - repo: https://github.com/pre-commit/pre-commit-hooks
+            rev: v4.5.0
+            hooks:
+              - id: trailing-whitespace
+              - id: end-of-file-fixer
+              - id: check-yaml
+              - id: check-json
+              - id: check-added-large-files
+              - id: detect-private-key
+          
+          - repo: https://github.com/astral-sh/ruff-pre-commit
+            rev: v0.1.9
+            hooks:
+              - id: ruff
+                args: [--fix]
+              - id: ruff-format
+          
+          - repo: https://github.com/pre-commit/mirrors-mypy
+            rev: v1.8.0
+            hooks:
+              - id: mypy
+                additional_dependencies: [types-requests]
+          
+          - repo: https://github.com/PyCQA/bandit
+            rev: 1.7.7
+            hooks:
+              - id: bandit
+                args: ["-c", "pyproject.toml"]
+      
+      setup: |
+        # Install pre-commit
+        pip install pre-commit
+        
+        # Install hooks (run once per repo clone)
+        pre-commit install
+        
+        # Run on all files (optional, for existing repos)
+        pre-commit run --all-files
+    
+    ci_integration:
+      purpose: "Enforce quality gates in pull requests"
+      
+      github_actions: |
+        # .github/workflows/code-quality.yml
+        name: Code Quality
+        
+        on:
+          pull_request:
+            branches: [main]
+        
+        jobs:
+          lint:
+            runs-on: ubuntu-latest
+            steps:
+              - uses: actions/checkout@v4
+              
+              - name: Set up Python
+                uses: actions/setup-python@v5
+                with:
+                  python-version: '3.11'
+              
+              - name: Install dependencies
+                run: |
+                  pip install ruff mypy bandit
+              
+              - name: Run Ruff
+                run: ruff check .
+              
+              - name: Run Mypy
+                run: mypy src/
+              
+              - name: Run Bandit
+                run: bandit -r src/
+          
+          test:
+            runs-on: ubuntu-latest
+            steps:
+              - uses: actions/checkout@v4
+              
+              - name: Run tests
+                run: |
+                  pip install pytest pytest-cov
+                  pytest --cov=src --cov-fail-under=80
+
+  # ============ REVIEW ETIQUETTE ============
+  review_etiquette:
+    
+    response_times:
+      guidelines:
+        - "Aim to respond within 4 hours during work hours"
+        - "Maximum 24 hours for initial review"
+        - "Don't let PRs sit for days—it kills momentum"
+        - "If you can't review soon, say so and suggest another reviewer"
+      
+      tips:
+        - "Set aside dedicated code review time (e.g., first hour of day)"
+        - "Use PR notifications effectively"
+        - "Batch small PRs together for efficiency"
+        - "Large PRs (500+ lines) may need scheduling"
+    
+    blocking_vs_non_blocking:
+      blocking:
+        definition: "Issues that MUST be fixed before merge"
+        examples:
+          - "Bugs that will cause production issues"
+          - "Security vulnerabilities"
+          - "Breaking changes without migration"
+          - "Missing required tests"
+        communication: "Request changes + clear explanation"
+      
+      non_blocking:
+        definition: "Suggestions that are nice-to-have"
+        examples:
+          - "Style preferences"
+          - "Alternative approaches"
+          - "Minor optimizations"
+          - "Educational notes"
+        communication: |
+          Prefix with indicators:
+          - "nit:" for nitpicks
+          - "optional:" for take-it-or-leave-it
+          - "suggestion:" for improvements
+          - "future:" for follow-up items
+    
+    handling_nitpicks:
+      as_reviewer:
+        - "Keep nitpicks to a minimum (1-2 per review)"
+        - "Always mark clearly as non-blocking"
+        - "Ask yourself: does this really matter?"
+        - "Consider: would I reject the PR for this?"
+      
+      as_author:
+        - "Don't take nitpicks personally"
+        - "Fix easy ones to maintain goodwill"
+        - "Push back politely if you disagree"
+        - "Create tickets for larger suggestions"
+    
+    handling_disagreements:
+      principles:
+        - "Assume good intent"
+        - "Focus on technical merit, not ego"
+        - "Seek to understand before arguing"
+        - "Escalate to team lead if stuck"
+      
+      phrases_that_help:
+        - "Help me understand..."
+        - "What if we tried..."
+        - "I see your point. My concern is..."
+        - "Let's get a third opinion on this"
+        - "Can we try your approach and revisit if needed?"
+      
+      resolution_strategies:
+        - "Time-box the discussion (15 min max in comments)"
+        - "Move to synchronous discussion (call, meeting)"
+        - "Agree to try one approach and measure results"
+        - "Document the decision for future reference"
+    
+    author_responsibilities:
+      before_requesting_review:
+        - "Self-review your own PR first"
+        - "Write a clear PR description"
+        - "Keep PRs small (< 400 lines ideal)"
+        - "Ensure CI passes before requesting review"
+        - "Add context: link to issue, design doc, etc."
+      
+      during_review:
+        - "Respond to all comments"
+        - "Don't resolve comments yourself (let reviewer)"
+        - "Ask for clarification if feedback is unclear"
+        - "Be open to feedback—you're not your code"
+      
+      pr_description_template: |
+        ## What
+        Brief description of the change.
+        
+        ## Why
+        Why is this change needed? Link to issue/ticket.
+        
+        ## How
+        How does the implementation work? Any notable decisions?
+        
+        ## Testing
+        How was this tested? Include screenshots for UI changes.
+        
+        ## Checklist
+        - [ ] Tests added/updated
+        - [ ] Documentation updated
+        - [ ] No breaking changes (or migration provided)
+    
+    reviewer_responsibilities:
+      mindset:
+        - "You're a collaborator, not a gatekeeper"
+        - "Your job is to help ship better code"
+        - "Be kind—there's a human on the other side"
+      
+      during_review:
+        - "Understand the context before commenting"
+        - "Prioritize your feedback (blockers first)"
+        - "Offer solutions, not just problems"
+        - "Acknowledge good work"
+        - "Be timely—don't block progress"
+      
+      common_mistakes:
+        - "Reviewing without understanding the context"
+        - "Nitpicking while missing real issues"
+        - "Being harsh or condescending"
+        - "Letting perfect be the enemy of good"
+        - "Taking days to respond"
+
+  # ============ BEST PRACTICES SUMMARY ============
+  best_practices:
+    
+    for_reviewers:
+      - "Review code, not people"
+      - "Explain the 'why' behind your feedback"
+      - "Distinguish blocking from non-blocking issues"
+      - "Respond within 24 hours (4 hours ideal)"
+      - "Keep reviews focused (60-90 min max)"
+      - "Praise good work, not just criticize"
+      - "Ask questions instead of making demands"
+      - "Trust the author to handle minor style choices"
+      - "Use automation for style and formatting"
+      - "Focus on architecture, security, and correctness"
+    
+    for_authors:
+      - "Self-review before requesting review"
+      - "Keep PRs small and focused (< 400 lines)"
+      - "Write clear PR descriptions with context"
+      - "Respond to all feedback promptly"
+      - "Don't take feedback personally"
+      - "Be willing to learn and improve"
+      - "Create follow-up issues for large suggestions"
+      - "Thank reviewers for their time"
+    
+    for_teams:
+      - "Establish clear coding standards"
+      - "Automate everything automatable"
+      - "Set expectations for review turnaround"
+      - "Rotate reviewers to spread knowledge"
+      - "Track review metrics (time to review, iterations)"
+      - "Celebrate quality improvements"
+      - "Retrospect on painful reviews"
+      - "Document architectural decisions"
+
+  # ============ METRICS & MEASUREMENT ============
+  metrics:
+    
+    health_indicators:
+      good:
+        - "Average review turnaround < 24 hours"
+        - "PRs typically approved in 1-2 rounds"
+        - "Low bug escape rate to production"
+        - "Team members feel reviews are helpful"
+      
+      concerning:
+        - "PRs sitting for days without review"
+        - "Frequent heated discussions in reviews"
+        - "High bug escape rate despite reviews"
+        - "Developers dreading the review process"
+    
+    what_to_measure:
+      - "Time from PR opened to first review"
+      - "Time from PR opened to merge"
+      - "Number of review rounds needed"
+      - "PR size (lines changed)"
+      - "Review coverage (% of PRs reviewed)"
+      - "Bug escape rate (bugs found in production)"
+    
+    what_not_to_measure:
+      - "Number of comments per review (gaming)"
+      - "Approval rate (rubber-stamping)"
+      - "Lines of code reviewed per hour (speed over quality)"

@@ -1,0 +1,499 @@
+# SRE (Site Reliability Engineering) Mastery
+# Comprehensive reliability and operations expertise
+
+sre_mastery:
+
+  # ============ SLI/SLO/SLA FRAMEWORK ============
+  service_level:
+    
+    definitions:
+      SLI: "Service Level Indicator - A quantitative measure of service behavior"
+      SLO: "Service Level Objective - A target value for an SLI"
+      SLA: "Service Level Agreement - A contract with consequences for missing SLOs"
+    
+    common_slis:
+      availability:
+        formula: "successful_requests / total_requests"
+        measurement: "HTTP 5xx errors excluded from successful"
+        example: "99.9% of requests return non-5xx status"
+      
+      latency:
+        formula: "requests_below_threshold / total_requests"
+        measurement: "P50, P95, P99 response times"
+        example: "95% of requests complete in < 200ms"
+      
+      throughput:
+        formula: "requests_per_second at given latency target"
+        example: "System handles 1000 RPS at P99 < 500ms"
+      
+      error_rate:
+        formula: "error_requests / total_requests"
+        example: "< 0.1% of requests result in errors"
+      
+      freshness:
+        formula: "age_of_newest_data"
+        example: "Data no more than 1 minute old"
+    
+    slo_document_template: |
+      # Service: User API
+      # Owner: Platform Team
+      # Last Review: 2024-01-15
+      
+      ## SLOs
+      
+      ### Availability
+      - SLI: Proportion of successful HTTP requests (non-5xx)
+      - SLO: 99.9% over 30-day rolling window
+      - Measurement: Prometheus counter `http_requests_total{status!~"5.."}`
+      
+      ### Latency
+      - SLI: Proportion of requests faster than threshold
+      - SLO: 95% of requests < 200ms, 99% < 500ms
+      - Measurement: Prometheus histogram `http_request_duration_seconds`
+      
+      ## Error Budget
+      - Monthly budget: 43.2 minutes downtime (99.9% of 30 days)
+      - Current burn rate: 0.5x (healthy)
+      - Remaining budget: 38 minutes
+      
+      ## Alerting
+      - Page: 1% error budget consumed in 1 hour
+      - Ticket: 10% error budget consumed in 24 hours
+
+    error_budgets:
+      description: "Acceptable amount of unreliability"
+      calculation: |
+        # 99.9% SLO over 30 days
+        total_minutes = 30 * 24 * 60  # 43,200 minutes
+        error_budget = total_minutes * (1 - 0.999)  # 43.2 minutes
+        
+        # If error budget exhausted:
+        # - Freeze feature releases
+        # - Focus on reliability improvements
+        # - Post-mortem on budget consumption
+      
+      burn_rate_alerts: |
+        # Fast burn: 14.4x burn rate over 1 hour = page
+        # This exhausts 2% budget in 1 hour
+        # (1% budget consumed in ~2 hours)
+        
+        # Slow burn: 3x burn rate over 6 hours = ticket
+        # This exhausts 6% budget in 6 hours
+
+  # ============ INCIDENT MANAGEMENT ============
+  incident_management:
+    
+    severity_levels:
+      - level: "SEV1 - Critical"
+        criteria: "Complete service outage, data loss risk"
+        response_time: "15 minutes"
+        communication: "All-hands page, exec notification"
+      
+      - level: "SEV2 - Major"
+        criteria: "Significant degradation, >10% users affected"
+        response_time: "30 minutes"
+        communication: "On-call page, team notification"
+      
+      - level: "SEV3 - Minor"
+        criteria: "Limited impact, workaround available"
+        response_time: "4 hours"
+        communication: "Ticket created"
+    
+    incident_roles:
+      incident_commander:
+        responsibilities:
+          - "Coordinate response efforts"
+          - "Make decisions on mitigation strategy"
+          - "Communicate status to stakeholders"
+          - "Declare incident resolved"
+      
+      operations_lead:
+        responsibilities:
+          - "Investigate root cause"
+          - "Execute mitigation steps"
+          - "Coordinate with subject matter experts"
+      
+      communications_lead:
+        responsibilities:
+          - "Update status page"
+          - "Draft customer communications"
+          - "Coordinate with support team"
+    
+    incident_timeline: |
+      # Incident Template
+      
+      ## Summary
+      [Brief description of what happened]
+      
+      ## Timeline (all times UTC)
+      - 14:23 - Monitoring alert fires for API latency
+      - 14:25 - On-call acknowledges, begins investigation
+      - 14:30 - IC declared, SEV2 incident opened
+      - 14:35 - Root cause identified: database connection exhaustion
+      - 14:40 - Mitigation: Increase connection pool size
+      - 14:45 - Service recovering, latency normalizing
+      - 14:55 - Monitoring confirms full recovery
+      - 15:00 - Incident resolved
+      
+      ## Impact
+      - Duration: 32 minutes
+      - Users affected: ~15% (API consumers)
+      - Error budget consumed: 0.7%
+      
+      ## Root Cause
+      Connection leak in new deployment caused pool exhaustion
+      
+      ## Action Items
+      - [ ] Add connection leak detection (owner: @dev, due: 2024-01-20)
+      - [ ] Add connection pool metrics to dashboard (owner: @sre)
+      - [ ] Review deployment rollback procedures (owner: @sre)
+
+    postmortem_template: |
+      # Postmortem: [Incident Title]
+      
+      ## Incident Summary
+      - Date: 2024-01-15
+      - Duration: 32 minutes
+      - Severity: SEV2
+      - Author: @oncall-engineer
+      
+      ## What Happened
+      [Detailed narrative of the incident]
+      
+      ## Root Cause Analysis
+      
+      ### 5 Whys
+      1. Why did the service degrade? -> Database connections exhausted
+      2. Why were connections exhausted? -> Connection leak in new code
+      3. Why wasn't the leak caught? -> Missing connection monitoring
+      4. Why was monitoring missing? -> Not in standard checklist
+      5. Why not in checklist? -> Checklist not updated for new patterns
+      
+      ## What Went Well
+      - Alert fired within 2 minutes
+      - IC quickly established command
+      - Rollback executed smoothly
+      
+      ## What Went Poorly
+      - Initial investigation looked at wrong service
+      - No runbook for connection pool issues
+      - Customer communication was delayed
+      
+      ## Action Items
+      | Action | Owner | Priority | Due Date |
+      |--------|-------|----------|----------|
+      | Add connection metrics | @sre | P1 | 2024-01-20 |
+      | Create runbook | @sre | P2 | 2024-01-25 |
+      | Update deployment checklist | @dev | P2 | 2024-01-22 |
+      
+      ## Lessons Learned
+      [Key takeaways for the organization]
+
+  # ============ OBSERVABILITY ============
+  observability:
+    
+    three_pillars:
+      metrics:
+        description: "Numeric measurements over time"
+        tools: ["Prometheus", "Datadog", "CloudWatch"]
+        best_practices:
+          - "Use histograms for latencies (not averages)"
+          - "Label cardinality matters (avoid high-cardinality labels)"
+          - "Follow USE method for resources"
+          - "Follow RED method for services"
+      
+      logs:
+        description: "Discrete events with context"
+        tools: ["ELK Stack", "Loki", "CloudWatch Logs"]
+        best_practices:
+          - "Structured logging (JSON)"
+          - "Include trace IDs for correlation"
+          - "Log levels: ERROR, WARN, INFO, DEBUG"
+          - "Avoid logging sensitive data"
+      
+      traces:
+        description: "Request flow through distributed system"
+        tools: ["Jaeger", "Zipkin", "AWS X-Ray"]
+        best_practices:
+          - "Propagate trace context across services"
+          - "Sample traces (1-10% typically)"
+          - "Add custom spans for important operations"
+    
+    prometheus_patterns:
+      metrics_types: |
+        from prometheus_client import Counter, Histogram, Gauge, Summary
+        
+        # Counter: Monotonically increasing
+        REQUEST_COUNT = Counter(
+            'http_requests_total',
+            'Total HTTP requests',
+            ['method', 'endpoint', 'status']
+        )
+        
+        # Histogram: Distribution of values (with buckets)
+        REQUEST_LATENCY = Histogram(
+            'http_request_duration_seconds',
+            'HTTP request latency',
+            ['method', 'endpoint'],
+            buckets=[.005, .01, .025, .05, .1, .25, .5, 1, 2.5, 5, 10]
+        )
+        
+        # Gauge: Value that goes up and down
+        IN_PROGRESS = Gauge(
+            'http_requests_in_progress',
+            'HTTP requests currently being processed'
+        )
+        
+        # Usage
+        @app.route('/api/users')
+        def get_users():
+            IN_PROGRESS.inc()
+            try:
+                with REQUEST_LATENCY.labels(method='GET', endpoint='/users').time():
+                    result = fetch_users()
+                REQUEST_COUNT.labels(method='GET', endpoint='/users', status='200').inc()
+                return result
+            finally:
+                IN_PROGRESS.dec()
+      
+      alerting_rules: |
+        # prometheus/alerts.yml
+        groups:
+          - name: slo-alerts
+            rules:
+              # High error rate (fast burn)
+              - alert: HighErrorRate
+                expr: |
+                  (
+                    sum(rate(http_requests_total{status=~"5.."}[5m]))
+                    /
+                    sum(rate(http_requests_total[5m]))
+                  ) > 0.01
+                for: 2m
+                labels:
+                  severity: page
+                annotations:
+                  summary: "Error rate above 1%"
+                  description: "Current error rate: {{ $value | humanizePercentage }}"
+              
+              # High latency
+              - alert: HighLatency
+                expr: |
+                  histogram_quantile(0.95, 
+                    sum(rate(http_request_duration_seconds_bucket[5m])) by (le)
+                  ) > 0.5
+                for: 5m
+                labels:
+                  severity: warning
+    
+    structured_logging: |
+      import structlog
+      import logging
+      
+      # Configure structlog
+      structlog.configure(
+          processors=[
+              structlog.stdlib.filter_by_level,
+              structlog.stdlib.add_logger_name,
+              structlog.stdlib.add_log_level,
+              structlog.stdlib.PositionalArgumentsFormatter(),
+              structlog.processors.TimeStamper(fmt="iso"),
+              structlog.processors.StackInfoRenderer(),
+              structlog.processors.format_exc_info,
+              structlog.processors.UnicodeDecoder(),
+              structlog.processors.JSONRenderer()
+          ],
+          wrapper_class=structlog.stdlib.BoundLogger,
+          context_class=dict,
+          logger_factory=structlog.stdlib.LoggerFactory(),
+          cache_logger_on_first_use=True,
+      )
+      
+      logger = structlog.get_logger()
+      
+      # Usage with context
+      logger.info(
+          "request_processed",
+          request_id="abc123",
+          user_id="user456",
+          duration_ms=145,
+          status_code=200
+      )
+      
+      # Output:
+      # {"event": "request_processed", "request_id": "abc123", 
+      #  "user_id": "user456", "duration_ms": 145, "status_code": 200,
+      #  "timestamp": "2024-01-15T10:30:00Z", "level": "info"}
+
+  # ============ CHAOS ENGINEERING ============
+  chaos_engineering:
+    
+    principles:
+      - "Start with a hypothesis about steady state"
+      - "Vary real-world events (failures, traffic spikes)"
+      - "Run experiments in production (carefully)"
+      - "Automate experiments for continuous verification"
+      - "Minimize blast radius"
+    
+    experiments:
+      network_failures: |
+        # Using tc (traffic control) to simulate latency
+        tc qdisc add dev eth0 root netem delay 200ms 50ms distribution normal
+        
+        # Simulate packet loss
+        tc qdisc add dev eth0 root netem loss 5%
+        
+        # Remove rules
+        tc qdisc del dev eth0 root
+      
+      process_failures: |
+        # Randomly kill a service (chaos monkey style)
+        # Using Litmus Chaos or Chaos Mesh in Kubernetes
+        
+        apiVersion: litmuschaos.io/v1alpha1
+        kind: ChaosEngine
+        metadata:
+          name: pod-kill-chaos
+        spec:
+          appinfo:
+            appns: default
+            applabel: app=myapp
+          chaosServiceAccount: litmus-admin
+          experiments:
+            - name: pod-delete
+              spec:
+                components:
+                  env:
+                    - name: TOTAL_CHAOS_DURATION
+                      value: '60'
+                    - name: CHAOS_INTERVAL
+                      value: '10'
+      
+      resource_exhaustion: |
+        # CPU stress
+        stress-ng --cpu 4 --timeout 60s
+        
+        # Memory pressure
+        stress-ng --vm 2 --vm-bytes 1G --timeout 60s
+        
+        # Disk I/O
+        stress-ng --hdd 2 --timeout 60s
+
+  # ============ CAPACITY PLANNING ============
+  capacity_planning:
+    
+    load_testing: |
+      # Establish baseline performance
+      # Use tools like k6, Locust, or Gatling
+      
+      # Key metrics to capture:
+      # - Requests per second at various percentiles
+      # - Resource utilization (CPU, memory, network)
+      # - Error rate under load
+      # - Breaking point (when errors spike)
+    
+    scaling_thresholds:
+      cpu: "Scale at 70% average utilization"
+      memory: "Scale at 80% utilization"
+      queue_depth: "Scale when queue > 100 messages"
+      latency: "Scale when P99 > target"
+    
+    capacity_model: |
+      # Simple capacity model
+      
+      # Current capacity
+      current_rps = 1000  # requests per second
+      current_instances = 5
+      rps_per_instance = current_rps / current_instances  # 200
+      
+      # Projected growth
+      monthly_growth_rate = 0.10  # 10% monthly
+      months_ahead = 6
+      projected_rps = current_rps * (1 + monthly_growth_rate) ** months_ahead
+      # projected_rps = 1771
+      
+      # Required capacity (with 30% headroom)
+      headroom = 1.3
+      required_rps = projected_rps * headroom  # 2302
+      required_instances = math.ceil(required_rps / rps_per_instance)  # 12
+
+  # ============ RUNBOOKS ============
+  runbooks:
+    
+    template: |
+      # Runbook: High API Latency
+      
+      ## Overview
+      This runbook covers investigation and mitigation of high API latency alerts.
+      
+      ## Severity
+      SEV2 - Significant user impact
+      
+      ## Alert Definition
+      `histogram_quantile(0.99, http_request_duration_seconds) > 2`
+      
+      ## Investigation Steps
+      
+      1. **Check service health**
+         ```bash
+         kubectl get pods -l app=api
+         kubectl top pods -l app=api
+         ```
+      
+      2. **Check dependent services**
+         - Database: [Dashboard Link]
+         - Cache: [Dashboard Link]
+         - External APIs: [Dashboard Link]
+      
+      3. **Check recent deployments**
+         ```bash
+         kubectl rollout history deployment/api
+         ```
+      
+      4. **Review slow query logs**
+         ```sql
+         SELECT * FROM pg_stat_activity 
+         WHERE state != 'idle' 
+         ORDER BY query_start;
+         ```
+      
+      ## Mitigation Steps
+      
+      ### Scale horizontally
+      ```bash
+      kubectl scale deployment/api --replicas=10
+      ```
+      
+      ### Rollback deployment
+      ```bash
+      kubectl rollout undo deployment/api
+      ```
+      
+      ### Enable circuit breaker
+      ```bash
+      kubectl set env deployment/api CIRCUIT_BREAKER_ENABLED=true
+      ```
+      
+      ## Escalation
+      - After 15 minutes: Page backend team lead
+      - After 30 minutes: Page engineering manager
+
+  # ============ REVIEW CHECKLIST ============
+  review_checklist:
+    reliability:
+      - "SLOs defined and documented"
+      - "Error budget tracking in place"
+      - "Alerting based on SLO burn rate"
+      - "Runbooks exist for common issues"
+    
+    observability:
+      - "Metrics, logs, traces correlated"
+      - "Dashboards show service health"
+      - "Alerts are actionable (not noisy)"
+      - "On-call rotation documented"
+    
+    incident_response:
+      - "Severity levels defined"
+      - "Incident commander rotation"
+      - "Postmortems completed within 5 days"
+      - "Action items tracked to completion"

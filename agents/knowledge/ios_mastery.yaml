@@ -1,0 +1,685 @@
+# iOS Development Mastery (Swift/SwiftUI)
+# Comprehensive iOS engineering expertise
+
+ios_mastery:
+
+  # ============ SWIFT FUNDAMENTALS ============
+  swift:
+    
+    optionals:
+      description: "Safe handling of nil values"
+      patterns:
+        safe_unwrapping: |
+          // Optional binding (preferred)
+          if let user = optionalUser {
+              print(user.name)
+          }
+          
+          // Guard for early exit
+          guard let user = optionalUser else {
+              return
+          }
+          print(user.name)  // user is non-optional here
+          
+          // Optional chaining
+          let name = user?.profile?.displayName ?? "Anonymous"
+          
+          // Nil coalescing
+          let username = optionalUsername ?? "Guest"
+        
+        when_to_force_unwrap: |
+          // Only when you KNOW it's not nil
+          // Example: IBOutlets after viewDidLoad
+          @IBOutlet weak var titleLabel: UILabel!
+          
+          // Failable initializers with known-good data
+          let url = URL(string: "https://api.example.com")!
+        
+        implicitly_unwrapped: |
+          // Use sparingly, mainly for:
+          // 1. IBOutlets
+          // 2. Properties set in viewDidLoad before use
+          // 3. Dependency injection that's guaranteed
+          
+          class ViewController: UIViewController {
+              var coordinator: Coordinator!  // Set by parent
+              
+              override func viewDidLoad() {
+                  super.viewDidLoad()
+                  coordinator.start()  // Guaranteed to be set
+              }
+          }
+
+    value_vs_reference:
+      structs: |
+        // Use structs for:
+        // - Simple data holders
+        // - Value semantics (copies on assignment)
+        // - Thread safety (immutable copies)
+        
+        struct User {
+            let id: UUID
+            var name: String
+            var email: String
+        }
+        
+        var user1 = User(id: UUID(), name: "John", email: "john@example.com")
+        var user2 = user1  // Creates a copy
+        user2.name = "Jane"
+        print(user1.name)  // "John" - unchanged
+      
+      classes: |
+        // Use classes for:
+        // - Identity matters (same instance)
+        // - Inheritance needed
+        // - Objective-C interop
+        // - Shared mutable state (with care)
+        
+        class UserSession {
+            static let shared = UserSession()
+            var currentUser: User?
+            
+            private init() {}
+        }
+
+    protocols:
+      protocol_oriented: |
+        // Define behavior with protocols
+        protocol Loadable {
+            associatedtype Item
+            var isLoading: Bool { get }
+            func load() async throws -> [Item]
+        }
+        
+        // Protocol extensions for default implementations
+        extension Loadable {
+            var isLoading: Bool { false }
+        }
+        
+        // Protocol composition
+        typealias DataSource = Loadable & Identifiable & Hashable
+        
+        // Constraining generics
+        func display<T: Loadable>(_ source: T) where T.Item: CustomStringConvertible {
+            // ...
+        }
+
+    error_handling: |
+      // Define errors
+      enum NetworkError: Error, LocalizedError {
+          case invalidURL
+          case noConnection
+          case serverError(statusCode: Int)
+          case decodingFailed(underlying: Error)
+          
+          var errorDescription: String? {
+              switch self {
+              case .invalidURL:
+                  return "Invalid URL"
+              case .noConnection:
+                  return "No internet connection"
+              case .serverError(let code):
+                  return "Server error: \(code)"
+              case .decodingFailed:
+                  return "Failed to process response"
+              }
+          }
+      }
+      
+      // Throwing functions
+      func fetchUser(id: String) async throws -> User {
+          guard let url = URL(string: "https://api.example.com/users/\(id)") else {
+              throw NetworkError.invalidURL
+          }
+          
+          let (data, response) = try await URLSession.shared.data(from: url)
+          
+          guard let httpResponse = response as? HTTPURLResponse else {
+              throw NetworkError.serverError(statusCode: 0)
+          }
+          
+          guard httpResponse.statusCode == 200 else {
+              throw NetworkError.serverError(statusCode: httpResponse.statusCode)
+          }
+          
+          do {
+              return try JSONDecoder().decode(User.self, from: data)
+          } catch {
+              throw NetworkError.decodingFailed(underlying: error)
+          }
+      }
+
+  # ============ SWIFTUI ============
+  swiftui:
+    
+    state_management:
+      state: |
+        // @State: Local view state, simple value types
+        struct CounterView: View {
+            @State private var count = 0
+            
+            var body: some View {
+                Button("Count: \(count)") {
+                    count += 1
+                }
+            }
+        }
+      
+      binding: |
+        // @Binding: Two-way connection to parent's state
+        struct ToggleRow: View {
+            let title: String
+            @Binding var isOn: Bool
+            
+            var body: some View {
+                Toggle(title, isOn: $isOn)
+            }
+        }
+        
+        // Usage
+        struct SettingsView: View {
+            @State private var notificationsEnabled = true
+            
+            var body: some View {
+                ToggleRow(title: "Notifications", isOn: $notificationsEnabled)
+            }
+        }
+      
+      stateobject_vs_observedobject: |
+        // @StateObject: View OWNS the object (creates it)
+        // Use when view creates the observable
+        struct ContentView: View {
+            @StateObject private var viewModel = ContentViewModel()
+            
+            var body: some View {
+                ChildView(viewModel: viewModel)
+            }
+        }
+        
+        // @ObservedObject: View OBSERVES an object (doesn't own it)
+        // Use when object is passed in
+        struct ChildView: View {
+            @ObservedObject var viewModel: ContentViewModel
+            
+            var body: some View {
+                Text(viewModel.title)
+            }
+        }
+        
+        // @EnvironmentObject: Injected through view hierarchy
+        struct ProfileView: View {
+            @EnvironmentObject var userSession: UserSession
+            
+            var body: some View {
+                Text(userSession.currentUser?.name ?? "Guest")
+            }
+        }
+      
+      observable_macro: |
+        // iOS 17+ @Observable macro (simpler than ObservableObject)
+        @Observable
+        class ContentViewModel {
+            var title = "Hello"
+            var items: [Item] = []
+            var isLoading = false
+            
+            func load() async {
+                isLoading = true
+                items = await fetchItems()
+                isLoading = false
+            }
+        }
+        
+        struct ContentView: View {
+            @State private var viewModel = ContentViewModel()
+            
+            var body: some View {
+                List(viewModel.items) { item in
+                    Text(item.name)
+                }
+                .overlay {
+                    if viewModel.isLoading {
+                        ProgressView()
+                    }
+                }
+                .task {
+                    await viewModel.load()
+                }
+            }
+        }
+
+    view_composition:
+      extracting_views: |
+        // Extract complex views into components
+        struct UserListView: View {
+            let users: [User]
+            
+            var body: some View {
+                List(users) { user in
+                    UserRow(user: user)
+                }
+            }
+        }
+        
+        // Extracted row view
+        struct UserRow: View {
+            let user: User
+            
+            var body: some View {
+                HStack {
+                    AsyncImage(url: user.avatarURL) { image in
+                        image.resizable()
+                    } placeholder: {
+                        Circle().fill(.gray)
+                    }
+                    .frame(width: 44, height: 44)
+                    .clipShape(Circle())
+                    
+                    VStack(alignment: .leading) {
+                        Text(user.name)
+                            .font(.headline)
+                        Text(user.email)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+        }
+      
+      view_modifiers: |
+        // Custom view modifier for reusable styling
+        struct CardStyle: ViewModifier {
+            func body(content: Content) -> some View {
+                content
+                    .padding()
+                    .background(Color(.systemBackground))
+                    .cornerRadius(12)
+                    .shadow(radius: 4)
+            }
+        }
+        
+        extension View {
+            func cardStyle() -> some View {
+                modifier(CardStyle())
+            }
+        }
+        
+        // Usage
+        Text("Card Content")
+            .cardStyle()
+
+    async_operations: |
+      struct AsyncContentView: View {
+          @State private var items: [Item] = []
+          @State private var error: Error?
+          @State private var isLoading = false
+          
+          var body: some View {
+              Group {
+                  if isLoading {
+                      ProgressView()
+                  } else if let error = error {
+                      ErrorView(error: error, retry: loadItems)
+                  } else {
+                      List(items) { item in
+                          Text(item.name)
+                      }
+                  }
+              }
+              .task {
+                  await loadItems()
+              }
+              .refreshable {
+                  await loadItems()
+              }
+          }
+          
+          private func loadItems() async {
+              isLoading = true
+              error = nil
+              
+              do {
+                  items = try await api.fetchItems()
+              } catch {
+                  self.error = error
+              }
+              
+              isLoading = false
+          }
+      }
+
+  # ============ ARCHITECTURE (MVVM) ============
+  architecture:
+    
+    mvvm:
+      view_model: |
+        import Combine
+        
+        @MainActor
+        class UserListViewModel: ObservableObject {
+            @Published private(set) var users: [User] = []
+            @Published private(set) var isLoading = false
+            @Published private(set) var error: Error?
+            
+            private let userService: UserServiceProtocol
+            
+            init(userService: UserServiceProtocol = UserService()) {
+                self.userService = userService
+            }
+            
+            func loadUsers() async {
+                isLoading = true
+                error = nil
+                
+                do {
+                    users = try await userService.fetchUsers()
+                } catch {
+                    self.error = error
+                }
+                
+                isLoading = false
+            }
+            
+            func deleteUser(_ user: User) async {
+                do {
+                    try await userService.delete(user)
+                    users.removeAll { $0.id == user.id }
+                } catch {
+                    self.error = error
+                }
+            }
+        }
+      
+      view: |
+        struct UserListView: View {
+            @StateObject private var viewModel = UserListViewModel()
+            
+            var body: some View {
+                NavigationStack {
+                    Group {
+                        if viewModel.isLoading && viewModel.users.isEmpty {
+                            ProgressView()
+                        } else {
+                            userList
+                        }
+                    }
+                    .navigationTitle("Users")
+                    .task {
+                        await viewModel.loadUsers()
+                    }
+                    .alert(
+                        "Error",
+                        isPresented: .constant(viewModel.error != nil),
+                        presenting: viewModel.error
+                    ) { _ in
+                        Button("OK") { }
+                    } message: { error in
+                        Text(error.localizedDescription)
+                    }
+                }
+            }
+            
+            private var userList: some View {
+                List(viewModel.users) { user in
+                    NavigationLink(value: user) {
+                        UserRow(user: user)
+                    }
+                }
+                .refreshable {
+                    await viewModel.loadUsers()
+                }
+            }
+        }
+
+    dependency_injection: |
+      // Protocol for testability
+      protocol UserServiceProtocol {
+          func fetchUsers() async throws -> [User]
+          func delete(_ user: User) async throws
+      }
+      
+      // Production implementation
+      class UserService: UserServiceProtocol {
+          private let client: APIClient
+          
+          init(client: APIClient = .shared) {
+              self.client = client
+          }
+          
+          func fetchUsers() async throws -> [User] {
+              try await client.request(.users)
+          }
+          
+          func delete(_ user: User) async throws {
+              try await client.request(.deleteUser(user.id))
+          }
+      }
+      
+      // Mock for testing
+      class MockUserService: UserServiceProtocol {
+          var usersToReturn: [User] = []
+          var errorToThrow: Error?
+          
+          func fetchUsers() async throws -> [User] {
+              if let error = errorToThrow { throw error }
+              return usersToReturn
+          }
+          
+          func delete(_ user: User) async throws {
+              if let error = errorToThrow { throw error }
+          }
+      }
+
+  # ============ CONCURRENCY ============
+  concurrency:
+    
+    async_await: |
+      // Async function
+      func fetchUserProfile(id: String) async throws -> UserProfile {
+          async let user = userService.fetchUser(id: id)
+          async let posts = postService.fetchPosts(userId: id)
+          async let followers = socialService.fetchFollowers(userId: id)
+          
+          // Parallel execution, await all results
+          return try await UserProfile(
+              user: user,
+              posts: posts,
+              followers: followers
+          )
+      }
+      
+      // Task groups for dynamic concurrency
+      func fetchAllUsers(ids: [String]) async throws -> [User] {
+          try await withThrowingTaskGroup(of: User.self) { group in
+              for id in ids {
+                  group.addTask {
+                      try await self.fetchUser(id: id)
+                  }
+              }
+              
+              var users: [User] = []
+              for try await user in group {
+                  users.append(user)
+              }
+              return users
+          }
+      }
+    
+    actors: |
+      // Actor for thread-safe mutable state
+      actor ImageCache {
+          private var cache: [URL: UIImage] = [:]
+          
+          func image(for url: URL) -> UIImage? {
+              cache[url]
+          }
+          
+          func store(_ image: UIImage, for url: URL) {
+              cache[url] = image
+          }
+          
+          func clear() {
+              cache.removeAll()
+          }
+      }
+      
+      // Usage
+      let cache = ImageCache()
+      
+      // Must await actor methods
+      if let cached = await cache.image(for: url) {
+          return cached
+      }
+      
+      let image = try await downloadImage(from: url)
+      await cache.store(image, for: url)
+    
+    main_actor: |
+      // @MainActor ensures UI updates on main thread
+      @MainActor
+      class ViewModel: ObservableObject {
+          @Published var items: [Item] = []
+          
+          func load() async {
+              // This runs on main thread
+              let data = await fetchFromNetwork()  // Suspends, not blocks
+              items = data  // UI update, safe on main thread
+          }
+      }
+      
+      // Mark specific functions
+      func updateUI() async {
+          await MainActor.run {
+              // UI code here
+          }
+      }
+
+  # ============ DATA PERSISTENCE ============
+  persistence:
+    
+    core_data: |
+      // Modern Core Data with SwiftUI
+      @main
+      struct MyApp: App {
+          let persistenceController = PersistenceController.shared
+          
+          var body: some Scene {
+              WindowGroup {
+                  ContentView()
+                      .environment(\.managedObjectContext, 
+                          persistenceController.container.viewContext)
+              }
+          }
+      }
+      
+      struct ContentView: View {
+          @Environment(\.managedObjectContext) private var viewContext
+          @FetchRequest(
+              sortDescriptors: [NSSortDescriptor(keyPath: \Item.timestamp, ascending: true)],
+              animation: .default
+          )
+          private var items: FetchedResults<Item>
+          
+          var body: some View {
+              List {
+                  ForEach(items) { item in
+                      Text(item.timestamp!, formatter: itemFormatter)
+                  }
+                  .onDelete(perform: deleteItems)
+              }
+          }
+          
+          private func deleteItems(offsets: IndexSet) {
+              withAnimation {
+                  offsets.map { items[$0] }.forEach(viewContext.delete)
+                  try? viewContext.save()
+              }
+          }
+      }
+    
+    swift_data: |
+      // iOS 17+ SwiftData (simpler than Core Data)
+      import SwiftData
+      
+      @Model
+      class Item {
+          var name: String
+          var timestamp: Date
+          var isCompleted: Bool
+          
+          init(name: String, timestamp: Date = .now, isCompleted: Bool = false) {
+              self.name = name
+              self.timestamp = timestamp
+              self.isCompleted = isCompleted
+          }
+      }
+      
+      @main
+      struct MyApp: App {
+          var body: some Scene {
+              WindowGroup {
+                  ContentView()
+              }
+              .modelContainer(for: Item.self)
+          }
+      }
+      
+      struct ContentView: View {
+          @Environment(\.modelContext) private var modelContext
+          @Query(sort: \Item.timestamp) private var items: [Item]
+          
+          var body: some View {
+              List {
+                  ForEach(items) { item in
+                      Text(item.name)
+                  }
+                  .onDelete { indexSet in
+                      for index in indexSet {
+                          modelContext.delete(items[index])
+                      }
+                  }
+              }
+          }
+      }
+
+  # ============ APP STORE GUIDELINES ============
+  app_store:
+    
+    common_rejections:
+      - reason: "Incomplete Information"
+        fix: "Complete app metadata, provide demo account"
+      
+      - reason: "Bugs and crashes"
+        fix: "Test thoroughly on actual devices"
+      
+      - reason: "Placeholder content"
+        fix: "Remove all Lorem ipsum and test data"
+      
+      - reason: "Broken links"
+        fix: "Verify all URLs including privacy policy"
+      
+      - reason: "Hidden features"
+        fix: "All features must be accessible to reviewers"
+      
+      - reason: "In-app purchase issues"
+        fix: "Use StoreKit for all digital purchases"
+
+  # ============ REVIEW CHECKLIST ============
+  review_checklist:
+    code_quality:
+      - "Proper use of optionals (no force unwrapping without reason)"
+      - "Error handling with meaningful error types"
+      - "Memory management (no retain cycles)"
+      - "Thread safety with actors or proper synchronization"
+    
+    swiftui:
+      - "@StateObject for owned objects, @ObservedObject for passed"
+      - "Views are small and focused"
+      - "Custom modifiers for reusable styling"
+      - "Async operations use .task modifier"
+    
+    performance:
+      - "Images properly sized and cached"
+      - "Lists use lazy loading"
+      - "Heavy work off main thread"
+      - "Memory warnings handled"

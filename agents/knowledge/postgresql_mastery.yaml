@@ -1,0 +1,450 @@
+# PostgreSQL DBA Mastery
+# Comprehensive database administration expertise
+
+postgresql_mastery:
+
+  # ============ QUERY OPTIMIZATION ============
+  query_optimization:
+    
+    explain_analyze:
+      description: "Understanding query execution plans"
+      basic_usage: |
+        -- Always use ANALYZE for actual execution times
+        EXPLAIN (ANALYZE, BUFFERS, FORMAT TEXT)
+        SELECT * FROM orders o
+        JOIN customers c ON o.customer_id = c.id
+        WHERE o.created_at > '2024-01-01';
+      
+      reading_plans: |
+        -- Key metrics to look for:
+        -- 1. Actual rows vs estimated rows (big difference = bad stats)
+        -- 2. Seq Scan on large tables (usually needs index)
+        -- 3. Nested Loop with large outer table (consider hash join)
+        -- 4. Buffers: shared hit vs read (more hits = better caching)
+        
+        -- Example plan interpretation:
+        /*
+        Nested Loop  (cost=0.87..16.93 rows=1 width=64) (actual time=0.028..0.029 rows=1 loops=1)
+          Buffers: shared hit=7
+          ->  Index Scan using orders_pkey on orders o  (actual time=0.015..0.016 rows=1 loops=1)
+                Index Cond: (id = 12345)
+                Buffers: shared hit=4
+          ->  Index Scan using customers_pkey on customers c  (actual time=0.010..0.010 rows=1 loops=1)
+                Index Cond: (id = o.customer_id)
+                Buffers: shared hit=3
+        Planning Time: 0.215 ms
+        Execution Time: 0.056 ms
+        */
+      
+      common_issues:
+        seq_scan: "Missing index or index not being used"
+        sort: "Consider index for ORDER BY column"
+        hash_join_memory: "work_mem may need increase"
+        bitmap_heap_scan: "Many rows, consider partial index"
+
+    slow_query_identification: |
+      -- Find slowest queries (pg_stat_statements extension)
+      CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
+      
+      SELECT
+          substring(query, 1, 100) as query_preview,
+          calls,
+          round(total_exec_time::numeric, 2) as total_ms,
+          round(mean_exec_time::numeric, 2) as avg_ms,
+          round((100 * total_exec_time / sum(total_exec_time) OVER())::numeric, 2) as percent_total
+      FROM pg_stat_statements
+      ORDER BY total_exec_time DESC
+      LIMIT 20;
+      
+      -- Find queries with poor planning estimates
+      SELECT
+          query,
+          calls,
+          rows,
+          round(rows::numeric / calls, 2) as rows_per_call
+      FROM pg_stat_statements
+      WHERE calls > 100
+      ORDER BY rows / calls DESC
+      LIMIT 20;
+
+  # ============ INDEXING STRATEGIES ============
+  indexing:
+    
+    index_types:
+      btree:
+        description: "Default, good for equality and range queries"
+        use_cases: ["=", "<", ">", "BETWEEN", "IN", "LIKE 'prefix%'"]
+        example: |
+          -- Single column
+          CREATE INDEX idx_orders_created_at ON orders(created_at);
+          
+          -- Composite (column order matters!)
+          -- Most selective column first for equality
+          -- Range column last
+          CREATE INDEX idx_orders_composite ON orders(customer_id, status, created_at);
+      
+      gin:
+        description: "Generalized Inverted Index for array/JSONB/full-text"
+        use_cases: ["Array contains", "JSONB queries", "Full-text search"]
+        example: |
+          -- JSONB containment
+          CREATE INDEX idx_orders_metadata ON orders USING gin(metadata);
+          -- Query: WHERE metadata @> '{"priority": "high"}'
+          
+          -- Array contains
+          CREATE INDEX idx_users_tags ON users USING gin(tags);
+          -- Query: WHERE tags @> ARRAY['premium']
+          
+          -- Full-text search
+          CREATE INDEX idx_articles_search ON articles 
+          USING gin(to_tsvector('english', title || ' ' || body));
+      
+      gist:
+        description: "Generalized Search Tree for geometric/range/full-text"
+        use_cases: ["Geometry", "Range types", "Nearest neighbor"]
+        example: |
+          -- Geometry (PostGIS)
+          CREATE INDEX idx_locations_geom ON locations USING gist(geom);
+          
+          -- Range types (overlaps, contains)
+          CREATE INDEX idx_reservations_period ON reservations 
+          USING gist(daterange(start_date, end_date));
+      
+      brin:
+        description: "Block Range Index for large tables with natural ordering"
+        use_cases: ["Time-series data", "Sequential IDs", "Append-only tables"]
+        advantages: "Very small index size (100-1000x smaller than B-tree)"
+        example: |
+          -- Perfect for time-series (data inserted in order)
+          CREATE INDEX idx_events_created ON events USING brin(created_at);
+          
+          -- Specify pages per range based on data correlation
+          CREATE INDEX idx_logs_timestamp ON logs 
+          USING brin(timestamp) WITH (pages_per_range = 32);
+
+    partial_indexes:
+      description: "Index only rows matching a condition"
+      use_cases:
+        - "Frequently queried subset of data"
+        - "Sparse conditions (only small % matches)"
+      example: |
+        -- Index only active orders (small subset)
+        CREATE INDEX idx_orders_active ON orders(created_at)
+        WHERE status = 'active';
+        
+        -- Query benefits from partial index
+        SELECT * FROM orders 
+        WHERE status = 'active' AND created_at > '2024-01-01';
+        
+        -- Index only recent data
+        CREATE INDEX idx_logs_recent ON logs(user_id, created_at)
+        WHERE created_at > CURRENT_DATE - INTERVAL '30 days';
+
+    index_maintenance: |
+      -- Find unused indexes
+      SELECT
+          schemaname || '.' || relname AS table,
+          indexrelname AS index,
+          pg_size_pretty(pg_relation_size(i.indexrelid)) AS size,
+          idx_scan AS scans
+      FROM pg_stat_user_indexes i
+      JOIN pg_index USING (indexrelid)
+      WHERE idx_scan = 0
+        AND indisunique IS FALSE
+      ORDER BY pg_relation_size(i.indexrelid) DESC;
+      
+      -- Find duplicate indexes
+      SELECT
+          pg_size_pretty(sum(pg_relation_size(idx))::bigint) as size,
+          (array_agg(idx))[1] as idx1,
+          (array_agg(idx))[2] as idx2,
+          (array_agg(idx))[3] as idx3
+      FROM (
+          SELECT indexrelid::regclass as idx,
+                 (indrelid::text || E'\n' || indclass::text || E'\n' || 
+                  indkey::text || E'\n' || coalesce(indexprs::text,'') || 
+                  E'\n' || coalesce(indpred::text,'')) as key
+          FROM pg_index
+      ) sub
+      GROUP BY key
+      HAVING count(*) > 1;
+      
+      -- Reindex bloated indexes (PostgreSQL 12+)
+      REINDEX INDEX CONCURRENTLY idx_orders_created_at;
+
+  # ============ HIGH AVAILABILITY ============
+  high_availability:
+    
+    streaming_replication:
+      primary_config: |
+        # postgresql.conf on primary
+        wal_level = replica
+        max_wal_senders = 5
+        wal_keep_size = 1GB
+        synchronous_commit = on
+        synchronous_standby_names = 'standby1'
+      
+      replica_setup: |
+        # On replica server
+        pg_basebackup -h primary -D /var/lib/postgresql/data -U replication -P -R
+        
+        # postgresql.conf on replica
+        hot_standby = on
+        primary_conninfo = 'host=primary port=5432 user=replication'
+      
+      monitoring: |
+        -- Check replication lag on primary
+        SELECT
+            client_addr,
+            state,
+            sent_lsn,
+            write_lsn,
+            flush_lsn,
+            replay_lsn,
+            pg_wal_lsn_diff(sent_lsn, replay_lsn) AS replication_lag_bytes
+        FROM pg_stat_replication;
+        
+        -- Check on replica
+        SELECT
+            CASE
+                WHEN pg_last_wal_receive_lsn() = pg_last_wal_replay_lsn() THEN 0
+                ELSE EXTRACT(EPOCH FROM now() - pg_last_xact_replay_timestamp())
+            END AS replication_lag_seconds;
+
+    patroni:
+      description: "High availability solution with automatic failover"
+      config: |
+        # patroni.yml
+        scope: postgres-cluster
+        name: node1
+        
+        restapi:
+          listen: 0.0.0.0:8008
+          connect_address: node1:8008
+        
+        etcd:
+          hosts: etcd1:2379,etcd2:2379,etcd3:2379
+        
+        bootstrap:
+          dcs:
+            ttl: 30
+            loop_wait: 10
+            retry_timeout: 10
+            maximum_lag_on_failover: 1048576
+            postgresql:
+              use_pg_rewind: true
+              parameters:
+                max_connections: 200
+                shared_buffers: 2GB
+                work_mem: 64MB
+        
+        postgresql:
+          listen: 0.0.0.0:5432
+          connect_address: node1:5432
+          data_dir: /var/lib/postgresql/data
+          authentication:
+            replication:
+              username: replication
+              password: replpass
+            superuser:
+              username: postgres
+              password: postgrespass
+
+  # ============ BACKUP & RECOVERY ============
+  backup_recovery:
+    
+    pg_basebackup: |
+      # Full base backup
+      pg_basebackup \
+        -h localhost \
+        -D /backups/base_backup_$(date +%Y%m%d) \
+        -Ft \
+        -z \
+        -P \
+        -X stream
+      
+      # With tablespace mapping
+      pg_basebackup \
+        -D /backups/base \
+        -T /old/tablespace=/new/tablespace \
+        -Ft -z -P
+    
+    wal_archiving: |
+      # postgresql.conf
+      archive_mode = on
+      archive_command = 'test ! -f /archive/%f && cp %p /archive/%f'
+      archive_timeout = 300  # 5 minutes max
+    
+    point_in_time_recovery: |
+      # recovery.conf (or postgresql.conf in v12+)
+      restore_command = 'cp /archive/%f %p'
+      recovery_target_time = '2024-01-15 14:30:00'
+      recovery_target_action = 'promote'
+      
+      # Restore steps:
+      # 1. Stop PostgreSQL
+      # 2. Remove/move current data directory
+      # 3. Restore base backup to data directory
+      # 4. Create recovery.conf or set recovery parameters
+      # 5. Start PostgreSQL (replays WAL to target time)
+    
+    pg_dump_strategies: |
+      # Parallel dump (faster for large databases)
+      pg_dump -h localhost -U postgres -F d -j 4 -f /backups/mydb mydb
+      
+      # Compressed custom format
+      pg_dump -h localhost -U postgres -F c -f /backups/mydb.dump mydb
+      
+      # Schema only
+      pg_dump -h localhost -U postgres -s -f schema.sql mydb
+      
+      # Data only
+      pg_dump -h localhost -U postgres -a -f data.sql mydb
+      
+      # Specific tables
+      pg_dump -h localhost -U postgres -t orders -t customers mydb
+      
+      # Restore from custom format
+      pg_restore -h localhost -U postgres -d mydb -j 4 /backups/mydb.dump
+
+  # ============ CONNECTION MANAGEMENT ============
+  connections:
+    
+    pooling:
+      pgbouncer_config: |
+        # pgbouncer.ini
+        [databases]
+        mydb = host=localhost port=5432 dbname=mydb
+        
+        [pgbouncer]
+        listen_addr = *
+        listen_port = 6432
+        auth_type = scram-sha-256
+        auth_file = /etc/pgbouncer/userlist.txt
+        
+        # Pool settings
+        pool_mode = transaction  # Best for most apps
+        max_client_conn = 1000
+        default_pool_size = 20
+        min_pool_size = 5
+        reserve_pool_size = 5
+        reserve_pool_timeout = 3
+        
+        # Timeouts
+        server_idle_timeout = 60
+        client_idle_timeout = 0
+        query_timeout = 0
+      
+      pool_modes:
+        session: "Connection tied to client session (safest, least efficient)"
+        transaction: "Connection returned after each transaction (recommended)"
+        statement: "Connection returned after each statement (most efficient, limited use)"
+    
+    sizing_formula: |
+      # Optimal connection pool size (per application instance)
+      # connections = (core_count * 2) + effective_spindle_count
+      
+      # For SSD:
+      connections = (cpu_cores * 2) + 1
+      
+      # Example: 8 cores with SSD
+      # connections = (8 * 2) + 1 = 17
+      
+      # Total with multiple app instances:
+      # 3 app servers * 17 connections = 51 total DB connections
+    
+    monitoring: |
+      -- Current connections by state
+      SELECT
+          state,
+          count(*) as count,
+          array_agg(DISTINCT application_name) as apps
+      FROM pg_stat_activity
+      WHERE backend_type = 'client backend'
+      GROUP BY state;
+      
+      -- Long-running queries
+      SELECT
+          pid,
+          now() - pg_stat_activity.query_start AS duration,
+          query,
+          state
+      FROM pg_stat_activity
+      WHERE (now() - pg_stat_activity.query_start) > interval '5 minutes'
+        AND state != 'idle';
+      
+      -- Blocking queries
+      SELECT
+          blocked_locks.pid AS blocked_pid,
+          blocked_activity.usename AS blocked_user,
+          blocking_locks.pid AS blocking_pid,
+          blocking_activity.usename AS blocking_user,
+          blocked_activity.query AS blocked_statement,
+          blocking_activity.query AS blocking_statement
+      FROM pg_catalog.pg_locks blocked_locks
+      JOIN pg_catalog.pg_stat_activity blocked_activity 
+          ON blocked_activity.pid = blocked_locks.pid
+      JOIN pg_catalog.pg_locks blocking_locks 
+          ON blocking_locks.locktype = blocked_locks.locktype
+          AND blocking_locks.database IS NOT DISTINCT FROM blocked_locks.database
+          AND blocking_locks.relation IS NOT DISTINCT FROM blocked_locks.relation
+          AND blocking_locks.page IS NOT DISTINCT FROM blocked_locks.page
+          AND blocking_locks.tuple IS NOT DISTINCT FROM blocked_locks.tuple
+          AND blocking_locks.virtualxid IS NOT DISTINCT FROM blocked_locks.virtualxid
+          AND blocking_locks.transactionid IS NOT DISTINCT FROM blocked_locks.transactionid
+          AND blocking_locks.classid IS NOT DISTINCT FROM blocked_locks.classid
+          AND blocking_locks.objid IS NOT DISTINCT FROM blocked_locks.objid
+          AND blocking_locks.objsubid IS NOT DISTINCT FROM blocked_locks.objsubid
+          AND blocking_locks.pid != blocked_locks.pid
+      JOIN pg_catalog.pg_stat_activity blocking_activity 
+          ON blocking_activity.pid = blocking_locks.pid
+      WHERE NOT blocked_locks.granted;
+
+  # ============ PERFORMANCE TUNING ============
+  performance_tuning:
+    
+    memory_settings:
+      shared_buffers: "25% of RAM (8GB for 32GB system)"
+      effective_cache_size: "75% of RAM (24GB for 32GB system)"
+      work_mem: "Start at 64MB, increase for complex queries"
+      maintenance_work_mem: "1-2GB for vacuum/index builds"
+    
+    vacuum_tuning: |
+      -- Check tables needing vacuum
+      SELECT
+          schemaname || '.' || relname AS table,
+          n_dead_tup AS dead_tuples,
+          n_live_tup AS live_tuples,
+          round(n_dead_tup::numeric / nullif(n_live_tup, 0) * 100, 2) AS dead_pct,
+          last_vacuum,
+          last_autovacuum
+      FROM pg_stat_user_tables
+      WHERE n_dead_tup > 10000
+      ORDER BY n_dead_tup DESC;
+      
+      -- Autovacuum settings for high-write tables
+      ALTER TABLE orders SET (
+          autovacuum_vacuum_scale_factor = 0.05,  -- Vacuum at 5% dead rows
+          autovacuum_analyze_scale_factor = 0.02,
+          autovacuum_vacuum_cost_limit = 1000
+      );
+
+  # ============ REVIEW CHECKLIST ============
+  review_checklist:
+    query_performance:
+      - "EXPLAIN ANALYZE used for slow queries"
+      - "Proper indexes exist for WHERE/JOIN columns"
+      - "No sequential scans on large tables"
+      - "Query estimates match actual rows"
+    
+    maintenance:
+      - "Autovacuum properly configured"
+      - "Unused indexes identified and removed"
+      - "Table/index bloat monitored"
+      - "Statistics up to date"
+    
+    high_availability:
+      - "Replication lag monitored"
+      - "Backup schedule verified"
+      - "Recovery procedures tested"
+      - "Connection pooling in place"

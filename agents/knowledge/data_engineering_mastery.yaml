@@ -1,0 +1,622 @@
+# Data Engineering Mastery
+# Comprehensive data pipeline and processing expertise
+
+data_engineering_mastery:
+
+  # ============ ETL/ELT PATTERNS ============
+  etl_patterns:
+    
+    extract:
+      api_extraction: |
+        import requests
+        from typing import Iterator, Any
+        import time
+        
+        def extract_paginated_api(
+            base_url: str,
+            headers: dict,
+            page_size: int = 100
+        ) -> Iterator[dict]:
+            """
+            Extract data from paginated API using cursor pagination.
+            Cursor pagination is preferred over offset for large datasets.
+            """
+            cursor = None
+            
+            while True:
+                params = {"limit": page_size}
+                if cursor:
+                    params["cursor"] = cursor
+                
+                response = requests.get(
+                    base_url, 
+                    headers=headers, 
+                    params=params,
+                    timeout=30
+                )
+                response.raise_for_status()
+                
+                data = response.json()
+                
+                for item in data["items"]:
+                    yield item
+                
+                cursor = data.get("next_cursor")
+                if not cursor:
+                    break
+                
+                # Respect rate limits
+                time.sleep(0.1)
+      
+      cdc_debezium: |
+        # Debezium connector for MySQL CDC
+        {
+          "name": "mysql-source",
+          "config": {
+            "connector.class": "io.debezium.connector.mysql.MySqlConnector",
+            "database.hostname": "mysql",
+            "database.port": "3306",
+            "database.user": "debezium",
+            "database.password": "${env:DB_PASSWORD}",
+            "database.server.id": "1",
+            "database.server.name": "myapp",
+            "database.include.list": "inventory",
+            "table.include.list": "inventory.orders,inventory.customers",
+            "database.history.kafka.bootstrap.servers": "kafka:9092",
+            "database.history.kafka.topic": "schema-changes.inventory",
+            "transforms": "route",
+            "transforms.route.type": "org.apache.kafka.connect.transforms.RegexRouter",
+            "transforms.route.regex": "([^.]+)\\.([^.]+)\\.([^.]+)",
+            "transforms.route.replacement": "$3"
+          }
+        }
+
+    transform:
+      data_quality: |
+        from pydantic import BaseModel, validator
+        from typing import Optional
+        from datetime import datetime
+        
+        class OrderRecord(BaseModel):
+            """
+            Use Pydantic for data validation in transformation.
+            Invalid records are caught early with clear errors.
+            """
+            order_id: str
+            customer_id: str
+            amount: float
+            currency: str
+            created_at: datetime
+            status: str
+            
+            @validator('amount')
+            def amount_positive(cls, v):
+                if v <= 0:
+                    raise ValueError('Amount must be positive')
+                return round(v, 2)
+            
+            @validator('currency')
+            def currency_valid(cls, v):
+                valid = {'USD', 'EUR', 'GBP', 'JPY'}
+                if v.upper() not in valid:
+                    raise ValueError(f'Currency must be one of {valid}')
+                return v.upper()
+            
+            @validator('status')
+            def status_valid(cls, v):
+                valid = {'pending', 'completed', 'cancelled', 'refunded'}
+                if v.lower() not in valid:
+                    raise ValueError(f'Status must be one of {valid}')
+                return v.lower()
+      
+      deduplication: |
+        import hashlib
+        from typing import Iterator, Set
+        
+        def deduplicate_stream(
+            records: Iterator[dict],
+            key_fields: list[str]
+        ) -> Iterator[dict]:
+            """
+            Streaming deduplication using hash of key fields.
+            Memory efficient for large datasets.
+            """
+            seen: Set[str] = set()
+            
+            for record in records:
+                # Create hash from key fields
+                key_values = '|'.join(str(record.get(f, '')) for f in key_fields)
+                key_hash = hashlib.md5(key_values.encode()).hexdigest()
+                
+                if key_hash not in seen:
+                    seen.add(key_hash)
+                    yield record
+
+    load:
+      upsert_pattern: |
+        -- PostgreSQL UPSERT (INSERT ON CONFLICT)
+        INSERT INTO dim_customers (
+            customer_id, name, email, updated_at
+        )
+        VALUES (
+            %(customer_id)s, %(name)s, %(email)s, %(updated_at)s
+        )
+        ON CONFLICT (customer_id) DO UPDATE SET
+            name = EXCLUDED.name,
+            email = EXCLUDED.email,
+            updated_at = EXCLUDED.updated_at
+        WHERE dim_customers.updated_at < EXCLUDED.updated_at;
+      
+      bulk_loading: |
+        import psycopg2
+        from io import StringIO
+        import csv
+        
+        def bulk_load_postgres(
+            conn, 
+            table: str, 
+            records: list[dict],
+            columns: list[str]
+        ):
+            """
+            Use COPY for bulk loading - 10-100x faster than INSERT.
+            """
+            buffer = StringIO()
+            writer = csv.DictWriter(buffer, fieldnames=columns)
+            
+            for record in records:
+                writer.writerow({k: record.get(k) for k in columns})
+            
+            buffer.seek(0)
+            
+            with conn.cursor() as cur:
+                cur.copy_expert(
+                    f"COPY {table} ({','.join(columns)}) FROM STDIN WITH CSV",
+                    buffer
+                )
+            conn.commit()
+
+  # ============ APACHE SPARK ============
+  spark:
+    
+    performance:
+      partitioning: |
+        from pyspark.sql import SparkSession
+        from pyspark.sql import functions as F
+        
+        spark = SparkSession.builder \
+            .config("spark.sql.shuffle.partitions", "200") \
+            .config("spark.default.parallelism", "200") \
+            .getOrCreate()
+        
+        # Repartition by key for joins
+        df = df.repartition(200, "customer_id")
+        
+        # Coalesce to reduce partitions (no shuffle)
+        df = df.coalesce(10)
+        
+        # Partition on disk by date for efficient queries
+        df.write \
+            .partitionBy("year", "month") \
+            .parquet("s3://bucket/table/")
+      
+      broadcast_joins: |
+        from pyspark.sql import functions as F
+        
+        # Small dimension table (< 10MB) - broadcast
+        dim_customers = spark.read.parquet("dim_customers/")
+        
+        fact_orders = spark.read.parquet("fact_orders/")
+        
+        # Broadcast hint for small table
+        result = fact_orders.join(
+            F.broadcast(dim_customers),
+            on="customer_id",
+            how="left"
+        )
+      
+      caching: |
+        # Cache DataFrames that are reused
+        df = spark.read.parquet("large_table/")
+        
+        # MEMORY_AND_DISK is safest default
+        df.persist(StorageLevel.MEMORY_AND_DISK)
+        
+        # Verify caching
+        df.count()  # Triggers caching
+        
+        # Check cache in Spark UI
+        # After use, unpersist to free memory
+        df.unpersist()
+    
+    anti_patterns:
+      - name: "Collect on large data"
+        problem: "df.collect() brings all data to driver, causing OOM"
+        solution: "Use aggregations, sampling, or write to storage"
+      
+      - name: "UDFs over built-in functions"
+        problem: "Python UDFs cause serialization overhead"
+        solution: "Use PySpark built-in functions when possible"
+        example: |
+          # Bad: Python UDF
+          @udf
+          def upper(s):
+              return s.upper() if s else None
+          df = df.withColumn("name", upper(col("name")))
+          
+          # Good: Built-in function
+          df = df.withColumn("name", F.upper(F.col("name")))
+      
+      - name: "Skewed joins"
+        problem: "Some keys have many more records, causing task imbalance"
+        solution: "Salt the key or use broadcast join"
+
+  # ============ APACHE AIRFLOW ============
+  airflow:
+    
+    dag_best_practices:
+      taskflow_api: |
+        from airflow.decorators import dag, task
+        from datetime import datetime, timedelta
+        
+        @dag(
+            schedule="0 0 * * *",  # Daily at midnight
+            start_date=datetime(2024, 1, 1),
+            catchup=False,
+            tags=["etl", "orders"],
+            default_args={
+                "owner": "data-team",
+                "retries": 3,
+                "retry_delay": timedelta(minutes=5),
+                "retry_exponential_backoff": True,
+            }
+        )
+        def orders_etl():
+            """Daily orders ETL pipeline."""
+            
+            @task()
+            def extract():
+                """Extract orders from source system."""
+                from my_module import extract_orders
+                return extract_orders()
+            
+            @task()
+            def transform(raw_orders: list):
+                """Transform and validate orders."""
+                from my_module import transform_orders
+                return transform_orders(raw_orders)
+            
+            @task()
+            def load(transformed_orders: list):
+                """Load orders to warehouse."""
+                from my_module import load_orders
+                load_orders(transformed_orders)
+            
+            # Define dependencies through return values
+            raw = extract()
+            transformed = transform(raw)
+            load(transformed)
+        
+        orders_etl_dag = orders_etl()
+      
+      sensors: |
+        from airflow.sensors.filesystem import FileSensor
+        from airflow.sensors.external_task import ExternalTaskSensor
+        
+        # Wait for file
+        wait_for_file = FileSensor(
+            task_id="wait_for_orders_file",
+            filepath="/data/orders/{{ ds }}/orders.csv",
+            poke_interval=60,
+            timeout=3600,
+            mode="reschedule"  # Frees worker slot while waiting
+        )
+        
+        # Wait for upstream DAG
+        wait_for_upstream = ExternalTaskSensor(
+            task_id="wait_for_customers_dag",
+            external_dag_id="customers_etl",
+            external_task_id="load",
+            execution_delta=timedelta(hours=0),
+            timeout=7200
+        )
+
+    idempotency: |
+      # Always design tasks to be idempotent
+      # Running twice produces same result as running once
+      
+      @task()
+      def load_partition(ds: str):
+          """
+          Idempotent load: delete-then-insert pattern.
+          Safe to re-run on failure.
+          """
+          conn = get_connection()
+          
+          # Delete existing data for this partition
+          conn.execute("""
+              DELETE FROM fact_orders 
+              WHERE date_partition = %(ds)s
+          """, {"ds": ds})
+          
+          # Insert new data
+          conn.execute("""
+              INSERT INTO fact_orders 
+              SELECT * FROM staging_orders
+              WHERE date_partition = %(ds)s
+          """, {"ds": ds})
+          
+          conn.commit()
+
+  # ============ DBT ============
+  dbt:
+    
+    project_structure:
+      description: "dbt medallion architecture"
+      structure: |
+        models/
+        ├── staging/            # Bronze: Raw data cleaning
+        │   ├── stg_orders.sql
+        │   └── stg_customers.sql
+        ├── intermediate/       # Silver: Business logic
+        │   └── int_orders_enriched.sql
+        └── marts/              # Gold: Analytics ready
+            ├── dim_customers.sql
+            └── fact_orders.sql
+    
+    model_patterns:
+      staging: |
+        -- models/staging/stg_orders.sql
+        {{ config(materialized='view') }}
+        
+        with source as (
+            select * from {{ source('raw', 'orders') }}
+        ),
+        
+        renamed as (
+            select
+                -- Type casting and renaming
+                cast(id as varchar) as order_id,
+                cast(customer_id as varchar) as customer_id,
+                cast(amount as decimal(10,2)) as order_amount,
+                cast(currency as varchar) as currency_code,
+                cast(created_at as timestamp) as created_at,
+                
+                -- Derive audit fields
+                cast(_loaded_at as timestamp) as loaded_at
+            from source
+            where id is not null  -- Filter bad records
+        )
+        
+        select * from renamed
+      
+      intermediate: |
+        -- models/intermediate/int_orders_enriched.sql
+        {{ config(materialized='table') }}
+        
+        with orders as (
+            select * from {{ ref('stg_orders') }}
+        ),
+        
+        customers as (
+            select * from {{ ref('stg_customers') }}
+        ),
+        
+        enriched as (
+            select
+                orders.*,
+                customers.customer_name,
+                customers.customer_segment,
+                
+                -- Business logic
+                case
+                    when orders.order_amount >= 1000 then 'high_value'
+                    when orders.order_amount >= 100 then 'medium_value'
+                    else 'low_value'
+                end as order_tier
+            from orders
+            left join customers using (customer_id)
+        )
+        
+        select * from enriched
+      
+      incremental: |
+        -- models/marts/fact_orders.sql
+        {{
+            config(
+                materialized='incremental',
+                unique_key='order_id',
+                incremental_strategy='merge'
+            )
+        }}
+        
+        select
+            order_id,
+            customer_id,
+            order_amount,
+            order_tier,
+            created_at,
+            current_timestamp as updated_at
+        from {{ ref('int_orders_enriched') }}
+        
+        {% if is_incremental() %}
+        where created_at > (select max(created_at) from {{ this }})
+        {% endif %}
+    
+    testing: |
+      # models/staging/schema.yml
+      version: 2
+      
+      models:
+        - name: stg_orders
+          description: "Cleaned orders from source system"
+          columns:
+            - name: order_id
+              tests:
+                - not_null
+                - unique
+            - name: order_amount
+              tests:
+                - not_null
+                - dbt_expectations.expect_column_values_to_be_between:
+                    min_value: 0
+                    max_value: 1000000
+            - name: customer_id
+              tests:
+                - not_null
+                - relationships:
+                    to: ref('stg_customers')
+                    field: customer_id
+
+  # ============ DATA WAREHOUSE DESIGN ============
+  data_warehouse:
+    
+    dimensional_modeling:
+      star_schema: |
+        -- Fact table: business events with measurements
+        CREATE TABLE fact_orders (
+            order_key BIGINT IDENTITY PRIMARY KEY,
+            order_id VARCHAR(50) NOT NULL,
+            
+            -- Foreign keys to dimensions
+            customer_key BIGINT REFERENCES dim_customers,
+            product_key BIGINT REFERENCES dim_products,
+            date_key INT REFERENCES dim_date,
+            
+            -- Measures (facts)
+            quantity INT NOT NULL,
+            unit_price DECIMAL(10,2) NOT NULL,
+            discount_amount DECIMAL(10,2) DEFAULT 0,
+            total_amount DECIMAL(10,2) NOT NULL,
+            
+            -- Audit columns
+            loaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        
+        -- Dimension: descriptive attributes
+        CREATE TABLE dim_customers (
+            customer_key BIGINT IDENTITY PRIMARY KEY,
+            customer_id VARCHAR(50) NOT NULL,
+            
+            -- Attributes
+            customer_name VARCHAR(200),
+            email VARCHAR(255),
+            segment VARCHAR(50),
+            region VARCHAR(100),
+            
+            -- SCD Type 2 columns
+            effective_date DATE NOT NULL,
+            expiration_date DATE DEFAULT '9999-12-31',
+            is_current BOOLEAN DEFAULT TRUE,
+            
+            -- Audit
+            loaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+      
+      scd_type_2: |
+        -- Slowly Changing Dimension Type 2
+        -- Preserves history of changes
+        
+        MERGE INTO dim_customers target
+        USING staging_customers source
+        ON target.customer_id = source.customer_id 
+           AND target.is_current = TRUE
+        
+        -- Update existing current records
+        WHEN MATCHED AND (
+            target.customer_name != source.customer_name OR
+            target.segment != source.segment
+        ) THEN UPDATE SET
+            expiration_date = CURRENT_DATE - 1,
+            is_current = FALSE
+        
+        -- Insert new version for changed records
+        WHEN MATCHED AND (
+            target.customer_name != source.customer_name OR
+            target.segment != source.segment
+        ) THEN INSERT (
+            customer_id, customer_name, segment,
+            effective_date, expiration_date, is_current
+        ) VALUES (
+            source.customer_id, source.customer_name, source.segment,
+            CURRENT_DATE, '9999-12-31', TRUE
+        )
+        
+        -- Insert new customers
+        WHEN NOT MATCHED THEN INSERT ...
+
+  # ============ DATA QUALITY ============
+  data_quality:
+    
+    great_expectations: |
+      import great_expectations as gx
+      
+      # Create context and data source
+      context = gx.get_context()
+      
+      # Define expectations
+      expectation_suite = context.add_expectation_suite("orders_suite")
+      
+      validator = context.get_validator(
+          batch_request=batch_request,
+          expectation_suite_name="orders_suite"
+      )
+      
+      # Column expectations
+      validator.expect_column_to_exist("order_id")
+      validator.expect_column_values_to_be_unique("order_id")
+      validator.expect_column_values_to_not_be_null("order_id")
+      
+      validator.expect_column_values_to_be_between(
+          "order_amount", min_value=0, max_value=1000000
+      )
+      
+      validator.expect_column_values_to_be_in_set(
+          "status", ["pending", "completed", "cancelled"]
+      )
+      
+      # Table-level expectations
+      validator.expect_table_row_count_to_be_between(
+          min_value=1000, max_value=10000000
+      )
+      
+      # Run validation
+      results = validator.validate()
+    
+    freshness_monitoring: |
+      -- Check data freshness
+      SELECT
+          table_name,
+          MAX(loaded_at) as last_load,
+          EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - MAX(loaded_at))) / 3600 as hours_since_load,
+          CASE
+              WHEN MAX(loaded_at) < CURRENT_TIMESTAMP - INTERVAL '2 hours' THEN 'STALE'
+              ELSE 'FRESH'
+          END as freshness_status
+      FROM information_schema.tables t
+      JOIN (
+          SELECT 'fact_orders' as table_name, MAX(loaded_at) as loaded_at FROM fact_orders
+          UNION ALL
+          SELECT 'fact_inventory', MAX(loaded_at) FROM fact_inventory
+      ) loads USING (table_name)
+      GROUP BY table_name;
+
+  # ============ REVIEW CHECKLIST ============
+  review_checklist:
+    pipeline_design:
+      - "Pipelines are idempotent (safe to re-run)"
+      - "Appropriate partitioning strategy"
+      - "Proper error handling and retries"
+      - "Backfill capability exists"
+    
+    data_quality:
+      - "Schema validation on ingest"
+      - "Row count checks between stages"
+      - "Null and uniqueness constraints"
+      - "Freshness monitoring in place"
+    
+    performance:
+      - "Appropriate file formats (Parquet for analytics)"
+      - "Partition pruning enabled"
+      - "Broadcast joins for small tables"
+      - "Avoiding data skew"

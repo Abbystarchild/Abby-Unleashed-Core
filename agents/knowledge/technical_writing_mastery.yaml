@@ -1,0 +1,1929 @@
+# Technical Writing Mastery for Developer Documentation
+# Professional practices for creating effective technical documentation
+# Last Updated: 2026-02-02
+
+metadata:
+  domain: Technical Writing & Developer Documentation
+  version: "1.0"
+  sources:
+    - "Diátaxis Framework (Daniele Procida)"
+    - "Google Developer Documentation Style Guide"
+    - "Microsoft Writing Style Guide"
+    - "Write the Docs Community Best Practices"
+    - "OpenAPI Specification 3.1"
+    - "The Good Docs Project"
+  industry_standards:
+    - "ISO/IEC 26514:2022 - Systems and software engineering — Design and development of information for users"
+    - "ASD-STE100 Simplified Technical English"
+  tools:
+    linting: ["Vale", "write-good", "alex", "textlint"]
+    generators: ["MkDocs", "Docusaurus", "Sphinx", "GitBook", "ReadTheDocs"]
+    api_docs: ["Swagger/OpenAPI", "Redoc", "Stoplight", "Postman"]
+
+# =============================================================================
+# SECTION 1: DIÁTAXIS FRAMEWORK
+# =============================================================================
+diataxis_framework:
+  definition: |
+    Diátaxis is a systematic approach to technical documentation authoring that 
+    organizes content into four distinct types based on user needs. Created by 
+    Daniele Procida, it recognizes that documentation serves different purposes 
+    and should be structured accordingly.
+  
+  core_principle: |
+    "Documentation should be organized around user needs, not product features.
+    Each documentation type serves a specific purpose and should not be mixed."
+  
+  four_quadrants:
+    tutorials:
+      purpose: "Learning-oriented - Help users LEARN through doing"
+      user_state: "Newcomer who needs guidance"
+      characteristics:
+        - "Step-by-step lessons that teach concepts"
+        - "Learning by doing, not reading"
+        - "Focused on building confidence"
+        - "Minimal explanation, maximum action"
+        - "Always works if followed correctly"
+      
+      best_practices:
+        good_examples:
+          - title: "Numbered, actionable steps"
+            example: |
+              ## Step 1: Create your first project
+              
+              Run the following command in your terminal:
+              
+              ```bash
+              npx create-myapp my-first-project
+              ```
+              
+              You should see output confirming the project was created.
+          
+          - title: "Show expected outcomes"
+            example: |
+              After running the command, you'll see:
+              
+              ```
+              ✓ Project created successfully
+              ✓ Dependencies installed
+              ✓ Ready to start development
+              ```
+        
+        bad_examples:
+          - title: "Explaining instead of doing"
+            example: |
+              # BAD: Too much theory, not enough action
+              Before we begin, let's understand how the framework 
+              architecture works. The system uses a modular design 
+              pattern that separates concerns...
+          
+          - title: "Assuming prior knowledge"
+            example: |
+              # BAD: Assumes user knows what to do
+              Configure your environment variables and set up 
+              the database connection, then run the app.
+      
+      template: |
+        # Tutorial: [What User Will Build]
+        
+        ## Introduction
+        In this tutorial, you'll learn to [specific outcome].
+        
+        **Time required:** X minutes
+        **Prerequisites:** [List specific requirements]
+        
+        ## What you'll build
+        [Screenshot or description of end result]
+        
+        ## Step 1: [First Action]
+        [Instruction with code block]
+        
+        **Expected result:** [What user should see]
+        
+        ## Step 2: [Next Action]
+        [Continue pattern...]
+        
+        ## Summary
+        You've learned how to:
+        - [Accomplishment 1]
+        - [Accomplishment 2]
+        
+        ## Next steps
+        - [Link to related tutorial]
+        - [Link to how-to guide]
+    
+    how_to_guides:
+      purpose: "Task-oriented - Help users ACCOMPLISH a specific goal"
+      user_state: "Practitioner who knows what they want to do"
+      characteristics:
+        - "Focused on completing a real-world task"
+        - "Assumes basic competence"
+        - "Addresses a specific problem"
+        - "Multiple valid approaches may exist"
+        - "No unnecessary explanation"
+      
+      best_practices:
+        good_examples:
+          - title: "Clear problem statement"
+            example: |
+              # How to configure SSL certificates
+              
+              This guide shows you how to add SSL certificates 
+              to your production deployment.
+              
+              ## Prerequisites
+              - Domain name pointing to your server
+              - Root access to your server
+              - Port 443 open in firewall
+          
+          - title: "Step-by-step with alternatives"
+            example: |
+              ## Option A: Using Let's Encrypt (Recommended)
+              
+              ```bash
+              sudo certbot --nginx -d example.com
+              ```
+              
+              ## Option B: Using a purchased certificate
+              
+              1. Upload your certificate files:
+              ```bash
+              sudo cp your-cert.pem /etc/ssl/certs/
+              ```
+        
+        bad_examples:
+          - title: "Teaching instead of guiding"
+            example: |
+              # BAD: This is tutorial content
+              Before configuring SSL, let's understand what 
+              SSL certificates are and how they work...
+          
+          - title: "Missing prerequisites"
+            example: |
+              # BAD: User doesn't know what they need
+              Run certbot to get your certificate.
+      
+      template: |
+        # How to [Accomplish Specific Task]
+        
+        ## Overview
+        [One sentence describing what this guide accomplishes]
+        
+        ## Prerequisites
+        - [Requirement 1]
+        - [Requirement 2]
+        
+        ## Steps
+        
+        ### 1. [First step]
+        [Instructions]
+        
+        ### 2. [Second step]
+        [Instructions]
+        
+        ## Verification
+        [How to confirm it worked]
+        
+        ## Troubleshooting
+        
+        ### [Common problem 1]
+        **Symptom:** [What user sees]
+        **Solution:** [How to fix]
+        
+        ## Related guides
+        - [Link to related how-to]
+    
+    explanations:
+      purpose: "Understanding-oriented - Help users UNDERSTAND concepts"
+      user_state: "User seeking deeper knowledge"
+      characteristics:
+        - "Provides context and background"
+        - "Discusses alternatives and trade-offs"
+        - "Explains why, not just how"
+        - "Can include history and design decisions"
+        - "Connects concepts together"
+      
+      best_practices:
+        good_examples:
+          - title: "Explaining architecture decisions"
+            example: |
+              # Understanding the Event-Driven Architecture
+              
+              ## Why event-driven?
+              
+              Traditional request-response patterns create tight 
+              coupling between services. When Service A calls 
+              Service B directly, both must be available simultaneously.
+              
+              Event-driven architecture decouples services by using 
+              a message broker as an intermediary. This provides:
+              
+              - **Resilience**: Services can fail independently
+              - **Scalability**: Consumers can be scaled separately
+              - **Flexibility**: New consumers can be added without 
+                modifying producers
+          
+          - title: "Trade-off analysis"
+            example: |
+              ## Choosing between SQL and NoSQL
+              
+              | Consideration | SQL | NoSQL |
+              |--------------|-----|-------|
+              | Schema | Fixed, enforced | Flexible |
+              | Scaling | Vertical (harder) | Horizontal (easier) |
+              | Consistency | Strong (ACID) | Eventual (BASE) |
+              | Query complexity | Complex joins | Simple lookups |
+        
+        bad_examples:
+          - title: "Instructions disguised as explanation"
+            example: |
+              # BAD: This is a how-to guide
+              To understand caching, first install Redis by 
+              running `apt install redis`...
+      
+      template: |
+        # Understanding [Concept]
+        
+        ## Overview
+        [Brief introduction to the concept]
+        
+        ## Background
+        [Historical context or motivation]
+        
+        ## How it works
+        [Detailed explanation with diagrams]
+        
+        ## Design decisions
+        [Why things are the way they are]
+        
+        ## Trade-offs
+        [Pros and cons, alternatives considered]
+        
+        ## Related concepts
+        - [Link to related explanation]
+    
+    reference:
+      purpose: "Information-oriented - Help users FIND specific information"
+      user_state: "Practitioner who needs to look something up"
+      characteristics:
+        - "Comprehensive and accurate"
+        - "Consistently structured"
+        - "Optimized for quick lookup"
+        - "No tutorials or explanation"
+        - "Dry and factual"
+      
+      best_practices:
+        good_examples:
+          - title: "API reference format"
+            example: |
+              ## `createUser(options)`
+              
+              Creates a new user account.
+              
+              ### Parameters
+              
+              | Name | Type | Required | Description |
+              |------|------|----------|-------------|
+              | `email` | string | Yes | User's email address |
+              | `name` | string | Yes | Display name |
+              | `role` | string | No | Default: `"user"` |
+              
+              ### Returns
+              
+              `Promise<User>` - The created user object.
+              
+              ### Errors
+              
+              | Code | Description |
+              |------|-------------|
+              | `EMAIL_EXISTS` | Email already registered |
+              | `INVALID_EMAIL` | Email format invalid |
+              
+              ### Example
+              
+              ```javascript
+              const user = await createUser({
+                email: 'user@example.com',
+                name: 'Jane Doe'
+              });
+              ```
+        
+        bad_examples:
+          - title: "Missing parameters or types"
+            example: |
+              # BAD: Incomplete reference
+              ## createUser
+              Creates a user. Pass the user data as parameter.
+          
+          - title: "Tutorial in reference"
+            example: |
+              # BAD: Teaching in reference docs
+              ## createUser
+              Let's learn how to create users! First, you need 
+              to understand what a user is...
+      
+      template: |
+        # API Reference: [Module/Class Name]
+        
+        ## Overview
+        [One-line description]
+        
+        ## Methods
+        
+        ### `methodName(param1, param2)`
+        
+        [One-line description]
+        
+        **Parameters:**
+        | Name | Type | Required | Default | Description |
+        |------|------|----------|---------|-------------|
+        
+        **Returns:** `Type` - Description
+        
+        **Throws:**
+        - `ErrorType` - When [condition]
+        
+        **Example:**
+        ```language
+        // Example code
+        ```
+
+# =============================================================================
+# SECTION 2: API DOCUMENTATION
+# =============================================================================
+api_documentation:
+  definition: |
+    API documentation describes how to effectively use and integrate with an API.
+    It serves as the primary interface between API providers and consumers.
+  
+  openapi_specification:
+    description: |
+      OpenAPI (formerly Swagger) is the industry standard for describing RESTful APIs.
+      OpenAPI 3.1 is fully compatible with JSON Schema draft 2020-12.
+    
+    structure:
+      info:
+        description: "Metadata about the API"
+        required_fields: ["title", "version"]
+        recommended_fields: ["description", "contact", "license", "termsOfService"]
+      
+      servers:
+        description: "Base URLs for API environments"
+        example: |
+          servers:
+            - url: https://api.example.com/v1
+              description: Production
+            - url: https://staging-api.example.com/v1
+              description: Staging
+      
+      paths:
+        description: "Available endpoints and operations"
+        best_practices:
+          - "Use nouns for resources, not verbs"
+          - "Use plural nouns for collections"
+          - "Nest related resources logically"
+          - "Keep URLs lowercase with hyphens"
+      
+      components:
+        description: "Reusable schemas, parameters, responses"
+        includes: ["schemas", "parameters", "responses", "securitySchemes"]
+    
+    best_practices:
+      good_examples:
+        - title: "Complete endpoint documentation"
+          example: |
+            paths:
+              /users/{userId}:
+                get:
+                  summary: Get user by ID
+                  description: |
+                    Returns a single user. Requires authentication.
+                    Rate limited to 100 requests per minute.
+                  operationId: getUserById
+                  tags:
+                    - Users
+                  parameters:
+                    - name: userId
+                      in: path
+                      required: true
+                      description: Unique user identifier
+                      schema:
+                        type: string
+                        format: uuid
+                        example: "123e4567-e89b-12d3-a456-426614174000"
+                  responses:
+                    '200':
+                      description: Successful response
+                      content:
+                        application/json:
+                          schema:
+                            $ref: '#/components/schemas/User'
+                          example:
+                            id: "123e4567-e89b-12d3-a456-426614174000"
+                            email: "user@example.com"
+                            name: "Jane Doe"
+                    '404':
+                      description: User not found
+                      content:
+                        application/json:
+                          schema:
+                            $ref: '#/components/schemas/Error'
+      
+      bad_examples:
+        - title: "Missing descriptions and examples"
+          example: |
+            # BAD: Minimal documentation
+            paths:
+              /users/{userId}:
+                get:
+                  responses:
+                    '200':
+                      description: OK
+  
+  code_examples:
+    principles:
+      - "Provide examples in multiple languages"
+      - "Show complete, runnable code"
+      - "Include authentication in examples"
+      - "Demonstrate error handling"
+      - "Keep examples focused on one concept"
+    
+    best_practices:
+      good_examples:
+        - title: "Multi-language code samples"
+          example: |
+            ## Create a User
+            
+            <CodeTabs>
+            
+            ```bash title="cURL"
+            curl -X POST https://api.example.com/v1/users \
+              -H "Authorization: Bearer $API_KEY" \
+              -H "Content-Type: application/json" \
+              -d '{
+                "email": "user@example.com",
+                "name": "Jane Doe"
+              }'
+            ```
+            
+            ```python title="Python"
+            import requests
+            
+            response = requests.post(
+                "https://api.example.com/v1/users",
+                headers={"Authorization": f"Bearer {api_key}"},
+                json={"email": "user@example.com", "name": "Jane Doe"}
+            )
+            user = response.json()
+            ```
+            
+            ```javascript title="JavaScript"
+            const response = await fetch('https://api.example.com/v1/users', {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${apiKey}`,
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({
+                email: 'user@example.com',
+                name: 'Jane Doe'
+              })
+            });
+            const user = await response.json();
+            ```
+            
+            </CodeTabs>
+      
+      bad_examples:
+        - title: "Incomplete code"
+          example: |
+            # BAD: Missing imports, auth, error handling
+            response = requests.post(url, json=data)
+        
+        - title: "Pseudocode instead of real code"
+          example: |
+            # BAD: Not runnable
+            POST /users with email and name
+  
+  error_documentation:
+    principles:
+      - "Document all possible error codes"
+      - "Provide clear error messages"
+      - "Include resolution steps"
+      - "Use consistent error format"
+    
+    error_response_format:
+      standard_structure: |
+        {
+          "error": {
+            "code": "VALIDATION_ERROR",
+            "message": "The request body is invalid",
+            "details": [
+              {
+                "field": "email",
+                "message": "Must be a valid email address"
+              }
+            ],
+            "requestId": "req_abc123",
+            "documentation": "https://docs.example.com/errors/VALIDATION_ERROR"
+          }
+        }
+    
+    best_practices:
+      good_examples:
+        - title: "Complete error reference"
+          example: |
+            ## Error Codes
+            
+            ### Authentication Errors
+            
+            | Code | HTTP Status | Description | Resolution |
+            |------|-------------|-------------|------------|
+            | `INVALID_API_KEY` | 401 | API key is invalid or expired | Generate a new key in dashboard |
+            | `MISSING_AUTH` | 401 | No authorization header | Include `Authorization: Bearer <key>` |
+            | `INSUFFICIENT_PERMISSIONS` | 403 | Key lacks required scope | Request additional permissions |
+            
+            ### Example Error Response
+            
+            ```json
+            {
+              "error": {
+                "code": "INVALID_API_KEY",
+                "message": "The provided API key is not valid",
+                "documentation": "https://docs.example.com/auth"
+              }
+            }
+            ```
+      
+      bad_examples:
+        - title: "Vague errors"
+          example: |
+            # BAD: Not helpful
+            | Code | Description |
+            |------|-------------|
+            | 400 | Bad request |
+            | 500 | Server error |
+
+# =============================================================================
+# SECTION 3: DOCS-AS-CODE
+# =============================================================================
+docs_as_code:
+  definition: |
+    Docs-as-Code treats documentation with the same rigor as code: version controlled,
+    reviewed, tested, and deployed through CI/CD pipelines.
+  
+  core_principles:
+    - "Documentation lives alongside code in version control"
+    - "Changes go through pull request review"
+    - "Automated testing validates docs"
+    - "Continuous deployment publishes changes"
+    - "Writers use developer tools (editors, Git, CI)"
+  
+  markdown_best_practices:
+    file_organization:
+      recommended_structure: |
+        docs/
+        ├── index.md              # Home page
+        ├── getting-started/
+        │   ├── installation.md
+        │   ├── quickstart.md
+        │   └── configuration.md
+        ├── tutorials/
+        │   ├── first-project.md
+        │   └── advanced-usage.md
+        ├── how-to/
+        │   ├── deploy-production.md
+        │   └── configure-auth.md
+        ├── concepts/
+        │   ├── architecture.md
+        │   └── security-model.md
+        ├── reference/
+        │   ├── api/
+        │   ├── cli.md
+        │   └── configuration.md
+        └── contributing.md
+    
+    naming_conventions:
+      files: "lowercase-with-hyphens.md"
+      folders: "lowercase-with-hyphens/"
+      avoid: "spaces, underscores, CamelCase"
+    
+    frontmatter:
+      example: |
+        ---
+        title: Getting Started
+        description: Learn how to install and configure the SDK
+        sidebar_position: 1
+        tags:
+          - quickstart
+          - installation
+        ---
+    
+    formatting_guidelines:
+      headings:
+        rules:
+          - "Start with H1 (title), use H2-H4 for sections"
+          - "Don't skip heading levels"
+          - "Use sentence case, not Title Case"
+          - "Keep headings short and descriptive"
+        good_example: |
+          # Getting started
+          
+          ## Installation
+          
+          ### Using npm
+          
+          ### Using yarn
+          
+          ## Configuration
+        bad_example: |
+          # Getting Started Guide For New Users
+          
+          #### Installation  <!-- Skipped H2, H3 -->
+          
+          ## CONFIGURATION   <!-- Inconsistent case -->
+      
+      code_blocks:
+        rules:
+          - "Always specify language for syntax highlighting"
+          - "Use meaningful file names in titles"
+          - "Keep examples short and focused"
+          - "Highlight important lines"
+        good_example: |
+          ```python title="config.py" {3-4}
+          # Configuration file
+          import os
+          
+          DATABASE_URL = os.environ["DATABASE_URL"]  # highlighted
+          DEBUG = os.environ.get("DEBUG", False)     # highlighted
+          ```
+        bad_example: |
+          ```
+          DATABASE_URL = os.environ["DATABASE_URL"]
+          ```
+      
+      links:
+        rules:
+          - "Use relative paths for internal links"
+          - "Include descriptive link text"
+          - "Check for broken links in CI"
+        good_example: |
+          See the [authentication guide](../how-to/configure-auth.md) 
+          for setup instructions.
+        bad_example: |
+          Click [here](../how-to/configure-auth.md) for more info.
+      
+      admonitions:
+        types:
+          note: "Additional context or tips"
+          tip: "Helpful suggestions"
+          info: "General information"
+          warning: "Potential issues to be aware of"
+          danger: "Critical information about breaking changes or security"
+        example: |
+          :::warning
+          This operation cannot be undone. Make sure to backup your data first.
+          :::
+          
+          :::tip
+          You can speed up builds by enabling caching in your CI configuration.
+          :::
+  
+  documentation_tools:
+    mkdocs:
+      description: "Python-based static site generator"
+      config_file: "mkdocs.yml"
+      strengths:
+        - "Simple configuration"
+        - "Material theme is excellent"
+        - "Good plugin ecosystem"
+        - "Fast builds"
+      example_config: |
+        site_name: My Project Docs
+        site_url: https://docs.example.com
+        repo_url: https://github.com/org/project
+        
+        theme:
+          name: material
+          features:
+            - navigation.tabs
+            - navigation.sections
+            - search.suggest
+            - content.code.copy
+          palette:
+            primary: indigo
+        
+        plugins:
+          - search
+          - mkdocstrings:
+              handlers:
+                python:
+                  options:
+                    show_source: true
+        
+        nav:
+          - Home: index.md
+          - Getting Started:
+            - Installation: getting-started/installation.md
+            - Quick Start: getting-started/quickstart.md
+          - API Reference: reference/api.md
+        
+        markdown_extensions:
+          - admonition
+          - pymdownx.highlight
+          - pymdownx.superfences
+          - pymdownx.tabbed:
+              alternate_style: true
+    
+    docusaurus:
+      description: "React-based documentation framework by Meta"
+      config_file: "docusaurus.config.js"
+      strengths:
+        - "Modern React architecture"
+        - "Versioning built-in"
+        - "i18n support"
+        - "MDX for interactive docs"
+      example_config: |
+        module.exports = {
+          title: 'My Project',
+          tagline: 'Documentation for developers',
+          url: 'https://docs.example.com',
+          baseUrl: '/',
+          
+          presets: [
+            [
+              '@docusaurus/preset-classic',
+              {
+                docs: {
+                  sidebarPath: require.resolve('./sidebars.js'),
+                  editUrl: 'https://github.com/org/project/edit/main/',
+                },
+                theme: {
+                  customCss: require.resolve('./src/css/custom.css'),
+                },
+              },
+            ],
+          ],
+          
+          themeConfig: {
+            navbar: {
+              title: 'My Project',
+              items: [
+                { to: '/docs/intro', label: 'Docs', position: 'left' },
+                { to: '/api', label: 'API', position: 'left' },
+              ],
+            },
+            algolia: {
+              appId: 'YOUR_APP_ID',
+              apiKey: 'YOUR_SEARCH_API_KEY',
+              indexName: 'your_index',
+            },
+          },
+        };
+  
+  git_workflow:
+    branching_strategy:
+      main: "Production documentation"
+      develop: "Staging/preview"
+      feature_branches: "feature/add-auth-guide"
+    
+    pull_request_template: |
+      ## Documentation Change
+      
+      ### Type of change
+      - [ ] New documentation
+      - [ ] Update existing documentation
+      - [ ] Fix typo/error
+      - [ ] Restructure/reorganize
+      
+      ### Description
+      [Describe what changed and why]
+      
+      ### Checklist
+      - [ ] Follows style guide
+      - [ ] Links are valid
+      - [ ] Code examples tested
+      - [ ] Screenshots updated (if applicable)
+      - [ ] Reviewed for technical accuracy
+    
+    ci_pipeline: |
+      name: Documentation CI
+      
+      on:
+        pull_request:
+          paths:
+            - 'docs/**'
+            - 'mkdocs.yml'
+      
+      jobs:
+        lint:
+          runs-on: ubuntu-latest
+          steps:
+            - uses: actions/checkout@v4
+            - uses: errata-ai/vale-action@v2
+              with:
+                files: docs/
+        
+        link-check:
+          runs-on: ubuntu-latest
+          steps:
+            - uses: actions/checkout@v4
+            - uses: lycheeverse/lychee-action@v1
+              with:
+                args: --verbose docs/
+        
+        build:
+          runs-on: ubuntu-latest
+          steps:
+            - uses: actions/checkout@v4
+            - uses: actions/setup-python@v4
+              with:
+                python-version: '3.11'
+            - run: pip install mkdocs-material
+            - run: mkdocs build --strict
+        
+        deploy-preview:
+          runs-on: ubuntu-latest
+          steps:
+            - uses: actions/checkout@v4
+            - uses: netlify/actions/cli@master
+              with:
+                args: deploy --dir=site
+
+# =============================================================================
+# SECTION 4: WRITING STYLE
+# =============================================================================
+writing_style:
+  plain_language:
+    definition: |
+      Plain language is clear, concise writing that allows readers to understand
+      content the first time they read it. It's not "dumbed down" but optimized
+      for comprehension.
+    
+    principles:
+      - "Write for your audience's level of expertise"
+      - "Use simple words when possible"
+      - "Keep sentences short (under 25 words average)"
+      - "One idea per paragraph"
+      - "Front-load important information"
+    
+    best_practices:
+      word_choice:
+        prefer:
+          - "use" over "utilize"
+          - "start" over "initiate" or "commence"
+          - "end" over "terminate"
+          - "about" over "approximately"
+          - "help" over "facilitate"
+          - "need" over "require" (when appropriate)
+          - "can" over "is able to"
+          - "to" over "in order to"
+        
+        avoid:
+          jargon_without_context: |
+            # BAD
+            Leverage the SDK to bootstrap your microservices.
+            
+            # GOOD
+            Use the SDK to set up your services.
+          
+          unnecessary_words: |
+            # BAD
+            In order to configure the system, it is necessary to...
+            
+            # GOOD
+            To configure the system...
+      
+      sentence_structure:
+        good_examples:
+          - title: "Clear and direct"
+            before: "The configuration file should be edited by the user to include the API key."
+            after: "Add your API key to the configuration file."
+          
+          - title: "Specific instructions"
+            before: "The database needs to be set up."
+            after: "Create a PostgreSQL database named `myapp_production`."
+        
+        bad_examples:
+          - title: "Passive and vague"
+            example: "Errors may be encountered if improper configuration is utilized."
+          - title: "Run-on sentence"
+            example: "First you need to install the dependencies and then configure the environment variables and after that you can start the server which will run on port 3000 by default unless you specify a different port."
+  
+  active_voice:
+    definition: |
+      In active voice, the subject performs the action. Active voice is clearer,
+      more direct, and easier to understand than passive voice.
+    
+    comparison:
+      passive: "The file is created by the system."
+      active: "The system creates the file."
+      
+      passive: "The error was caused by invalid input."
+      active: "Invalid input caused the error."
+      
+      passive: "The request must be authenticated."
+      active: "You must authenticate the request."
+    
+    when_passive_is_acceptable:
+      - "When the actor is unknown: 'The bug was reported in 2023.'"
+      - "When the actor is obvious: 'The data is encrypted at rest.'"
+      - "When focusing on the result: 'Your account has been created.'"
+    
+    best_practices:
+      good_examples:
+        - "Run `npm install` to install dependencies."
+        - "The API returns a JSON response."
+        - "You can configure logging in `config.yaml`."
+      
+      bad_examples:
+        - "Dependencies can be installed by running `npm install`."
+        - "A JSON response is returned by the API."
+        - "Logging can be configured in `config.yaml` by the user."
+  
+  technical_accuracy:
+    principles:
+      - "Verify all code examples work"
+      - "Test commands on multiple platforms"
+      - "Keep examples up-to-date with latest versions"
+      - "Include version numbers where relevant"
+      - "Note platform-specific differences"
+    
+    code_example_rules:
+      must_do:
+        - "Test every code example before publishing"
+        - "Use realistic but sanitized data"
+        - "Show complete, runnable snippets"
+        - "Include imports and setup code"
+        - "Handle errors appropriately"
+      
+      avoid:
+        - "Placeholder text like 'YOUR_API_KEY' without explanation"
+        - "Outdated syntax or deprecated methods"
+        - "Examples that only work on specific platforms"
+        - "Incomplete code that won't run"
+    
+    version_documentation:
+      example: |
+        :::info Version compatibility
+        This guide is written for version 2.x. For version 1.x, 
+        see the [legacy documentation](./v1/guide.md).
+        :::
+        
+        ```bash
+        # Requires Node.js 18+ and npm 9+
+        npm install mypackage@^2.0.0
+        ```
+  
+  inclusive_language:
+    principles:
+      - "Use gender-neutral language"
+      - "Avoid ableist terms"
+      - "Be culturally sensitive"
+      - "Don't assume user characteristics"
+    
+    guidelines:
+      gender_neutral:
+        avoid: "he, she, his, her, mankind"
+        prefer: "they, their, you, people, humanity"
+      
+      ableist_terms:
+        avoid: "crazy, insane, blind to, crippled, dumb"
+        prefer: "unexpected, unaware of, broken, silent"
+      
+      technical_terms:
+        avoid: "whitelist/blacklist, master/slave, sanity check"
+        prefer: "allowlist/denylist, primary/replica, confidence check"
+      
+      examples:
+        bad: "When a developer writes his code, he should..."
+        good: "When you write code, you should..."
+        
+        bad: "This is a sanity check to ensure the config isn't crazy."
+        good: "This validates that the configuration is correct."
+
+# =============================================================================
+# SECTION 5: README BEST PRACTICES
+# =============================================================================
+readme_best_practices:
+  purpose: |
+    A README is often the first thing users see. It should quickly communicate 
+    what the project does, how to use it, and how to get help.
+  
+  essential_sections:
+    project_title:
+      description: "Clear name with optional tagline"
+      example: |
+        # FastCache
+        
+        > Lightning-fast distributed caching for modern applications
+    
+    badges:
+      description: "Visual indicators of project health"
+      common_badges:
+        - "Build status (CI/CD)"
+        - "Test coverage"
+        - "Package version"
+        - "License"
+        - "Downloads"
+        - "Documentation status"
+      example: |
+        [![CI](https://github.com/org/repo/actions/workflows/ci.yml/badge.svg)](https://github.com/org/repo/actions)
+        [![Coverage](https://codecov.io/gh/org/repo/branch/main/graph/badge.svg)](https://codecov.io/gh/org/repo)
+        [![npm](https://img.shields.io/npm/v/package.svg)](https://www.npmjs.com/package/package)
+        [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+    
+    description:
+      description: "What the project does and why it exists"
+      guidelines:
+        - "One or two paragraphs maximum"
+        - "Explain the problem it solves"
+        - "Highlight key features"
+        - "Mention target audience"
+      good_example: |
+        ## What is FastCache?
+        
+        FastCache is a distributed caching library that reduces database load 
+        by up to 90%. It's designed for high-traffic web applications that 
+        need sub-millisecond response times.
+        
+        **Key features:**
+        - 🚀 Sub-millisecond reads
+        - 📊 Built-in metrics and monitoring
+        - 🔄 Automatic cache invalidation
+        - 🔐 Encryption at rest and in transit
+      bad_example: |
+        ## Description
+        
+        This is a caching library. It caches things. It's fast.
+    
+    quick_start:
+      description: "Get users running in under 5 minutes"
+      guidelines:
+        - "Assume minimal setup"
+        - "Copy-paste commands"
+        - "Show immediate results"
+      example: |
+        ## Quick Start
+        
+        ```bash
+        # Install
+        npm install fastcache
+        
+        # Create a cache
+        npx fastcache init
+        
+        # Start the server
+        npx fastcache start
+        ```
+        
+        Your cache is now running at `http://localhost:6379`. 
+        Try it out:
+        
+        ```bash
+        curl -X POST http://localhost:6379/set/mykey -d "myvalue"
+        curl http://localhost:6379/get/mykey
+        # Returns: myvalue
+        ```
+    
+    installation:
+      description: "Detailed installation instructions"
+      guidelines:
+        - "Cover all package managers"
+        - "List system requirements"
+        - "Show verification steps"
+      example: |
+        ## Installation
+        
+        ### Requirements
+        - Node.js 18 or higher
+        - npm 9 or yarn 1.22+
+        
+        ### npm
+        ```bash
+        npm install fastcache
+        ```
+        
+        ### yarn
+        ```bash
+        yarn add fastcache
+        ```
+        
+        ### Verify installation
+        ```bash
+        npx fastcache --version
+        # Should print: fastcache v2.1.0
+        ```
+    
+    usage:
+      description: "Common use cases with examples"
+      guidelines:
+        - "Start with simplest example"
+        - "Progress to advanced usage"
+        - "Include real-world scenarios"
+      example: |
+        ## Usage
+        
+        ### Basic caching
+        
+        ```javascript
+        import { Cache } from 'fastcache';
+        
+        const cache = new Cache();
+        
+        // Store a value
+        await cache.set('user:123', { name: 'Jane' });
+        
+        // Retrieve it
+        const user = await cache.get('user:123');
+        console.log(user); // { name: 'Jane' }
+        ```
+        
+        ### With expiration
+        
+        ```javascript
+        // Cache for 1 hour
+        await cache.set('session:abc', data, { ttl: 3600 });
+        ```
+        
+        ### Cache-aside pattern
+        
+        ```javascript
+        async function getUser(id) {
+          const cached = await cache.get(`user:${id}`);
+          if (cached) return cached;
+          
+          const user = await db.users.findById(id);
+          await cache.set(`user:${id}`, user, { ttl: 300 });
+          return user;
+        }
+        ```
+    
+    configuration:
+      description: "How to configure the project"
+      example: |
+        ## Configuration
+        
+        Create a `fastcache.config.js` file:
+        
+        ```javascript
+        module.exports = {
+          port: 6379,
+          maxMemory: '256mb',
+          evictionPolicy: 'lru',
+          persistence: {
+            enabled: true,
+            path: './data'
+          }
+        };
+        ```
+        
+        Or use environment variables:
+        
+        | Variable | Default | Description |
+        |----------|---------|-------------|
+        | `FASTCACHE_PORT` | 6379 | Server port |
+        | `FASTCACHE_MAX_MEMORY` | 256mb | Maximum memory usage |
+    
+    api_reference:
+      description: "Link to full documentation or brief reference"
+      example: |
+        ## API Reference
+        
+        See the [full API documentation](https://docs.example.com/api).
+        
+        ### Quick reference
+        
+        | Method | Description |
+        |--------|-------------|
+        | `get(key)` | Retrieve a value |
+        | `set(key, value, options?)` | Store a value |
+        | `delete(key)` | Remove a value |
+        | `clear()` | Remove all values |
+    
+    contributing:
+      description: "How to contribute to the project"
+      example: |
+        ## Contributing
+        
+        We welcome contributions! Please see our 
+        [Contributing Guide](CONTRIBUTING.md) for details.
+        
+        ```bash
+        # Clone the repo
+        git clone https://github.com/org/fastcache.git
+        
+        # Install dependencies
+        npm install
+        
+        # Run tests
+        npm test
+        ```
+    
+    license:
+      description: "License information"
+      example: |
+        ## License
+        
+        MIT © [Your Name](https://github.com/username)
+        
+        See [LICENSE](LICENSE) for details.
+  
+  readme_template: |
+    # Project Name
+    
+    > Brief tagline describing the project
+    
+    [![CI](badge-url)](link) [![npm](badge-url)](link) [![License](badge-url)](link)
+    
+    ## What is Project Name?
+    
+    One paragraph describing what this project does and who it's for.
+    
+    **Features:**
+    - ✨ Feature 1
+    - 🚀 Feature 2
+    - 🔒 Feature 3
+    
+    ## Quick Start
+    
+    ```bash
+    npm install project-name
+    ```
+    
+    ```javascript
+    import { Thing } from 'project-name';
+    const result = Thing.doSomething();
+    ```
+    
+    ## Installation
+    
+    [Detailed installation instructions]
+    
+    ## Usage
+    
+    [Examples and code snippets]
+    
+    ## Configuration
+    
+    [Configuration options]
+    
+    ## API Reference
+    
+    [Link to full docs or brief reference]
+    
+    ## Contributing
+    
+    See [CONTRIBUTING.md](CONTRIBUTING.md)
+    
+    ## License
+    
+    MIT © [Author]
+
+# =============================================================================
+# SECTION 6: DOCUMENTATION TESTING
+# =============================================================================
+documentation_testing:
+  definition: |
+    Documentation testing ensures docs remain accurate, consistent, and accessible.
+    Automated testing catches issues before they reach users.
+  
+  vale_linting:
+    description: |
+      Vale is a prose linter that enforces writing style guidelines. It's 
+      extensible and supports custom rules.
+    
+    installation: |
+      # macOS
+      brew install vale
+      
+      # Windows
+      choco install vale
+      
+      # Or download from releases
+      # https://github.com/errata-ai/vale/releases
+    
+    configuration:
+      vale_ini: |
+        # .vale.ini
+        StylesPath = .vale/styles
+        MinAlertLevel = suggestion
+        
+        Vocab = Project
+        
+        [*.md]
+        BasedOnStyles = Vale, write-good, Microsoft
+        
+        # Disable specific rules
+        Vale.Spelling = NO
+        
+        [*.yaml]
+        BasedOnStyles = Vale
+      
+      directory_structure: |
+        .vale/
+        ├── styles/
+        │   ├── Vocab/
+        │   │   └── Project/
+        │   │       ├── accept.txt    # Allowed words
+        │   │       └── reject.txt    # Forbidden words
+        │   └── Custom/
+        │       └── Acronyms.yml      # Custom rules
+        └── .vale.ini
+    
+    custom_rules:
+      avoid_future_tense: |
+        # .vale/styles/Custom/FutureTense.yml
+        extends: existence
+        message: "Avoid future tense. Use present tense instead of '%s'."
+        level: warning
+        tokens:
+          - 'will be'
+          - 'will have'
+          - 'is going to'
+      
+      code_fence_language: |
+        # .vale/styles/Custom/CodeFence.yml
+        extends: script
+        message: "Code blocks should specify a language."
+        level: warning
+        scope: raw
+        script: |
+          text := import("text")
+          matches := []
+          for line in text.split(scope, "\n") {
+            if text.has_prefix(line, "```") && len(line) == 3 {
+              matches = append(matches, {begin: 0, end: 3})
+            }
+          }
+    
+    common_style_packages:
+      - name: "Microsoft"
+        description: "Microsoft Writing Style Guide rules"
+        url: "https://github.com/errata-ai/Microsoft"
+      - name: "Google"
+        description: "Google Developer Documentation Style Guide"
+        url: "https://github.com/errata-ai/Google"
+      - name: "write-good"
+        description: "Passive voice, weasel words, etc."
+        url: "https://github.com/errata-ai/write-good"
+      - name: "alex"
+        description: "Inclusive language checking"
+        url: "https://github.com/errata-ai/alex"
+  
+  link_checking:
+    tools:
+      lychee:
+        description: "Fast, async link checker written in Rust"
+        usage: |
+          # Check all markdown files
+          lychee docs/**/*.md
+          
+          # Exclude certain patterns
+          lychee --exclude 'localhost' --exclude 'example.com' docs/
+          
+          # Output as JSON for CI
+          lychee --format json docs/ > link-report.json
+        
+        config: |
+          # .lychee.toml
+          exclude = [
+            "localhost",
+            "127.0.0.1",
+            "example.com"
+          ]
+          
+          accept = [200, 204, 301, 302]
+          timeout = 30
+          max_concurrency = 32
+      
+      markdown_link_check:
+        description: "Node.js based link checker"
+        usage: |
+          npx markdown-link-check README.md
+          
+          # Check all files recursively
+          find docs -name "*.md" -exec npx markdown-link-check {} \;
+    
+    ci_integration: |
+      # GitHub Action for link checking
+      name: Link Check
+      
+      on:
+        pull_request:
+          paths: ['docs/**', '*.md']
+        schedule:
+          - cron: '0 0 * * 0'  # Weekly
+      
+      jobs:
+        link-check:
+          runs-on: ubuntu-latest
+          steps:
+            - uses: actions/checkout@v4
+            - name: Check links
+              uses: lycheeverse/lychee-action@v1
+              with:
+                fail: true
+                args: |
+                  --verbose 
+                  --exclude-mail 
+                  --exclude 'localhost'
+                  'docs/**/*.md'
+                  'README.md'
+  
+  code_example_testing:
+    principles:
+      - "Every code example should be executable"
+      - "Test examples in CI to catch breakage"
+      - "Use the actual package version in tests"
+    
+    approaches:
+      doctest_python:
+        description: "Test code examples in docstrings"
+        example: |
+          def add(a: int, b: int) -> int:
+              """Add two numbers.
+              
+              Examples:
+                  >>> add(2, 3)
+                  5
+                  >>> add(-1, 1)
+                  0
+              """
+              return a + b
+          
+          # Run with: python -m doctest module.py
+      
+      mdx_exec:
+        description: "Execute code blocks in MDX files"
+        tools: ["mdx-js/mdx", "runmd"]
+      
+      extract_and_test:
+        description: "Extract code blocks and run them"
+        script: |
+          #!/usr/bin/env python3
+          """Extract and test code blocks from markdown files."""
+          
+          import re
+          import subprocess
+          import tempfile
+          from pathlib import Path
+          
+          def extract_code_blocks(markdown_file: Path) -> list[dict]:
+              """Extract fenced code blocks from markdown."""
+              content = markdown_file.read_text()
+              pattern = r'```(\w+)(?:\s+title="([^"]*)")?\n(.*?)```'
+              blocks = []
+              for match in re.finditer(pattern, content, re.DOTALL):
+                  blocks.append({
+                      'language': match.group(1),
+                      'title': match.group(2),
+                      'code': match.group(3).strip()
+                  })
+              return blocks
+          
+          def test_python_block(code: str) -> bool:
+              """Test a Python code block."""
+              with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:
+                  f.write(code)
+                  f.flush()
+                  result = subprocess.run(
+                      ['python', f.name],
+                      capture_output=True,
+                      timeout=30
+                  )
+                  return result.returncode == 0
+    
+    ci_integration: |
+      # Test code examples in documentation
+      name: Test Doc Examples
+      
+      on:
+        pull_request:
+          paths: ['docs/**/*.md']
+      
+      jobs:
+        test-examples:
+          runs-on: ubuntu-latest
+          steps:
+            - uses: actions/checkout@v4
+            - uses: actions/setup-python@v4
+              with:
+                python-version: '3.11'
+            - name: Install package
+              run: pip install -e .
+            - name: Test Python examples
+              run: python scripts/test_doc_examples.py docs/
+  
+  accessibility_testing:
+    principles:
+      - "All images need alt text"
+      - "Color should not be the only indicator"
+      - "Maintain proper heading hierarchy"
+      - "Links should be descriptive"
+    
+    tools:
+      - name: "markdownlint"
+        checks: ["headings", "links", "images"]
+      - name: "axe-core"
+        checks: ["built HTML accessibility"]
+      - name: "pa11y"
+        checks: ["WCAG compliance"]
+    
+    markdownlint_config: |
+      # .markdownlint.yaml
+      default: true
+      
+      # Heading rules
+      MD001: true  # Heading increment
+      MD003:
+        style: atx  # ATX-style headings
+      
+      # Line length (disable for docs)
+      MD013: false
+      
+      # Images must have alt text
+      MD045: true
+      
+      # Link fragments should be valid
+      MD051: true
+
+# =============================================================================
+# SECTION 7: DOCUMENTATION CHECKLIST
+# =============================================================================
+documentation_checklist:
+  new_feature_documentation:
+    before_writing:
+      - "Identify the documentation type needed (tutorial, how-to, etc.)"
+      - "Understand the target audience"
+      - "Gather technical details from engineers"
+      - "Review existing related documentation"
+    
+    writing:
+      - "Follow the appropriate template"
+      - "Use active voice and present tense"
+      - "Include working code examples"
+      - "Add diagrams where helpful"
+      - "Link to related content"
+    
+    review:
+      - "Technical accuracy verified by engineer"
+      - "Code examples tested and working"
+      - "Passes Vale linting"
+      - "Links verified"
+      - "Spell check completed"
+    
+    after_publishing:
+      - "Verify production deployment"
+      - "Check search indexing"
+      - "Announce in changelog/release notes"
+      - "Update any cross-references"
+  
+  api_documentation_checklist:
+    endpoint_documentation:
+      - "Summary and description provided"
+      - "All parameters documented with types"
+      - "All response codes documented"
+      - "Example request provided"
+      - "Example response provided"
+      - "Error responses documented"
+      - "Authentication requirements noted"
+      - "Rate limits documented"
+    
+    code_examples:
+      - "cURL example provided"
+      - "At least one SDK example"
+      - "Examples are complete and runnable"
+      - "Examples show error handling"
+      - "Examples use realistic data"
+  
+  readme_checklist:
+    essential:
+      - "Project name and description"
+      - "Installation instructions"
+      - "Quick start example"
+      - "License information"
+    
+    recommended:
+      - "Badges (build, version, coverage)"
+      - "Usage examples"
+      - "Configuration options"
+      - "Contributing guidelines"
+      - "Changelog link"
+    
+    nice_to_have:
+      - "Screenshots or demo GIF"
+      - "Comparison with alternatives"
+      - "Roadmap"
+      - "Acknowledgments"
+  
+  periodic_review_checklist:
+    monthly:
+      - "Check for broken links"
+      - "Review analytics for underperforming pages"
+      - "Update version numbers"
+      - "Test quick start guide"
+    
+    quarterly:
+      - "Full link audit"
+      - "Review and update code examples"
+      - "Check for outdated information"
+      - "Survey users for feedback"
+      - "Review search queries for gaps"
+    
+    annually:
+      - "Complete documentation audit"
+      - "Update screenshots"
+      - "Review information architecture"
+      - "Assess tool and theme updates"
+
+# =============================================================================
+# SECTION 8: TEMPLATES
+# =============================================================================
+templates:
+  tutorial_template: |
+    ---
+    title: "Tutorial: [What You'll Build]"
+    description: "Learn to [outcome] in [time estimate]"
+    ---
+    
+    # Tutorial: [What You'll Build]
+    
+    In this tutorial, you'll learn how to [specific outcome]. By the end, 
+    you'll have [tangible result].
+    
+    **Time required:** X minutes  
+    **Skill level:** Beginner/Intermediate/Advanced
+    
+    ## Prerequisites
+    
+    Before starting, make sure you have:
+    - [ ] [Requirement 1]
+    - [ ] [Requirement 2]
+    
+    ## What you'll build
+    
+    [Screenshot or description of final result]
+    
+    ## Step 1: [Action]
+    
+    [Brief context, then instruction]
+    
+    ```language
+    [Code]
+    ```
+    
+    You should see:
+    
+    ```
+    [Expected output]
+    ```
+    
+    ## Step 2: [Action]
+    
+    [Continue pattern...]
+    
+    ## Summary
+    
+    Congratulations! You've learned how to:
+    - ✅ [Accomplishment 1]
+    - ✅ [Accomplishment 2]
+    
+    ## Next steps
+    
+    - [Link to next tutorial]
+    - [Link to related how-to guide]
+  
+  how_to_template: |
+    ---
+    title: "How to [accomplish task]"
+    description: "Step-by-step guide to [task]"
+    ---
+    
+    # How to [accomplish task]
+    
+    This guide shows you how to [task] for [use case].
+    
+    ## Prerequisites
+    
+    - [Requirement 1]
+    - [Requirement 2]
+    
+    ## Steps
+    
+    ### 1. [First action]
+    
+    ```language
+    [Code]
+    ```
+    
+    ### 2. [Second action]
+    
+    ```language
+    [Code]
+    ```
+    
+    ## Verification
+    
+    To confirm it worked:
+    
+    ```language
+    [Verification code]
+    ```
+    
+    ## Troubleshooting
+    
+    ### [Common issue 1]
+    
+    **Symptom:** [What you see]  
+    **Cause:** [Why it happens]  
+    **Solution:** [How to fix]
+    
+    ## See also
+    
+    - [Related guide 1]
+    - [Related guide 2]
+  
+  api_endpoint_template: |
+    ## [HTTP Method] [Endpoint Path]
+    
+    [One-line description of what this endpoint does]
+    
+    ### Authentication
+    
+    Requires [authentication type]. See [Authentication Guide](../auth.md).
+    
+    ### Request
+    
+    #### Path parameters
+    
+    | Parameter | Type | Required | Description |
+    |-----------|------|----------|-------------|
+    | `param` | string | Yes | Description |
+    
+    #### Query parameters
+    
+    | Parameter | Type | Default | Description |
+    |-----------|------|---------|-------------|
+    | `param` | string | — | Description |
+    
+    #### Request body
+    
+    ```json
+    {
+      "field": "value"
+    }
+    ```
+    
+    | Field | Type | Required | Description |
+    |-------|------|----------|-------------|
+    | `field` | string | Yes | Description |
+    
+    ### Response
+    
+    #### Success (200 OK)
+    
+    ```json
+    {
+      "id": "abc123",
+      "created_at": "2024-01-15T10:30:00Z"
+    }
+    ```
+    
+    #### Errors
+    
+    | Status | Code | Description |
+    |--------|------|-------------|
+    | 400 | `INVALID_REQUEST` | Request body validation failed |
+    | 401 | `UNAUTHORIZED` | Missing or invalid API key |
+    | 404 | `NOT_FOUND` | Resource does not exist |
+    
+    ### Examples
+    
+    <CodeTabs>
+    
+    ```bash title="cURL"
+    curl -X POST https://api.example.com/v1/endpoint \
+      -H "Authorization: Bearer $API_KEY" \
+      -H "Content-Type: application/json" \
+      -d '{"field": "value"}'
+    ```
+    
+    ```python title="Python"
+    import requests
+    
+    response = requests.post(
+        "https://api.example.com/v1/endpoint",
+        headers={"Authorization": f"Bearer {api_key}"},
+        json={"field": "value"}
+    )
+    print(response.json())
+    ```
+    
+    </CodeTabs>
+  
+  changelog_template: |
+    # Changelog
+    
+    All notable changes to this project will be documented in this file.
+    
+    The format is based on [Keep a Changelog](https://keepachangelog.com/),
+    and this project adheres to [Semantic Versioning](https://semver.org/).
+    
+    ## [Unreleased]
+    
+    ### Added
+    - New features
+    
+    ### Changed
+    - Changes in existing functionality
+    
+    ### Deprecated
+    - Features to be removed in future versions
+    
+    ### Removed
+    - Removed features
+    
+    ### Fixed
+    - Bug fixes
+    
+    ### Security
+    - Security fixes
+    
+    ## [1.0.0] - 2024-01-15
+    
+    ### Added
+    - Initial release
+    
+    [Unreleased]: https://github.com/org/repo/compare/v1.0.0...HEAD
+    [1.0.0]: https://github.com/org/repo/releases/tag/v1.0.0
+  
+  contributing_template: |
+    # Contributing to [Project Name]
+    
+    Thank you for your interest in contributing! This document provides 
+    guidelines and instructions for contributing.
+    
+    ## Code of Conduct
+    
+    By participating, you agree to abide by our [Code of Conduct](CODE_OF_CONDUCT.md).
+    
+    ## How to Contribute
+    
+    ### Reporting Bugs
+    
+    1. Search existing issues to avoid duplicates
+    2. Use the bug report template
+    3. Include reproduction steps
+    4. Attach relevant logs or screenshots
+    
+    ### Suggesting Features
+    
+    1. Search existing issues and discussions
+    2. Use the feature request template
+    3. Explain the use case and expected behavior
+    
+    ### Submitting Code
+    
+    1. Fork the repository
+    2. Create a feature branch: `git checkout -b feature/my-feature`
+    3. Make your changes
+    4. Add tests for new functionality
+    5. Ensure all tests pass: `npm test`
+    6. Commit with a descriptive message
+    7. Push and open a pull request
+    
+    ## Development Setup
+    
+    ```bash
+    # Clone your fork
+    git clone https://github.com/YOUR_USERNAME/repo.git
+    
+    # Install dependencies
+    npm install
+    
+    # Run tests
+    npm test
+    
+    # Start development server
+    npm run dev
+    ```
+    
+    ## Style Guide
+    
+    - Follow existing code style
+    - Write meaningful commit messages
+    - Add JSDoc comments for public APIs
+    - Update documentation for user-facing changes
+    
+    ## Pull Request Process
+    
+    1. Update documentation if needed
+    2. Add entry to CHANGELOG.md
+    3. Ensure CI passes
+    4. Request review from maintainers
+    5. Address review feedback
+    
+    ## Questions?
+    
+    Open a discussion or reach out to maintainers.

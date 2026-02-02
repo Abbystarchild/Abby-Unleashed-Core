@@ -525,11 +525,12 @@ devops_mastery:
         DATABASE_URL = secrets['database_url']
 
     container_security:
-      - "Use minimal base images (alpine, distroless)"
-      - "Run as non-root user"
-      - "Scan images for vulnerabilities"
-      - "Don't store secrets in images"
-      - "Use read-only filesystem where possible"
+      best_practices:
+        - "Use minimal base images (alpine, distroless)"
+        - "Run as non-root user"
+        - "Scan images for vulnerabilities"
+        - "Don't store secrets in images"
+        - "Use read-only filesystem where possible"
       
       scanning: |
         # Trivy - container vulnerability scanner

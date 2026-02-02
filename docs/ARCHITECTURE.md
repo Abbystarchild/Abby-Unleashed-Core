@@ -99,6 +99,49 @@ Creates agents dynamically based on task requirements.
 5. Create agent with DNA + personality
 6. Save new persona to library
 
+### 7. Dynamic Knowledge Loader ✨ NEW
+
+On-demand knowledge loading system that minimizes memory while enabling cross-disciplinary access.
+
+**Location**: `agents/dynamic_knowledge_loader.py`
+
+**Features**:
+- **Role-Based Loading**: Maps agent roles to primary knowledge domains
+- **Task-Based Dynamic Loading**: Detects topics and loads relevant modules
+- **Memory Optimization**: Tracks and optimizes loaded modules
+- **Cross-Disciplinary Access**: Any agent can request any knowledge
+
+**Knowledge Categories** (30+ files, ~16,000 lines):
+- Core: `coding_foundations`, `general_programming`
+- Languages: `python_mastery`, `javascript_typescript_mastery`, `kotlin_mastery`
+- Domains: `frontend_mastery`, `backend_mastery`, `api_design_mastery`
+- Infrastructure: `devops_mastery`, `docker_mastery`, `sre_mastery`
+- Data: `database_mastery`, `postgresql_mastery`, `data_engineering_mastery`
+- Security: `security_mastery`, `hacking_penetration_testing_mastery`
+- Quality: `testing_mastery`, `qa_mastery`, `debugging_mastery`
+- ML/AI: `ml_engineering_mastery`
+
+### 8. Knowledge Version Control ✨ NEW
+
+Version control and auto-update system for knowledge bases.
+
+**Location**: `agents/knowledge_version_control.py`
+
+**Features**:
+- SHA256 hash-based version tracking
+- Timestamped backups before updates
+- Rollback to previous versions
+- Auto-detection of outdated content
+- Pending updates queue for review
+
+**CLI Commands**:
+```bash
+python knowledge_version_control.py status        # Check all files
+python knowledge_version_control.py backup        # Create backup
+python knowledge_version_control.py rollback <name>  # Restore previous
+python knowledge_version_control.py check-updates # Find outdated content
+```
+
 ### 7. Task Engine (Phase 2)
 
 A complete system for breaking down complex tasks into manageable subtasks with dependency management.
@@ -252,7 +295,10 @@ agents/                      # Core agent system
 ├── agent_dna.py            # 5-element DNA
 ├── base_agent.py           # Base agent class
 ├── agent_factory.py        # Agent creation
-└── clarification_protocol.py
+├── clarification_protocol.py
+├── dynamic_knowledge_loader.py  # ✨ NEW! On-demand knowledge
+├── knowledge_version_control.py # ✨ NEW! Versioning/updates
+└── knowledge/              # 30+ mastery files (~16,000 lines)
 
 task_engine/                # Task decomposition system
 ├── __init__.py
@@ -297,7 +343,8 @@ tests/                      # Test suite
 ├── test_speech_interface.py
 ├── test_persona_library.py
 ├── test_task_engine.py
-└── test_coordination.py   # ← NEW!
+├── test_coordination.py
+└── test_agent_stress.py   # ✨ NEW! Stress/capacity testing
 
 examples/                   # Example scripts
 ├── create_web_scraper.py
@@ -367,6 +414,95 @@ learning/
 └── skill_library.py
 ```
 
+## Stress Testing & Optimization ✨ NEW
+
+**Location**: `tests/test_agent_stress.py`
+
+The stress testing system determines optimal concurrent agent count within memory limits.
+
+### Memory Thresholds
+
+| Threshold | Value | Purpose |
+|-----------|-------|---------|
+| MAX_MEMORY_PERCENT | 70% | Stop spawning agents |
+| OPTIMAL_MEMORY_PERCENT | 50% | Ideal operating range |
+| MIN_FREE_GB | 2 | Safety buffer |
+
+### Test Categories
+
+1. **Capacity Testing**: `test_find_max_concurrent_agents`
+   - Gradually spawns agents until memory threshold
+   - Records max safe concurrent count
+
+2. **Knowledge Access**: `TestKnowledgeAccess`
+   - Verifies agents load correct knowledge for their role
+   - Tests cross-disciplinary knowledge access
+
+3. **Memory Limits**: `test_memory_stays_within_limits`
+   - Ensures system never exceeds safety thresholds
+   - Tests graceful degradation
+
+4. **Task Capabilities**: `TestAgentTaskCapabilities`
+   - Challenges agents with domain-specific tasks
+   - Validates knowledge application
+
+### Typical Results (16GB RAM)
+
+```
+Max safe agents:     8-12
+Optimal agents:      5-8
+Per-agent (full):    ~300-500MB
+Per-agent (dynamic): ~50-100MB
+```
+
+### Running Stress Tests
+
+```bash
+# Full stress test suite
+pytest tests/test_agent_stress.py -v
+
+# Find max agents
+pytest tests/test_agent_stress.py::TestOptimalAgentCalculation -v
+
+# Memory validation
+pytest tests/test_agent_stress.py::test_memory_stays_within_limits -v
+```
+
+## Agents vs Persona Library ✨ CLARIFICATION
+
+A common point of confusion - here's the distinction:
+
+| Aspect | Agents (`agents/`) | Persona Library (`persona_library/`) |
+|--------|-------------------|-------------------------------------|
+| **Purpose** | Runtime execution | Persistent storage |
+| **Contains** | Live Agent objects | AgentDNA YAML files |
+| **Lifecycle** | Created/destroyed per task | Persists across sessions |
+| **Memory** | Active RAM usage | Disk storage |
+| **Function** | Doing work | Remembering templates |
+
+**The Flow**:
+```
+Task Request
+    ↓
+AgentFactory
+    ↓
+Check PersonaLibrary → Match Found? → Load existing AgentDNA
+                       No Match?    → Generate new AgentDNA → Save to Library
+    ↓
+Create Agent (runtime object)
+    ↓
+Load Knowledge (dynamic_knowledge_loader)
+    ↓
+Execute Task
+    ↓
+Agent destroyed (memory freed)
+PersonaLibrary retains DNA for future use
+```
+
+Think of it like:
+- **PersonaLibrary** = Resume filing cabinet (persistent templates)
+- **Agents** = Actual workers (created from resumes, do the work)
+
 ## Configuration Management
 
 All configuration is YAML-based for easy editing:
@@ -393,4 +529,4 @@ All configuration is YAML-based for easy editing:
 
 ---
 
-**Version**: 0.3.0 (Phase 3 Complete)
+**Version**: 0.4.0 (Phase 4 - Knowledge Management & Testing)
