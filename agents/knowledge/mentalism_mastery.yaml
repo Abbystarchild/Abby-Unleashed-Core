@@ -1,0 +1,262 @@
+# Mentalism Mastery
+# The art of apparently reading minds and predicting the future
+
+mentalism:
+  
+  # ============ CORE PHILOSOPHY ============
+  philosophy:
+    definition: |
+      Mentalism is the performing art of demonstrating highly developed 
+      mental or intuitive abilities - mind reading, predictions, 
+      psychokinesis, and memory feats.
+    
+    key_distinction: |
+      Unlike magic which presents "impossible" physical feats, mentalism 
+      presents the performer as having genuine psychological abilities. 
+      The audience should believe "maybe this person really CAN read minds."
+    
+    ethical_framework:
+      - "Never claim genuine psychic powers for personal gain"
+      - "Entertainment context makes it ethical theater"
+      - "Don't use techniques to manipulate people outside performance"
+      - "Be aware of vulnerable audiences who may believe too strongly"
+    
+    fundamental_belief: |
+      "Extraordinary claims require extraordinary evidence." 
+      - Carl Sagan
+      
+      A mentalist demonstrates what APPEARS to be extraordinary abilities 
+      while understanding the natural methods behind them. This understanding 
+      protects against both charlatans and self-deception.
+
+  # ============ CATEGORIES OF MENTALISM ============
+  categories:
+    
+    mind_reading:
+      description: "Appearing to know someone's thoughts"
+      methods:
+        - "Cold reading - general statements that seem specific"
+        - "Hot reading - pre-obtained information"
+        - "Pumping - extracting information through conversation"
+        - "Forces - guiding choices while seeming free"
+        - "Dual reality - different audiences see different things"
+    
+    predictions:
+      description: "Appearing to know the future"
+      methods:
+        - "Multiple outs - prepared for various outcomes"
+        - "Force - controlling the outcome"
+        - "Impression devices - secretly obtaining information"
+        - "Switches - exchanging predictions"
+        - "Index systems - pre-prepared responses"
+    
+    psychokinesis:
+      description: "Appearing to move objects with the mind"
+      methods:
+        - "Thread work - invisible connections"
+        - "Magnets - hidden magnetic systems"
+        - "Static electricity - real physics, theatrical presentation"
+        - "Psychology - making audience believe they saw movement"
+    
+    memory_feats:
+      description: "Demonstrating extraordinary memory"
+      techniques:
+        - "Memory palaces - genuine technique"
+        - "Mnemonics - association systems"
+        - "Stacked systems - pre-memorized information"
+        - "Confederates - hidden assistants"
+
+  # ============ CORE TECHNIQUES ============
+  techniques:
+    
+    cold_reading:
+      description: "Appearing to know personal details about strangers"
+      
+      barnum_statements:
+        description: "Statements that apply to almost everyone"
+        examples:
+          - "You have a tendency to be critical of yourself"
+          - "You have a great need for others to like and admire you"
+          - "At times you have serious doubts about your decisions"
+          - "You prefer some change and variety but get frustrated by restrictions"
+        principle: "Everyone relates these to their specific experiences"
+      
+      shotgunning:
+        description: "Throwing out multiple guesses rapidly"
+        technique: |
+          Make rapid guesses: "I'm getting an M name... Mary, Martha, 
+          Margaret, Michael..." The hit is remembered, misses forgotten.
+      
+      rainbow_ruse:
+        description: "Covering both ends of a personality trait"
+        example: |
+          "You can be very outgoing and social, but there are times when 
+          you prefer your own company and quiet reflection."
+        why_it_works: "Everyone is sometimes both - they remember when it fit"
+      
+      fishing:
+        description: "Extracting information while seeming to give it"
+        technique: |
+          Make a statement as a question: "I'm sensing something about 
+          your father... there's something significant there?"
+          The subject fills in the details, which you then reflect back.
+      
+      warm_reading:
+        description: "Using observable details"
+        observations:
+          - "Clothing style indicates personality and economic status"
+          - "Jewelry (wedding ring, religious symbols) reveals much"
+          - "Body language shows comfort, anxiety, openness"
+          - "Age ranges suggest common life experiences"
+          - "Reactions to initial statements guide further readings"
+    
+    hot_reading:
+      description: "Using pre-obtained information"
+      methods:
+        - "Research on social media before events"
+        - "Listening to conversations before approaching"
+        - "Confederates gathering information"
+        - "Prayer cards or questionnaires filled out earlier"
+        - "Earpiece communication from researcher"
+      ethics: "Fine for entertainment, unethical when claiming psychic ability"
+    
+    psychological_forces:
+      description: "Guiding choices that appear free"
+      
+      equivoque:
+        description: "Eliminating options while appearing to give choice"
+        example: |
+          "Pick two items" (if they pick your target, keep it)
+          "Now eliminate one" (if they pick your target, keep it)
+          Either way, you end with your target item.
+      
+      magician_s_choice:
+        description: "Reinterpreting any choice as your intended outcome"
+        technique: |
+          Whatever they choose, your scripting makes it the "right" answer.
+          "You picked red - that's your positive energy color."
+          "You avoided red - you're drawn away from aggression."
+    
+    dual_reality:
+      description: "Different audience members experience different events"
+      principle: |
+        The on-stage participant experiences one thing while the audience 
+        perceives another. Careful scripting makes both experiences seem 
+        like the same impossible event.
+      example: |
+        Participant is told "think of any card" (and shown a force card)
+        Audience hears "think of any card" (assuming free choice)
+
+  # ============ CLASSIC EFFECTS ============
+  classic_effects:
+    
+    book_test:
+      description: "Divining a word thought of from a book"
+      methods: ["peek", "force", "gimmicked book", "multiple outs"]
+      presentation: "Emphasize impossibility of knowing random word"
+    
+    living_and_dead:
+      description: "Divining which name on slips is deceased"
+      method: "Various - often involves glimpsing or marking"
+      psychology: "Emotional subject matter creates powerful impact"
+    
+    drawing_duplication:
+      description: "Reproducing a secretly drawn picture"
+      methods: ["peek devices", "carbon", "impression", "switch"]
+      key: "The drawing should be different enough to seem impossible"
+    
+    billet_reading:
+      description: "Divining information written on folded paper"
+      methods: ["peek", "switch", "impression device", "center tear"]
+      classic: "The center tear - appearing to destroy while glimpsing"
+    
+    chair_test:
+      description: "Predicting which chair a spectator will choose"
+      principle: "Multiple outs or subtle influence"
+    
+    ACAAN:
+      description: "Any Card At Any Number - both freely named"
+      status: "Holy grail - truly free versions are prized secrets"
+
+  # ============ PRESENTATION PRINCIPLES ============
+  presentation:
+    
+    persona:
+      description: "How you present your abilities"
+      options:
+        - "Scientific - 'I read micro-expressions and body language'"
+        - "Intuitive - 'I pick up on subtle cues most people miss'"
+        - "Mysterious - imply something beyond explanation"
+        - "Honest performer - 'Let me show you what's possible'"
+      recommendation: |
+        Never claim genuine supernatural powers. Present as someone 
+        with highly developed natural abilities, or as an entertainer 
+        demonstrating what COULD be possible.
+    
+    pacing:
+      principles:
+        - "Build slowly - start with smaller effects"
+        - "Let revelations land - don't rush climactic moments"
+        - "Use silence powerfully"
+        - "Mirror their emotion when revealing personal information"
+    
+    miss_handling:
+      description: "What to do when effects go wrong"
+      techniques:
+        - "Never admit failure - reframe as partial success"
+        - "Have outs prepared for common failure modes"
+        - "Move on quickly without dwelling"
+        - "Use misses to make hits seem more real"
+
+  # ============ FAMOUS MENTALISTS ============
+  masters:
+    derren_brown: "The modern master - theatrical, honest about methods"
+    max_maven: "Intellectual approach, incredible creativity"
+    banachek: "Fooled scientists with 'psychic' demonstrations"
+    the_amazing_kreskin: "Long career, television fame"
+    chan_canasta: "Pioneered televised book tests"
+    theodore_annemann: "Wrote the bible of mentalism"
+    richard_osterlind: "Worker's approach, practical methods"
+    luke_jermay: "Young innovator, psychological approach"
+
+  # ============ RESOURCES ============
+  essential_reading:
+    - title: "Practical Mental Magic"
+      author: "Theodore Annemann"
+      note: "Foundation text for all mentalism"
+    
+    - title: "13 Steps to Mentalism"
+      author: "Tony Corinda"
+      note: "Comprehensive technique encyclopedia"
+    
+    - title: "Tricks of the Mind"
+      author: "Derren Brown"
+      note: "Philosophy and psychology of mentalism"
+    
+    - title: "Pure Effect"
+      author: "Derren Brown"
+      note: "Modern approach to mental magic"
+    
+    - title: "Psychological Subtleties"
+      author: "Banachek"
+      note: "Practical psychological techniques"
+
+  # ============ SKEPTICISM AWARENESS ============
+  skepticism:
+    description: |
+      A good mentalist understands why people believe in psychic phenomena 
+      and how to create that experience ethically in entertainment.
+    
+    cognitive_biases_exploited:
+      confirmation_bias: "People remember hits, forget misses"
+      subjective_validation: "Vague statements feel personally meaningful"
+      barnum_effect: "General statements accepted as specific"
+      anchoring: "First impressions shape interpretation"
+      hindsight_bias: "Events seem predictable after they occur"
+    
+    critical_thinking:
+      - "Always ask: how could this be done naturally?"
+      - "Extraordinary claims require extraordinary evidence"
+      - "Anecdotes are not data"
+      - "The simplest explanation is usually correct"
+      - "Memory is unreliable, especially for surprising events"
