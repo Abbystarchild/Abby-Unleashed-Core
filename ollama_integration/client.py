@@ -303,16 +303,3 @@ class OllamaClient:
             logger.error(f"Error pulling model: {e}")
             return {"error": str(e)}
     
-    def health_check(self) -> bool:
-        """
-        Check if Ollama service is available
-        
-        Returns:
-            True if service is healthy
-        """
-        try:
-            response = requests.get(self.host, timeout=self.connect_timeout)
-            return response.status_code == 200
-        except Exception as e:
-            logger.error(f"Health check failed: {e}")
-            return False

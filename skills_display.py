@@ -164,6 +164,91 @@ class SkillsManager:
             'base_level': 75,
             'subskills': ['Unit', 'Integration', 'E2E', 'TDD']
         },
+        # NEW SKILLS - Phase 5 Knowledge Expansion
+        'backend_mastery.yaml': {
+            'category': 'programming',
+            'name': 'Backend Development',
+            'icon': '🖥️',
+            'base_level': 85,
+            'subskills': ['APIs', 'Microservices', 'Message Queues', 'Caching']
+        },
+        'frontend_mastery.yaml': {
+            'category': 'programming',
+            'name': 'Frontend Development',
+            'icon': '🎨',
+            'base_level': 80,
+            'subskills': ['React', 'Vue', 'State Management', 'CSS/Tailwind']
+        },
+        'security_mastery.yaml': {
+            'category': 'security',
+            'name': 'Application Security',
+            'icon': '🔒',
+            'base_level': 80,
+            'subskills': ['OWASP Top 10', 'Auth/AuthZ', 'Cryptography', 'Threat Modeling']
+        },
+        'data_engineering_mastery.yaml': {
+            'category': 'data',
+            'name': 'Data Engineering',
+            'icon': '🔄',
+            'base_level': 75,
+            'subskills': ['ETL', 'Spark', 'Airflow', 'Data Lakes']
+        },
+        'ml_engineering_mastery.yaml': {
+            'category': 'data',
+            'name': 'ML Engineering',
+            'icon': '🤖',
+            'base_level': 70,
+            'subskills': ['MLOps', 'Model Training', 'Feature Engineering', 'Deployment']
+        },
+        'qa_mastery.yaml': {
+            'category': 'engineering',
+            'name': 'QA Engineering',
+            'icon': '✅',
+            'base_level': 75,
+            'subskills': ['Test Strategy', 'Automation', 'Performance Testing', 'CI Integration']
+        },
+        'postgresql_mastery.yaml': {
+            'category': 'data',
+            'name': 'PostgreSQL',
+            'icon': '🐘',
+            'base_level': 80,
+            'subskills': ['Query Optimization', 'Indexing', 'Replication', 'Extensions']
+        },
+        'sre_mastery.yaml': {
+            'category': 'devops',
+            'name': 'Site Reliability',
+            'icon': '📡',
+            'base_level': 75,
+            'subskills': ['SLOs/SLIs', 'Incident Response', 'Capacity Planning', 'Observability']
+        },
+        'ios_mastery.yaml': {
+            'category': 'programming',
+            'name': 'iOS Development',
+            'icon': '📱',
+            'base_level': 65,
+            'subskills': ['Swift', 'SwiftUI', 'UIKit', 'Core Data']
+        },
+        'code_review_mastery.yaml': {
+            'category': 'engineering',
+            'name': 'Code Review',
+            'icon': '👀',
+            'base_level': 80,
+            'subskills': ['Best Practices', 'Security Review', 'Performance Review', 'Mentoring']
+        },
+        'debugging_mastery.yaml': {
+            'category': 'engineering',
+            'name': 'Debugging',
+            'icon': '🔍',
+            'base_level': 85,
+            'subskills': ['Root Cause Analysis', 'Profiling', 'Log Analysis', 'Tracing']
+        },
+        'technical_writing_mastery.yaml': {
+            'category': 'engineering',
+            'name': 'Technical Writing',
+            'icon': '📝',
+            'base_level': 75,
+            'subskills': ['Documentation', 'API Docs', 'Tutorials', 'Architecture Docs']
+        },
         'illusionism_mastery.yaml': {
             'category': 'performance',
             'name': 'Illusionism',
@@ -184,6 +269,21 @@ class SkillsManager:
             'icon': '🌀',
             'base_level': 55,
             'subskills': ['Inductions', 'Suggestions', 'Self-Hypnosis', 'Stage Hypnosis']
+        },
+        # NEW SKILLS - Creative & Project-Specific
+        'structured_dreaming_mastery.yaml': {
+            'category': 'mind_arts',
+            'name': 'Structured Dreaming',
+            'icon': '💭',
+            'base_level': 70,
+            'subskills': ['Divergent Thinking', 'Convergent Filtering', 'HMW Questions', 'Ideation']
+        },
+        'safeconnect_production_mastery.yaml': {
+            'category': 'programming',
+            'name': 'SafeConnect Production',
+            'icon': '💜',
+            'base_level': 60,
+            'subskills': ['Ktor Backend', 'Real-time Chat', 'Dating UX', '3D Discovery UI']
         }
     }
     

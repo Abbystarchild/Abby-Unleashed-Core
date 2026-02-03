@@ -21,7 +21,7 @@ models:
     - "mistral:latest"
     - "qwen2.5:latest"
 
-default_model: "qwen2.5:latest"
+default_model: "mistral:latest"  # Changed to match installed models
 
 context_window:
   default: 4096

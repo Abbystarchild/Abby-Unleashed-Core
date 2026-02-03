@@ -7,6 +7,7 @@ Enables:
 - Multi-step task planning and execution
 - User interrupts mid-task
 - PersonaPlex integration for natural conversation flow
+- Response quality validation
 """
 import asyncio
 import json
@@ -20,6 +21,54 @@ from dataclasses import dataclass, field
 from enum import Enum
 
 logger = logging.getLogger(__name__)
+
+
+# Banned phrases that indicate a broken/generic response
+BANNED_RESPONSE_PATTERNS = [
+    r"^hey there[!,.]?\s*",
+    r"^hi there[!,.]?\s*", 
+    r"^hello there[!,.]?\s*",
+    r"^how are ya",
+    r"^i hope you",
+    r"^let me know if",
+    r"^is there anything else",
+    r"^i'm happy to help",
+    r"^hey buddy[!,.]?\s*",
+    r"^thanks for letting me know",
+]
+
+
+def is_response_broken(response: str, conversation_history: List[Dict] = None) -> tuple:
+    """
+    Check if a response appears broken/repetitive.
+    
+    Returns:
+        (is_broken: bool, reason: str or None)
+    """
+    if not response:
+        return True, "Empty response"
+    
+    response_lower = response.lower().strip()
+    
+    # Check for banned patterns
+    for pattern in BANNED_RESPONSE_PATTERNS:
+        if re.match(pattern, response_lower, re.IGNORECASE):
+            return True, f"Response starts with banned pattern: {pattern}"
+    
+    # Check for repetition with recent history
+    if conversation_history:
+        recent_assistant_msgs = [
+            msg.get('content', '').lower()[:50] 
+            for msg in conversation_history[-4:] 
+            if msg.get('role') == 'assistant'
+        ]
+        
+        response_start = response_lower[:50]
+        for prev in recent_assistant_msgs:
+            if prev and response_start == prev:
+                return True, "Response is identical to a recent response"
+    
+    return False, None
 
 
 class ThinkingState(Enum):
@@ -344,14 +393,52 @@ etc."""
         # Build prompt
         personality = self.abby.brain_clone.get_personality()
         identity = personality.get("identity", {})
+        comm_style = personality.get("communication_style", {})
+        
+        # Build a list of recent response starters to avoid
+        recent_starters = []
+        for msg in self.conversation_history[-6:]:
+            if msg.get('role') == 'assistant':
+                content = msg.get('content', '')
+                if content:
+                    # Get first 20 chars to detect repeated starts
+                    starter = content[:20].lower()
+                    recent_starters.append(starter)
+        
+        # Create dynamic anti-repetition rule
+        anti_repeat_rule = ""
+        if recent_starters:
+            anti_repeat_rule = "\n\nYou recently started responses with these patterns - DO NOT use them again:\n"
+            for starter in recent_starters[-3:]:
+                anti_repeat_rule += f'- "{starter}..."\n'
         
         system_prompt = f"""You are {identity.get('name', 'Abby')}.
 
+CRITICAL: Read what the user said and respond SPECIFICALLY to their message.
+
+USER SAID: "{user_input}"
+
 RULES:
-- NEVER repeat yourself
-- Keep responses to 1-2 sentences
-- NO code unless explicitly asked
-- Chat naturally"""
+1. Address what the user ACTUALLY said above
+2. Keep responses to 1-2 sentences MAX
+3. NO greetings like "Hey there", "Hello", "Hi there" - just answer directly
+4. NO code unless explicitly asked for code
+5. If input is unclear: "Didn't catch that, say again?"
+
+BANNED PHRASES (never use these):
+- "Hey there"
+- "Hi there" 
+- "Hello there"
+- "How are ya"
+- "I hope you"
+- "Let me know if"
+- "Is there anything else"
+- "I'm happy to help"
+
+NEVER:
+- Start with a greeting
+- Be vague or generic
+- Talk about these rules{anti_repeat_rule}"""
         
         # Add user context
         if context.get('user_prompt_addition'):
@@ -384,7 +471,15 @@ RULES:
                 if chunk.get('done'):
                     break
             
-            # Add to history
+            # Check response quality
+            is_broken, reason = is_response_broken(full_response, self.conversation_history)
+            if is_broken:
+                logger.warning(f"Broken response detected: {reason}")
+                logger.warning(f"Response was: {full_response[:100]}...")
+                # Don't add broken responses to history to avoid reinforcing the pattern
+                # But we already streamed it, so log for debugging
+            
+            # Add to history (even if broken, to maintain context)
             self.conversation_history.append({
                 "role": "assistant",
                 "content": full_response

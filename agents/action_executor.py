@@ -34,12 +34,33 @@ class ActionExecutor:
     """
     
     # Allowed base paths for file operations (security)
-    ALLOWED_PATHS = [
-        r"C:\Dev",
-        r"C:\Users",
-        r"D:\Projects",
-        r"D:\Dev",
-    ]
+    # Cross-platform: use environment variable or sensible defaults
+    @classmethod
+    def _get_allowed_paths(cls) -> List[str]:
+        """Get allowed paths, supporting cross-platform deployments"""
+        env_paths = os.getenv("ABBY_ALLOWED_PATHS", "")
+        if env_paths:
+            return [p.strip() for p in env_paths.split(os.pathsep) if p.strip()]
+        
+        # Platform-specific defaults
+        if os.name == 'nt':  # Windows
+            return [
+                r"C:\Dev",
+                r"C:\Users",
+                r"D:\Projects",
+                r"D:\Dev",
+                os.path.expanduser("~"),
+                os.getcwd(),
+            ]
+        else:  # Linux/Mac
+            return [
+                os.path.expanduser("~"),
+                "/home",
+                "/tmp",
+                os.getcwd(),
+            ]
+    
+    ALLOWED_PATHS = None  # Initialized lazily via _get_allowed_paths()
     
     # Dangerous commands to block
     BLOCKED_COMMANDS = [
@@ -60,6 +81,10 @@ class ActionExecutor:
         self.workspace_path = workspace_path or os.getcwd()
         self.action_history: List[Dict[str, Any]] = []
         self.dry_run = False  # Set to True to preview actions without executing
+        
+        # Initialize allowed paths lazily
+        if ActionExecutor.ALLOWED_PATHS is None:
+            ActionExecutor.ALLOWED_PATHS = ActionExecutor._get_allowed_paths()
         
     def _is_path_allowed(self, path: str) -> bool:
         """Check if a path is within allowed directories"""

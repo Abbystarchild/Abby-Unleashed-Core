@@ -1,0 +1,51 @@
+# System Resources Configuration
+# Auto-detected values for optimal multi-agent performance
+# Last updated: 2026-02-02
+
+system:
+  total_ram_gb: 31.1
+  cpu_cores: 32
+  
+agent_limits:
+  # Maximum concurrent agents (capped for stability)
+  max_concurrent: 50
+  
+  # Optimal number for best performance/responsiveness
+  optimal_concurrent: 50
+  
+  # Memory budget per agent (MB)
+  memory_per_agent_mb: 50
+  
+  # Safety thresholds
+  max_memory_percent: 70  # Don't exceed 70% system RAM
+  optimal_memory_percent: 50  # Target 50% for headroom
+  min_free_memory_gb: 2  # Always keep 2GB free
+
+task_scaling:
+  # How many agents to spawn based on task complexity
+  simple_task: 1
+  medium_task: 3
+  complex_task: 8
+  large_project: 15
+  massive_project: 30
+  
+  # Per-domain limits (some domains need more memory)
+  ml_agents_max: 10  # ML models can be memory-heavy
+  data_agents_max: 15  # Data processing needs RAM
+  standard_agents_max: 50
+
+performance_tuning:
+  # Knowledge loading strategy
+  knowledge_loading: "shared"  # shared | per_agent
+  
+  # Whether to use dynamic knowledge loader
+  dynamic_knowledge: true
+  
+  # Max knowledge modules to keep loaded
+  max_loaded_modules: 20
+  
+  # Agent creation timeout (seconds)
+  creation_timeout: 30
+  
+  # Task execution timeout (seconds)  
+  task_timeout: 300

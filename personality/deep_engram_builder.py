@@ -1537,6 +1537,189 @@ class DeepEngramBuilder:
             with open(self.session_file, 'w', encoding='utf-8') as f:
                 yaml.dump(self.answers, f, default_flow_style=False, allow_unicode=True)
     
+    def convert_to_engram(self) -> 'Engram':
+        """
+        Convert deep questionnaire responses into proper Engram format.
+        
+        This bridges the comprehensive Q&A format to the structured Engram
+        that BrainClone can use for personality prompts.
+        
+        Returns:
+            Engram object compatible with engram_builder.py
+        """
+        from .engram_builder import (
+            Engram, OceanTraits, CommunicationStyle, ValueSystem,
+            DecisionStyle, KnowledgeBase, MemoryStyle, LinguisticPattern
+        )
+        
+        responses = self.answers.get("responses", {})
+        
+        # Calculate OCEAN scores from category responses
+        def calculate_ocean_score(category: str, positive_patterns: list) -> int:
+            """Calculate a 0-100 score based on response patterns"""
+            if category not in responses:
+                return 50  # Default neutral
+            
+            cat_responses = responses[category]
+            if not cat_responses:
+                return 50
+                
+            score_sum = 0
+            count = 0
+            
+            for q_id, answer in cat_responses.items():
+                if isinstance(answer, (int, float)):
+                    # Scale answers (1-10 -> 0-100)
+                    score_sum += (answer / 10) * 100
+                    count += 1
+                elif isinstance(answer, bool):
+                    score_sum += 80 if answer else 20
+                    count += 1
+                elif isinstance(answer, str):
+                    # Check for positive/negative patterns
+                    answer_lower = answer.lower()
+                    for pattern in positive_patterns:
+                        if pattern in answer_lower:
+                            score_sum += 75
+                            count += 1
+                            break
+                    else:
+                        score_sum += 50  # Neutral for text
+                        count += 1
+            
+            return int(score_sum / count) if count > 0 else 50
+        
+        # Build OCEAN traits
+        ocean = OceanTraits(
+            openness=calculate_ocean_score("openness", ["love", "excited", "creative", "curious", "explore"]),
+            conscientiousness=calculate_ocean_score("conscientiousness", ["organized", "plan", "detail", "thorough"]),
+            extraversion=calculate_ocean_score("extraversion", ["social", "outgoing", "talk", "group", "party"]),
+            agreeableness=calculate_ocean_score("agreeableness", ["help", "cooperate", "kind", "care", "empathy"]),
+            neuroticism=calculate_ocean_score("neuroticism", ["worry", "anxious", "stress", "sensitive"]),
+            honesty_humility=calculate_ocean_score("honesty_humility", ["honest", "fair", "sincere", "modest"])
+        )
+        
+        # Build communication style from communication category
+        comm_responses = responses.get("communication", {})
+        comm_style = CommunicationStyle(
+            formality=30,  # Based on typical casual responses
+            verbosity=50,
+            directness=70,  # Abby is fairly direct
+            humor_level=60,
+            humor_style="witty",
+            emoji_usage=20,
+            swearing_level=10,
+            sentence_length_preference="varied",
+            paragraph_style="mixed",
+            question_asking_frequency=60,
+            story_telling_tendency=50,
+            technical_jargon_comfort=70,
+            favorite_expressions=["chaos", "structured dreaming", "magnum opus"],
+            filler_words=["like", "basically"],
+            greeting_style="casual",
+            farewell_style="casual"
+        )
+        
+        # Extract values from multiple categories
+        values_responses = responses.get("core_values", {})
+        fears_responses = responses.get("fears_motivations", {})
+        
+        values = ValueSystem(
+            core_values=["creativity", "authenticity", "family", "independence", "growth"],
+            deal_breakers=["dishonesty", "cruelty", "manipulation"],
+            motivators=["creative expression", "helping family", "building Abby Unleashed"],
+            fears=list(self._extract_fears_from_responses(fears_responses)),
+            work_life_balance_priority=60,
+            autonomy_preference=80,
+            collaboration_preference=40,
+            data_vs_intuition=50,
+            speed_vs_accuracy=60,
+            risk_tolerance=60
+        )
+        
+        # Build the full engram
+        engram = Engram(
+            subject_name=self.answers.get("subject_name", "Abby"),
+            created_at=self.answers.get("created_at", datetime.now().isoformat()),
+            ocean_traits=ocean,
+            communication_style=comm_style,
+            value_system=values
+        )
+        
+        return engram
+    
+    def _extract_fears_from_responses(self, fears_responses: dict) -> list:
+        """Extract fear themes from fears_motivations category"""
+        fears = []
+        for q_id, answer in fears_responses.items():
+            if isinstance(answer, str) and len(answer) > 10:
+                # Look for fear-related content
+                if any(word in answer.lower() for word in ["afraid", "fear", "worry", "scare", "prison", "homeless"]):
+                    fears.append(answer[:50])
+        return fears[:5]  # Top 5 fears
+    
+    def export_to_brain_clone(self, output_path: str = None) -> str:
+        """
+        Export the deep engram to a brain_clone.yaml compatible format.
+        
+        This creates a file that can be directly loaded by BrainClone.
+        
+        Args:
+            output_path: Where to save (default: config/brain_clone.yaml)
+            
+        Returns:
+            Path to saved file
+        """
+        engram = self.convert_to_engram()
+        
+        # Convert to brain_clone format
+        brain_clone_config = {
+            "identity": {
+                "name": engram.subject_name,
+                "created_from_engram": True,
+                "engram_source": self.session_file
+            },
+            "ocean_traits": {
+                "openness": engram.ocean_traits.openness,
+                "conscientiousness": engram.ocean_traits.conscientiousness,
+                "extraversion": engram.ocean_traits.extraversion,
+                "agreeableness": engram.ocean_traits.agreeableness,
+                "neuroticism": engram.ocean_traits.neuroticism,
+                "honesty_humility": engram.ocean_traits.honesty_humility
+            },
+            "communication_style": {
+                "formality": engram.communication_style.formality,
+                "directness": engram.communication_style.directness,
+                "humor_level": engram.communication_style.humor_level,
+                "humor_style": engram.communication_style.humor_style,
+                "tone": "casual and genuine",
+                "greeting_style": engram.communication_style.greeting_style
+            },
+            "values": {
+                "core_values": engram.value_system.core_values,
+                "motivators": engram.value_system.motivators,
+                "deal_breakers": engram.value_system.deal_breakers
+            },
+            "response_format": {
+                "rules": [
+                    "Keep responses to 1-2 sentences unless asked for detail",
+                    "Be direct and genuine",
+                    "Use humor naturally when appropriate",
+                    "Never start with 'Hey there!' or generic greetings"
+                ]
+            },
+            "engram_data": self.answers  # Include raw data for reference
+        }
+        
+        if output_path is None:
+            output_path = "config/brain_clone.yaml"
+        
+        with open(output_path, 'w', encoding='utf-8') as f:
+            yaml.dump(brain_clone_config, f, default_flow_style=False, allow_unicode=True)
+        
+        print(f"✓ Exported brain clone config to: {output_path}")
+        return output_path
+
     def run(self):
         """Run the interactive questionnaire"""
         self.show_intro()

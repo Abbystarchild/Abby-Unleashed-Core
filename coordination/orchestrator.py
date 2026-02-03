@@ -5,19 +5,56 @@ import logging
 from typing import Dict, Any, List, Optional
 from datetime import datetime
 
-from task_engine.task_analyzer import TaskAnalyzer
-from task_engine.decomposer import TaskDecomposer
-from task_engine.dependency_mapper import DependencyMapper
-from task_engine.execution_planner import ExecutionPlanner
-from agents.agent_factory import AgentFactory
-from memory.short_term import ShortTermMemory
-from memory.working_memory import WorkingMemory
-from memory.long_term import LongTermMemory
-from learning.outcome_evaluator import OutcomeEvaluator
-from learning.delegation_optimizer import DelegationOptimizer
+# Core coordination imports
 from .message_bus import MessageBus, Message, MessageType
 from .task_tracker import TaskTracker, TaskStatus
 from .result_aggregator import ResultAggregator
+
+# Agent factory - required
+from agents.agent_factory import AgentFactory
+
+# Task engine imports - optional (graceful degradation)
+try:
+    from task_engine.task_analyzer import TaskAnalyzer
+except ImportError:
+    TaskAnalyzer = None
+
+try:
+    from task_engine.decomposer import TaskDecomposer
+except ImportError:
+    TaskDecomposer = None
+
+try:
+    from task_engine.dependency_mapper import DependencyMapper
+except ImportError:
+    DependencyMapper = None
+
+try:
+    from task_engine.execution_planner import ExecutionPlanner
+except ImportError:
+    ExecutionPlanner = None
+
+# Memory imports - optional (Phase 4)
+try:
+    from memory.short_term import ShortTermMemory
+    from memory.working_memory import WorkingMemory
+    from memory.long_term import LongTermMemory
+    _MEMORY_AVAILABLE = True
+except ImportError:
+    ShortTermMemory = None
+    WorkingMemory = None
+    LongTermMemory = None
+    _MEMORY_AVAILABLE = False
+
+# Learning imports - optional (Phase 4)
+try:
+    from learning.outcome_evaluator import OutcomeEvaluator
+    from learning.delegation_optimizer import DelegationOptimizer
+    _LEARNING_AVAILABLE = True
+except ImportError:
+    OutcomeEvaluator = None
+    DelegationOptimizer = None
+    _LEARNING_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
@@ -33,10 +70,10 @@ class Orchestrator:
     def __init__(
         self,
         agent_factory: AgentFactory,
-        task_analyzer: Optional[TaskAnalyzer] = None,
-        task_decomposer: Optional[TaskDecomposer] = None,
-        dependency_mapper: Optional[DependencyMapper] = None,
-        execution_planner: Optional[ExecutionPlanner] = None,
+        task_analyzer: Optional['TaskAnalyzer'] = None,
+        task_decomposer: Optional['TaskDecomposer'] = None,
+        dependency_mapper: Optional['DependencyMapper'] = None,
+        execution_planner: Optional['ExecutionPlanner'] = None,
         enable_memory: bool = True,
         enable_learning: bool = True
     ):
@@ -54,35 +91,50 @@ class Orchestrator:
         """
         self.agent_factory = agent_factory
         
-        # Task engine components
-        self.task_analyzer = task_analyzer or TaskAnalyzer()
-        self.task_decomposer = task_decomposer or TaskDecomposer()
-        self.dependency_mapper = dependency_mapper or DependencyMapper()
-        self.execution_planner = execution_planner or ExecutionPlanner()
+        # Task engine components - create if available
+        self.task_analyzer = task_analyzer or (TaskAnalyzer() if TaskAnalyzer else None)
+        self.task_decomposer = task_decomposer or (TaskDecomposer() if TaskDecomposer else None)
+        self.dependency_mapper = dependency_mapper or (DependencyMapper() if DependencyMapper else None)
+        self.execution_planner = execution_planner or (ExecutionPlanner() if ExecutionPlanner else None)
+        
+        # Log available components
+        if not all([self.task_analyzer, self.task_decomposer, self.dependency_mapper, self.execution_planner]):
+            logger.warning("Some task engine components not available - running in degraded mode")
         
         # Coordination components (Phase 3)
         self.message_bus = MessageBus()
         self.task_tracker = TaskTracker()
         self.result_aggregator = ResultAggregator()
         
-        # Memory systems (Phase 4)
-        self.enable_memory = enable_memory
-        if enable_memory:
+        # Memory systems (Phase 4) - only if available
+        self.enable_memory = enable_memory and _MEMORY_AVAILABLE
+        if self.enable_memory:
             self.short_term_memory = ShortTermMemory()
             self.working_memory = WorkingMemory()
             self.long_term_memory = LongTermMemory()
+        else:
+            self.short_term_memory = None
+            self.working_memory = None
+            self.long_term_memory = None
+            if enable_memory and not _MEMORY_AVAILABLE:
+                logger.warning("Memory systems requested but not available")
         
-        # Learning systems (Phase 4)
-        self.enable_learning = enable_learning
-        if enable_learning:
+        # Learning systems (Phase 4) - only if available
+        self.enable_learning = enable_learning and _LEARNING_AVAILABLE
+        if self.enable_learning:
             self.outcome_evaluator = OutcomeEvaluator()
             self.delegation_optimizer = DelegationOptimizer()
+        else:
+            self.outcome_evaluator = None
+            self.delegation_optimizer = None
+            if enable_learning and not _LEARNING_AVAILABLE:
+                logger.warning("Learning systems requested but not available")
         
         # Active agents
         self.agents: Dict[str, Any] = {}
         
         logger.info("Orchestrator initialized (Memory: %s, Learning: %s)", 
-                   enable_memory, enable_learning)
+                   self.enable_memory, self.enable_learning)
     
     def start(self):
         """Start orchestrator services"""

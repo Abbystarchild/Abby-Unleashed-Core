@@ -1,0 +1,618 @@
+# SafeConnect Production Mastery
+# Complete skill set for finishing SafeConnect dating app to production quality
+# Version: 1.0.0
+# Last Updated: 2026-02-02
+
+metadata:
+  skill_name: "SafeConnect Production"
+  category: "mobile_development"
+  purpose: "Complete SafeConnect dating app to production-ready state"
+  project_status:
+    ui_complete: "95%"
+    backend_complete: "0%"
+    target: "100% production ready"
+
+project_context:
+  app_name: "SafeConnect"
+  tagline: "Dating with Peace of Mind"
+  tech_stack:
+    frontend:
+      - "Kotlin Multiplatform Mobile (KMM)"
+      - "Jetpack Compose"
+      - "MVVM Architecture"
+    backend_planned:
+      - "Ktor (Kotlin server framework)"
+      - "PostgreSQL"
+      - "WebSockets for real-time"
+    infrastructure:
+      - "AWS or GCP"
+      - "Firebase (FCM, Analytics)"
+      - "S3/Cloud Storage for media"
+
+  current_state:
+    completed:
+      - "Design system (colors, typography, spacing)"
+      - "15+ reusable UI components"
+      - "Full navigation structure"
+      - "All main screens (Auth, Discover, Matches, Chat, Profile)"
+      - "12+ mini-games (Truth or Dare, Would You Rather, etc.)"
+      - "Settings and Safety Center screens"
+      - "APK builds successfully"
+    missing:
+      - "Backend server"
+      - "Real authentication"
+      - "Database integration"
+      - "Real-time chat"
+      - "Media upload"
+      - "Push notifications"
+      - "GPS/location tracking"
+      - "Payment integration"
+      - "App store deployment"
+
+# ============================================================
+# SKILL 1: KTOR BACKEND DEVELOPMENT
+# ============================================================
+ktor_backend_mastery:
+  overview: "Build production Kotlin backend with Ktor"
+  
+  project_structure:
+    recommended:
+      - "src/main/kotlin/"
+      - "  Application.kt - Entry point"
+      - "  plugins/ - Ktor plugins (routing, auth, etc.)"
+      - "  routes/ - API endpoints"
+      - "  models/ - Data classes"
+      - "  repositories/ - Database access"
+      - "  services/ - Business logic"
+      - "  utils/ - Helpers"
+  
+  essential_plugins:
+    routing:
+      purpose: "Define API endpoints"
+      setup: |
+        routing {
+            route("/api/v1") {
+                userRoutes()
+                matchRoutes()
+                chatRoutes()
+                gameRoutes()
+            }
+        }
+    
+    content_negotiation:
+      purpose: "JSON serialization"
+      setup: |
+        install(ContentNegotiation) {
+            json(Json {
+                prettyPrint = true
+                ignoreUnknownKeys = true
+            })
+        }
+    
+    authentication:
+      purpose: "JWT token validation"
+      setup: |
+        install(Authentication) {
+            jwt("auth-jwt") {
+                realm = "SafeConnect"
+                verifier(JWT.require(Algorithm.HMAC256(secret))
+                    .withIssuer(issuer)
+                    .build())
+                validate { credential ->
+                    if (credential.payload.getClaim("userId").asString() != "")
+                        JWTPrincipal(credential.payload)
+                    else null
+                }
+            }
+        }
+    
+    websockets:
+      purpose: "Real-time chat and games"
+      setup: |
+        install(WebSockets) {
+            pingPeriod = Duration.ofSeconds(15)
+            timeout = Duration.ofSeconds(15)
+            maxFrameSize = Long.MAX_VALUE
+            masking = false
+        }
+    
+    cors:
+      purpose: "Cross-origin requests"
+      setup: |
+        install(CORS) {
+            allowHost("safeconnect.app")
+            allowHeader(HttpHeaders.Authorization)
+            allowMethod(HttpMethod.Options)
+            allowMethod(HttpMethod.Post)
+            allowMethod(HttpMethod.Get)
+        }
+
+  api_endpoints_needed:
+    auth:
+      - "POST /auth/register - Create account"
+      - "POST /auth/login - Login with credentials"
+      - "POST /auth/verify-phone - SMS verification"
+      - "POST /auth/verify-face - Face verification"
+      - "POST /auth/refresh - Refresh JWT token"
+      - "POST /auth/logout - Invalidate tokens"
+    
+    users:
+      - "GET /users/me - Current user profile"
+      - "PUT /users/me - Update profile"
+      - "POST /users/me/photos - Upload photos"
+      - "DELETE /users/me/photos/{id} - Remove photo"
+      - "GET /users/{id} - View other profile"
+      - "POST /users/{id}/report - Report user"
+      - "POST /users/{id}/block - Block user"
+    
+    discovery:
+      - "GET /discover - Get potential matches"
+      - "POST /discover/{id}/like - Like user"
+      - "POST /discover/{id}/pass - Pass on user"
+      - "POST /discover/{id}/superlike - Super like"
+      - "GET /discover/filters - Get filter settings"
+      - "PUT /discover/filters - Update filters"
+    
+    matches:
+      - "GET /matches - List all matches"
+      - "GET /matches/{id} - Get match details"
+      - "DELETE /matches/{id} - Unmatch"
+      - "POST /matches/{id}/icebreaker - Send icebreaker"
+    
+    chat:
+      - "GET /chat/{matchId}/messages - Message history"
+      - "POST /chat/{matchId}/messages - Send message"
+      - "WS /chat/{matchId} - Real-time chat socket"
+      - "POST /chat/{matchId}/typing - Typing indicator"
+      - "POST /chat/{matchId}/read - Mark as read"
+    
+    games:
+      - "GET /games - List available games"
+      - "POST /games/{matchId}/start - Start game session"
+      - "WS /games/{sessionId} - Real-time game socket"
+      - "POST /games/{sessionId}/action - Game action"
+      - "GET /games/{sessionId}/state - Game state"
+    
+    safety:
+      - "GET /safety/contacts - Emergency contacts"
+      - "POST /safety/contacts - Add contact"
+      - "POST /safety/adventure/start - Start safe date"
+      - "POST /safety/adventure/checkin - Check in"
+      - "POST /safety/adventure/alert - Emergency alert"
+      - "GET /safety/verification - Verification status"
+
+# ============================================================
+# SKILL 2: POSTGRESQL DATABASE DESIGN
+# ============================================================
+database_mastery:
+  overview: "Design efficient PostgreSQL schema for dating app"
+  
+  core_tables:
+    users:
+      columns:
+        - "id UUID PRIMARY KEY"
+        - "email VARCHAR(255) UNIQUE"
+        - "phone VARCHAR(20) UNIQUE"
+        - "password_hash VARCHAR(255)"
+        - "created_at TIMESTAMP"
+        - "last_active TIMESTAMP"
+        - "is_verified BOOLEAN"
+        - "is_premium BOOLEAN"
+        - "account_status VARCHAR(20)"
+      indexes:
+        - "CREATE INDEX idx_users_location ON users USING GIST (location)"
+    
+    profiles:
+      columns:
+        - "user_id UUID PRIMARY KEY REFERENCES users(id)"
+        - "display_name VARCHAR(100)"
+        - "bio TEXT"
+        - "birthdate DATE"
+        - "gender VARCHAR(20)"
+        - "looking_for VARCHAR(20)[]"
+        - "location GEOGRAPHY(POINT)"
+        - "height_cm INTEGER"
+        - "occupation VARCHAR(100)"
+        - "education VARCHAR(100)"
+        - "interests TEXT[]"
+        - "prompts JSONB"
+        - "character_stats JSONB"
+    
+    photos:
+      columns:
+        - "id UUID PRIMARY KEY"
+        - "user_id UUID REFERENCES users(id)"
+        - "url VARCHAR(500)"
+        - "position INTEGER"
+        - "is_primary BOOLEAN"
+        - "is_verified BOOLEAN"
+        - "uploaded_at TIMESTAMP"
+    
+    swipes:
+      columns:
+        - "id UUID PRIMARY KEY"
+        - "swiper_id UUID REFERENCES users(id)"
+        - "swiped_id UUID REFERENCES users(id)"
+        - "action VARCHAR(10)"  # like, pass, superlike
+        - "created_at TIMESTAMP"
+      indexes:
+        - "CREATE UNIQUE INDEX idx_swipes_unique ON swipes(swiper_id, swiped_id)"
+    
+    matches:
+      columns:
+        - "id UUID PRIMARY KEY"
+        - "user1_id UUID REFERENCES users(id)"
+        - "user2_id UUID REFERENCES users(id)"
+        - "matched_at TIMESTAMP"
+        - "status VARCHAR(20)"
+        - "last_message_at TIMESTAMP"
+    
+    messages:
+      columns:
+        - "id UUID PRIMARY KEY"
+        - "match_id UUID REFERENCES matches(id)"
+        - "sender_id UUID REFERENCES users(id)"
+        - "content TEXT"
+        - "message_type VARCHAR(20)"
+        - "sent_at TIMESTAMP"
+        - "read_at TIMESTAMP"
+      indexes:
+        - "CREATE INDEX idx_messages_match ON messages(match_id, sent_at)"
+    
+    game_sessions:
+      columns:
+        - "id UUID PRIMARY KEY"
+        - "match_id UUID REFERENCES matches(id)"
+        - "game_type VARCHAR(50)"
+        - "state JSONB"
+        - "started_at TIMESTAMP"
+        - "ended_at TIMESTAMP"
+        - "winner_id UUID"
+
+  optimization_tips:
+    - "Use GEOGRAPHY type for location-based queries"
+    - "Index frequently filtered columns"
+    - "Use JSONB for flexible game state"
+    - "Partition messages table by date"
+    - "Use connection pooling (HikariCP)"
+
+# ============================================================
+# SKILL 3: REAL-TIME SYSTEMS
+# ============================================================
+realtime_mastery:
+  overview: "Implement WebSocket-based real-time features"
+  
+  chat_system:
+    architecture:
+      - "WebSocket connection per active chat"
+      - "Redis pub/sub for multi-server scaling"
+      - "Message persistence to PostgreSQL"
+      - "Typing indicators via lightweight messages"
+    
+    message_flow:
+      - "1. Client sends message via WebSocket"
+      - "2. Server validates and persists"
+      - "3. Server broadcasts to recipient's socket"
+      - "4. If offline, queue for push notification"
+    
+    features:
+      - "Typing indicators"
+      - "Read receipts"
+      - "Online/offline presence"
+      - "Message reactions"
+      - "Media messages (photos, GIFs)"
+  
+  game_sync:
+    architecture:
+      - "Game session WebSocket room"
+      - "Turn-based state machine"
+      - "Optimistic UI updates"
+      - "Server authoritative state"
+    
+    state_management:
+      - "Server holds canonical game state"
+      - "Client sends actions, server validates"
+      - "Server broadcasts state updates"
+      - "Handle disconnection/reconnection gracefully"
+
+# ============================================================
+# SKILL 4: AUTHENTICATION & SECURITY
+# ============================================================
+auth_security_mastery:
+  overview: "Secure authentication for dating app"
+  
+  auth_flow:
+    registration:
+      - "1. User enters email/phone"
+      - "2. Send OTP via SMS (Twilio)"
+      - "3. Verify OTP"
+      - "4. Set password"
+      - "5. Upload photos"
+      - "6. Face verification (optional)"
+      - "7. Issue JWT tokens"
+    
+    login:
+      - "1. Email/phone + password"
+      - "2. Validate credentials"
+      - "3. Issue access token (15 min) + refresh token (30 days)"
+      - "4. Store refresh token securely"
+    
+    token_refresh:
+      - "1. Access token expires"
+      - "2. Client sends refresh token"
+      - "3. Server validates, issues new pair"
+      - "4. Old refresh token invalidated"
+  
+  security_measures:
+    - "bcrypt password hashing"
+    - "Rate limiting on auth endpoints"
+    - "Device fingerprinting"
+    - "Suspicious login alerts"
+    - "Account lockout after failed attempts"
+    - "HTTPS everywhere"
+    - "Input sanitization"
+    - "SQL injection prevention (parameterized queries)"
+
+# ============================================================
+# SKILL 5: MEDIA HANDLING
+# ============================================================
+media_mastery:
+  overview: "Handle photo uploads and verification"
+  
+  upload_flow:
+    - "1. Client requests presigned S3 URL"
+    - "2. Client uploads directly to S3"
+    - "3. S3 triggers Lambda for processing"
+    - "4. Lambda resizes, optimizes, creates thumbnails"
+    - "5. Lambda runs content moderation (AWS Rekognition)"
+    - "6. Lambda updates database with URLs"
+  
+  photo_requirements:
+    - "Max 6 photos per user"
+    - "Minimum 1 photo required"
+    - "Max file size: 10MB"
+    - "Formats: JPEG, PNG, HEIC"
+    - "Generate: thumbnail (150px), medium (400px), full (1080px)"
+  
+  face_verification:
+    - "Compare selfie to profile photos"
+    - "Use AWS Rekognition CompareFaces"
+    - "Require 90%+ confidence match"
+    - "Liveness detection to prevent photos of photos"
+
+# ============================================================
+# SKILL 6: PUSH NOTIFICATIONS
+# ============================================================
+notifications_mastery:
+  overview: "Firebase Cloud Messaging integration"
+  
+  notification_types:
+    - "New match"
+    - "New message"
+    - "Game invite"
+    - "Someone liked you (premium)"
+    - "Daily picks ready"
+    - "Safety check-in reminder"
+    - "Emergency alert to contacts"
+  
+  implementation:
+    android:
+      - "Add Firebase SDK to androidApp"
+      - "Get FCM token on app start"
+      - "Send token to backend"
+      - "Handle notification in FirebaseMessagingService"
+    
+    backend:
+      - "Store FCM tokens per user/device"
+      - "Use Firebase Admin SDK to send"
+      - "Handle token refresh"
+      - "Batch notifications for efficiency"
+
+# ============================================================
+# SKILL 7: LOCATION & SAFETY FEATURES
+# ============================================================
+safety_mastery:
+  overview: "GPS tracking and emergency features"
+  
+  location_services:
+    - "Request location permission"
+    - "Background location for safe dates"
+    - "Geofencing for adventure zones"
+    - "Location-based matching (PostGIS)"
+  
+  safe_adventure_mode:
+    features:
+      - "Share live location with emergency contacts"
+      - "Set expected duration"
+      - "Periodic check-in prompts"
+      - "One-tap emergency alert"
+      - "Auto-alert if no check-in"
+    
+    implementation:
+      - "Android Foreground Service for tracking"
+      - "WebSocket to relay location to contacts"
+      - "SMS fallback for emergency alerts"
+      - "Integration with local emergency services API"
+
+# ============================================================
+# SKILL 8: 3D UI / IMMERSIVE DISCOVERY
+# ============================================================
+immersive_ui_mastery:
+  overview: "Novel 3D tavern discovery experience"
+  
+  concept:
+    vision: "Replace swiping with exploring a 3D tavern"
+    inspiration:
+      - "RPG taverns where adventurers gather"
+      - "VRChat social spaces"
+      - "Animal Crossing island visiting"
+      - "Habbo Hotel room interactions"
+    
+    user_experience:
+      - "Enter a cozy fantasy tavern"
+      - "See avatars sitting at tables (2-4 per table)"
+      - "Tables grouped by interests/compatibility"
+      - "Walk up to a table to see profiles"
+      - "Join a table to start group chat/game"
+      - "Private booths for 1-on-1 conversations"
+  
+  technical_approach:
+    option_1_threejs:
+      pros: "Web-based, works in WebView, good tooling"
+      cons: "Performance on low-end devices"
+      libraries:
+        - "Three.js for 3D rendering"
+        - "React Three Fiber for React integration"
+        - "Drei for helpers"
+    
+    option_2_unity:
+      pros: "Best performance, rich ecosystem"
+      cons: "Larger app size, separate codebase"
+      approach: "Unity as native module, embed in app"
+    
+    option_3_compose_3d:
+      pros: "Native Kotlin, smaller size"
+      cons: "Limited 3D capabilities"
+      approach: "Use Filament renderer with Compose"
+  
+  avatar_system:
+    style: "Stylized/cartoon (not realistic)"
+    customization:
+      - "Face shape, hair, skin tone"
+      - "Outfits and accessories"
+      - "Personality-based poses/animations"
+    generation: "Auto-generate from profile or let user customize"
+  
+  table_mechanics:
+    discovery:
+      - "Tables glow based on compatibility score"
+      - "Hover to see table topic/activity"
+      - "See who's at the table (avatars)"
+    joining:
+      - "Click to approach table"
+      - "See mini-profiles of occupants"
+      - "Request to join or observe"
+    activities:
+      - "Table games (cards, trivia)"
+      - "Group conversation prompts"
+      - "Icebreaker questions"
+
+# ============================================================
+# SKILL 9: DATING APP UX PATTERNS
+# ============================================================
+dating_ux_mastery:
+  overview: "Best practices from successful dating apps"
+  
+  inspiration_from_apps:
+    tinder:
+      good: "Simple swipe mechanic, instant gratification"
+      bad: "Shallow, swipe fatigue, ghosting culture"
+      learn: "Speed matters, but depth suffers"
+    
+    hinge:
+      good: "Prompts encourage personality, designed to be deleted"
+      bad: "Can feel like a job application"
+      learn: "Conversation starters reduce awkwardness"
+    
+    bumble:
+      good: "Women message first reduces harassment"
+      bad: "24-hour timer creates pressure"
+      learn: "Safety features attract quality users"
+    
+    coffee_meets_bagel:
+      good: "Limited daily matches = more intentional"
+      bad: "Can feel too slow"
+      learn: "Scarcity increases perceived value"
+    
+    thursday:
+      good: "Only works on Thursdays, creates urgency"
+      bad: "Limited availability frustrating"
+      learn: "Constraints can drive engagement"
+  
+  safeconnect_differentiators:
+    safety_first:
+      - "Verified profiles reduce catfishing"
+      - "Safe date mode protects users"
+      - "Emergency features build trust"
+    
+    gamification:
+      - "RPG character sheets are unique"
+      - "Mini-games reveal personality"
+      - "Progression system rewards engagement"
+    
+    immersive_discovery:
+      - "3D tavern is novel in dating space"
+      - "Tables encourage group dynamics first"
+      - "Less pressure than 1-on-1 swiping"
+
+# ============================================================
+# SKILL 10: APP STORE DEPLOYMENT
+# ============================================================
+deployment_mastery:
+  overview: "Get SafeConnect to production"
+  
+  android_play_store:
+    requirements:
+      - "Signed release APK/AAB"
+      - "App icon (512x512)"
+      - "Feature graphic (1024x500)"
+      - "Screenshots (phone, tablet)"
+      - "Privacy policy URL"
+      - "Content rating questionnaire"
+    
+    steps:
+      - "1. Create Google Play Console account ($25)"
+      - "2. Create app listing"
+      - "3. Complete content rating"
+      - "4. Set up pricing (free + IAP)"
+      - "5. Upload AAB bundle"
+      - "6. Internal testing track first"
+      - "7. Closed beta with real users"
+      - "8. Open beta"
+      - "9. Production release"
+  
+  ios_app_store:
+    requirements:
+      - "Apple Developer account ($99/year)"
+      - "iOS build via Xcode"
+      - "App Store Connect listing"
+      - "Screenshots for all device sizes"
+      - "App Review compliance"
+    
+    dating_app_considerations:
+      - "Age rating 17+ likely required"
+      - "Explicit content policy compliance"
+      - "User safety features documented"
+      - "Report/block mechanisms required"
+
+production_checklist:
+  backend:
+    - "[ ] Ktor server deployed"
+    - "[ ] PostgreSQL provisioned"
+    - "[ ] Redis for caching/sessions"
+    - "[ ] S3 bucket for media"
+    - "[ ] SSL certificates"
+    - "[ ] Environment variables secured"
+    - "[ ] Logging and monitoring"
+    - "[ ] Auto-scaling configured"
+  
+  frontend:
+    - "[ ] Release build signed"
+    - "[ ] ProGuard/R8 enabled"
+    - "[ ] Crashlytics integrated"
+    - "[ ] Analytics tracking"
+    - "[ ] Deep linking configured"
+  
+  security:
+    - "[ ] Penetration testing"
+    - "[ ] OWASP checklist passed"
+    - "[ ] Data encryption at rest"
+    - "[ ] GDPR compliance"
+    - "[ ] Terms of service"
+    - "[ ] Privacy policy"
+  
+  legal:
+    - "[ ] Age verification (18+)"
+    - "[ ] Content moderation policy"
+    - "[ ] User reporting system"
+    - "[ ] Data deletion requests"
