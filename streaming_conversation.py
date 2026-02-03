@@ -23,6 +23,52 @@ from enum import Enum
 logger = logging.getLogger(__name__)
 
 
+def is_overwhelming_task(task: str) -> bool:
+    """
+    Check if a task is too complex to handle in one go.
+    
+    Signs of an overwhelming task:
+    - Very long description (1500+ chars)
+    - Multiple numbered steps or bullet points (5+)
+    - Multiple different features/pages mentioned
+    - Words like "complete app", "full project", "production ready"
+    """
+    task_lower = task.lower()
+    
+    # Length check
+    if len(task) > 1500:
+        return True
+    
+    # Count numbered items
+    numbered = len(re.findall(r'(?:^|\n)\s*\d+[\.\):]', task))
+    if numbered >= 5:
+        return True
+    
+    # Count bullet points
+    bullets = len(re.findall(r'(?:^|\n)\s*[-•*]\s+', task))
+    if bullets >= 5:
+        return True
+    
+    # Check for "build entire app" patterns
+    overwhelming_patterns = [
+        r'complete\s+(?:app|application|project)',
+        r'production\s+ready',
+        r'fully?\s+(?:fleshed|completed|functional)',
+        r'from\s+scratch',
+        r'entire\s+(?:app|system|project)',
+        r'work\s+on\s+both\s+(?:ios|apple)\s+and\s+android',
+    ]
+    if any(re.search(pattern, task_lower) for pattern in overwhelming_patterns):
+        return True
+    
+    # Count distinct pages/screens mentioned
+    pages = set(re.findall(r'(\w+)\s+(?:page|screen|view)', task_lower))
+    if len(pages) >= 4:
+        return True
+    
+    return False
+
+
 # Banned phrases that indicate a broken/generic response
 BANNED_RESPONSE_PATTERNS = [
     r"^hey there[!,.]?\s*",
@@ -347,6 +393,12 @@ etc."""
                 "content": user_input
             })
             
+            # Check for overwhelming task first - needs special handling
+            if is_overwhelming_task(user_input):
+                logger.info("Overwhelming task detected in streaming - using decomposition")
+                yield from self._handle_overwhelming_task(user_input, context)
+                return
+            
             # Check for complex task that needs planning
             self.task_steps = self._plan_task(user_input)
             
@@ -381,6 +433,152 @@ etc."""
                 yield self.event_queue.get_nowait()
             except queue.Empty:
                 break
+    
+    def _handle_overwhelming_task(self, user_input: str, context: Dict) -> Generator[StreamEvent, None, None]:
+        """Handle overwhelming tasks by decomposing them into manageable subtasks"""
+        try:
+            from task_decomposer import TaskDecomposer
+            from intelligent_agent import get_intelligent_agent
+            
+            # Get intelligent agent for plan management
+            agent = get_intelligent_agent()
+            
+            # First, check if we already have a plan for this
+            existing_plans = agent._find_related_plans(user_input)
+            highly_similar = [p for p in existing_plans if p["similarity"] > 0.6]
+            
+            if highly_similar:
+                # We have an existing plan - resume it instead of creating new
+                plan_info = highly_similar[0]
+                self._emit_event('thinking', f'Found existing plan with {plan_info["similarity"]:.0%} match...')
+                yield from self._drain_events()
+                
+                plan = agent.load_plan(plan_info["id"])
+                if plan:
+                    progress = plan.get_progress()
+                    self._emit_event('text', f"I already have a plan for this! **{plan.id}**\n\n")
+                    self._emit_event('text', f"📊 Progress: {progress['completed']}/{progress['total']} tasks ({progress['percent']:.0f}% done)\n\n")
+                    
+                    # Show what's completed and what's next
+                    completed = [t for t in plan.tasks if t.status.value == "completed"]
+                    if completed:
+                        self._emit_event('text', "**Completed:**\n")
+                        for t in completed[:5]:
+                            self._emit_event('text', f"  ✅ {t.title}\n")
+                        yield from self._drain_events()
+                    
+                    next_tasks = plan.get_next_tasks(max_parallel=3)
+                    if next_tasks:
+                        self._emit_event('text', "\n**Ready to continue with:**\n")
+                        for i, task in enumerate(next_tasks, 1):
+                            self._emit_event('text', f"{i}. {task.title}\n")
+                        self._emit_event('text', "\nSay 'continue' or tell me which task to work on!\n")
+                    else:
+                        self._emit_event('text', "\n🎉 All tasks complete! Want me to verify the work?\n")
+                    
+                    yield from self._drain_events()
+                    self.current_plan = plan
+                    agent.active_plan_id = plan.id
+                    
+                    self._set_state(ThinkingState.WAITING)
+                    self._emit_event('done', 'Resumed existing plan')
+                    yield from self._drain_events()
+                    return
+            
+            # No existing plan - create new one
+            self._emit_event('thinking', 'This is a big project! Let me break it down into manageable steps...')
+            yield from self._drain_events()
+            
+            # Create decomposer
+            if self.abby and hasattr(self.abby, 'ollama_client'):
+                decomposer = TaskDecomposer(self.abby.ollama_client)
+            else:
+                self._emit_event('error', "Can't decompose without Ollama client")
+                yield from self._drain_events()
+                return
+            
+            # Gather context first (like a good agent!)
+            self._emit_event('thinking', 'Gathering context about the workspace...')
+            yield from self._drain_events()
+            
+            workspace = context.get('workspace')
+            gathered_context = agent.gather_context(user_input, workspace)
+            
+            # Report what we found
+            if gathered_context.get('workspace_exists'):
+                files_count = len(gathered_context.get('existing_files', []))
+                project_type = gathered_context.get('project_info', {}).get('type', 'unknown')
+                if files_count > 0:
+                    self._emit_event('thinking', f'Found existing {project_type} project with {files_count} files...')
+                    yield from self._drain_events()
+            
+            # Decompose the task
+            self._emit_event('thinking', 'Analyzing requirements and dependencies...')
+            yield from self._drain_events()
+            
+            plan = decomposer.decompose(user_input, gathered_context)
+            
+            if not plan or not plan.tasks:
+                self._emit_event('error', 'Failed to break down the task. Try being more specific?')
+                yield from self._drain_events()
+                return
+            
+            # Track this as active plan
+            agent.active_plan_id = plan.id
+            
+            if not plan or not plan.tasks:
+                self._emit_event('error', 'Failed to break down the task. Try being more specific?')
+                yield from self._drain_events()
+                return
+            
+            # Report the plan
+            self._emit_event('text', f"Okay! I've broken this down into {len(plan.tasks)} subtasks:\n\n")
+            yield from self._drain_events()
+            
+            # List all tasks by category
+            categories = {}
+            for task in plan.tasks:
+                cat = task.category
+                if cat not in categories:
+                    categories[cat] = []
+                categories[cat].append(task)
+            
+            for cat, tasks in categories.items():
+                self._emit_event('text', f"**{cat.upper()}:**\n")
+                for task in tasks:
+                    deps = f" (needs: {', '.join(task.dependencies)})" if task.dependencies else ""
+                    self._emit_event('text', f"  • {task.title}{deps}\n")
+                yield from self._drain_events()
+            
+            self._emit_event('text', f"\n📋 **Plan saved as:** {plan.id}\n\n")
+            
+            # Ask what to start with
+            next_tasks = plan.get_next_tasks(max_parallel=3)
+            if next_tasks:
+                self._emit_event('text', "**Ready to start with:**\n")
+                for i, task in enumerate(next_tasks, 1):
+                    self._emit_event('text', f"{i}. {task.title}\n")
+                self._emit_event('text', "\nTell me which one to start, or say 'start all' to begin!\n")
+            
+            yield from self._drain_events()
+            
+            # Store plan for follow-up
+            if not hasattr(self, 'current_plan'):
+                self.current_plan = None
+            self.current_plan = plan
+            
+            self._set_state(ThinkingState.WAITING)
+            self._emit_event('done', 'Task decomposition complete')
+            yield from self._drain_events()
+            
+        except ImportError as e:
+            logger.error(f"TaskDecomposer not available: {e}")
+            self._emit_event('error', f"Task decomposition not available: {e}")
+            yield from self._drain_events()
+        except Exception as e:
+            logger.error(f"Error in overwhelming task handling: {e}")
+            self._emit_event('error', f"Failed to decompose task: {e}")
+            yield from self._drain_events()
     
     def _stream_simple_response(self, user_input: str, context: Dict) -> Generator[StreamEvent, None, None]:
         """Stream a simple conversational response"""

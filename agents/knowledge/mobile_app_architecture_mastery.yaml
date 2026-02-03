@@ -1,0 +1,1282 @@
+# Mobile App Architecture Mastery
+# Comprehensive patterns for building scalable, maintainable mobile applications
+# Version: 1.0.0
+# Last Updated: 2026-02-02
+
+metadata:
+  skill_name: "Mobile App Architecture Mastery"
+  category: "software_architecture"
+  purpose: "Master architectural patterns for production mobile applications"
+  relevance:
+    - "Android/Kotlin development"
+    - "iOS/Swift development"
+    - "Cross-platform (KMM, Flutter)"
+    - "Clean architecture"
+    - "Scalable app design"
+
+# ============================================================
+# SECTION 1: ARCHITECTURAL PATTERNS
+# ============================================================
+architectural_patterns:
+
+  mvvm:
+    name: "Model-View-ViewModel"
+    overview: "Separates UI from business logic with reactive data binding"
+    
+    components:
+      model:
+        role: "Data and business logic"
+        includes: ["Data classes", "Repository", "Data sources", "Use cases"]
+        example: |
+          // Data class
+          data class User(
+              val id: String,
+              val name: String,
+              val email: String,
+              val isVerified: Boolean
+          )
+          
+          // Repository interface
+          interface UserRepository {
+              suspend fun getUser(id: String): User?
+              fun observeUser(id: String): Flow<User>
+              suspend fun updateUser(user: User): Result<Unit>
+          }
+      
+      view:
+        role: "UI display, user interaction"
+        includes: ["Activities", "Fragments", "Composables"]
+        rules:
+          - "No business logic"
+          - "Observes ViewModel state"
+          - "Forwards user actions to ViewModel"
+        example: |
+          @Composable
+          fun ProfileScreen(viewModel: ProfileViewModel = hiltViewModel()) {
+              val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+              
+              when (val state = uiState) {
+                  is ProfileUiState.Loading -> LoadingSpinner()
+                  is ProfileUiState.Success -> ProfileContent(
+                      user = state.user,
+                      onEditClick = { viewModel.onEditProfile() }
+                  )
+                  is ProfileUiState.Error -> ErrorMessage(
+                      message = state.message,
+                      onRetry = { viewModel.retry() }
+                  )
+              }
+          }
+      
+      viewmodel:
+        role: "UI state management, business logic coordination"
+        includes: ["State holders", "Event handlers", "Use case invocation"]
+        rules:
+          - "Survives configuration changes"
+          - "No Android framework dependencies (testable)"
+          - "Exposes state via StateFlow"
+          - "Handles all UI events"
+        example: |
+          @HiltViewModel
+          class ProfileViewModel @Inject constructor(
+              private val getUserUseCase: GetUserUseCase,
+              private val updateUserUseCase: UpdateUserUseCase,
+              savedStateHandle: SavedStateHandle
+          ) : ViewModel() {
+              
+              private val userId: String = savedStateHandle.get<String>("userId") ?: ""
+              
+              private val _uiState = MutableStateFlow<ProfileUiState>(ProfileUiState.Loading)
+              val uiState: StateFlow<ProfileUiState> = _uiState.asStateFlow()
+              
+              init {
+                  loadProfile()
+              }
+              
+              private fun loadProfile() {
+                  viewModelScope.launch {
+                      _uiState.value = ProfileUiState.Loading
+                      getUserUseCase(userId)
+                          .onSuccess { user ->
+                              _uiState.value = ProfileUiState.Success(user)
+                          }
+                          .onFailure { error ->
+                              _uiState.value = ProfileUiState.Error(error.message ?: "Unknown error")
+                          }
+                  }
+              }
+              
+              fun retry() = loadProfile()
+              
+              fun onEditProfile() {
+                  // Navigate to edit
+              }
+          }
+          
+          sealed interface ProfileUiState {
+              data object Loading : ProfileUiState
+              data class Success(val user: User) : ProfileUiState
+              data class Error(val message: String) : ProfileUiState
+          }
+    
+    data_flow: |
+      User Action → View → ViewModel → Use Case → Repository → Data Source
+                                                                    ↓
+      UI Update  ← View ← StateFlow ← ViewModel ← Result ← Repository
+
+  mvi:
+    name: "Model-View-Intent"
+    overview: "Unidirectional data flow with explicit intent/action handling"
+    
+    components:
+      intent:
+        role: "User actions as explicit sealed classes"
+        example: |
+          sealed interface DiscoverIntent {
+              data class SwipeRight(val userId: String) : DiscoverIntent
+              data class SwipeLeft(val userId: String) : DiscoverIntent
+              data object LoadMore : DiscoverIntent
+              data object Refresh : DiscoverIntent
+          }
+      
+      state:
+        role: "Immutable UI state"
+        example: |
+          data class DiscoverState(
+              val profiles: List<Profile> = emptyList(),
+              val isLoading: Boolean = false,
+              val error: String? = null,
+              val currentMatch: Profile? = null  // For match dialog
+          )
+      
+      effect:
+        role: "One-time side effects (navigation, toasts)"
+        example: |
+          sealed interface DiscoverEffect {
+              data class NavigateToChat(val matchId: String) : DiscoverEffect
+              data class ShowToast(val message: String) : DiscoverEffect
+              data object ShowMatchAnimation : DiscoverEffect
+          }
+      
+      reducer:
+        role: "Pure function: (State, Result) → State"
+        example: |
+          class DiscoverViewModel : ViewModel() {
+              private val _state = MutableStateFlow(DiscoverState())
+              val state: StateFlow<DiscoverState> = _state.asStateFlow()
+              
+              private val _effect = Channel<DiscoverEffect>()
+              val effect: Flow<DiscoverEffect> = _effect.receiveAsFlow()
+              
+              fun processIntent(intent: DiscoverIntent) {
+                  when (intent) {
+                      is DiscoverIntent.SwipeRight -> handleSwipeRight(intent.userId)
+                      is DiscoverIntent.SwipeLeft -> handleSwipeLeft(intent.userId)
+                      DiscoverIntent.LoadMore -> loadMoreProfiles()
+                      DiscoverIntent.Refresh -> refresh()
+                  }
+              }
+              
+              private fun handleSwipeRight(userId: String) {
+                  viewModelScope.launch {
+                      val result = likeUserUseCase(userId)
+                      
+                      // Reduce state
+                      _state.update { current ->
+                          current.copy(
+                              profiles = current.profiles.filter { it.id != userId }
+                          )
+                      }
+                      
+                      // Handle match
+                      if (result.isMatch) {
+                          _state.update { it.copy(currentMatch = result.matchedUser) }
+                          _effect.send(DiscoverEffect.ShowMatchAnimation)
+                      }
+                  }
+              }
+          }
+    
+    data_flow: |
+      User Action → Intent → ViewModel → Process → Reducer → New State → UI
+                                             ↓
+                                         Side Effects → Effect Channel → UI
+
+  clean_architecture:
+    name: "Clean Architecture"
+    overview: "Dependency inversion with clear layer boundaries"
+    
+    layers:
+      presentation:
+        location: "app/ui/"
+        contains: ["Activities", "ViewModels", "Composables", "UI models"]
+        depends_on: ["domain"]
+        example: |
+          // UI model (presentation layer)
+          data class ProfileUiModel(
+              val displayName: String,
+              val age: String,  // Formatted: "28 years old"
+              val distanceText: String,  // Formatted: "2 miles away"
+              val verificationBadge: BadgeType
+          )
+      
+      domain:
+        location: "shared/domain/"
+        contains: ["Use cases", "Domain models", "Repository interfaces"]
+        depends_on: ["Nothing - innermost layer"]
+        example: |
+          // Use case (domain layer)
+          class GetMatchesUseCase(
+              private val matchRepository: MatchRepository
+          ) {
+              suspend operator fun invoke(userId: String): Result<List<Match>> {
+                  return matchRepository.getMatches(userId)
+              }
+          }
+          
+          // Domain model
+          data class Match(
+              val id: String,
+              val user: User,
+              val matchedAt: Instant,
+              val hasUnreadMessages: Boolean
+          )
+          
+          // Repository interface (in domain, implemented in data)
+          interface MatchRepository {
+              suspend fun getMatches(userId: String): Result<List<Match>>
+              suspend fun unmatch(matchId: String): Result<Unit>
+          }
+      
+      data:
+        location: "shared/data/"
+        contains: ["Repository implementations", "Data sources", "DTOs", "Mappers"]
+        depends_on: ["domain"]
+        example: |
+          // Repository implementation (data layer)
+          class MatchRepositoryImpl(
+              private val remoteDataSource: MatchRemoteDataSource,
+              private val localDataSource: MatchLocalDataSource
+          ) : MatchRepository {
+              
+              override suspend fun getMatches(userId: String): Result<List<Match>> {
+                  return try {
+                      // Fetch from network
+                      val response = remoteDataSource.getMatches(userId)
+                      
+                      // Cache locally
+                      localDataSource.saveMatches(response.toEntity())
+                      
+                      // Map to domain model
+                      Result.success(response.toDomain())
+                  } catch (e: Exception) {
+                      // Fallback to cache
+                      val cached = localDataSource.getMatches(userId)
+                      if (cached.isNotEmpty()) {
+                          Result.success(cached.toDomain())
+                      } else {
+                          Result.failure(e)
+                      }
+                  }
+              }
+          }
+          
+          // DTO (data layer)
+          @Serializable
+          data class MatchDto(
+              val id: String,
+              val userId: String,
+              val matchedAt: String,
+              val hasUnreadMessages: Boolean
+          )
+          
+          // Mapper
+          fun MatchDto.toDomain(): Match = Match(
+              id = id,
+              user = userDto.toDomain(),
+              matchedAt = Instant.parse(matchedAt),
+              hasUnreadMessages = hasUnreadMessages
+          )
+    
+    dependency_rule: |
+      Dependencies point INWARD only:
+      
+      [Presentation] → [Domain] ← [Data]
+           ↓              ↑          ↑
+        ViewModels    Use Cases   Repositories
+        Composables   Entities    Data Sources
+        UI Models     Interfaces  DTOs/Mappers
+
+# ============================================================
+# SECTION 2: DEPENDENCY INJECTION
+# ============================================================
+dependency_injection:
+
+  hilt:
+    overview: "Android's recommended DI framework built on Dagger"
+    
+    setup:
+      application: |
+        @HiltAndroidApp
+        class SafeConnectApplication : Application()
+      
+      activity: |
+        @AndroidEntryPoint
+        class MainActivity : ComponentActivity() {
+            // Can now inject dependencies
+        }
+    
+    modules:
+      network_module: |
+        @Module
+        @InstallIn(SingletonComponent::class)
+        object NetworkModule {
+            
+            @Provides
+            @Singleton
+            fun provideOkHttpClient(): OkHttpClient {
+                return OkHttpClient.Builder()
+                    .addInterceptor(AuthInterceptor())
+                    .addInterceptor(HttpLoggingInterceptor().apply {
+                        level = HttpLoggingInterceptor.Level.BODY
+                    })
+                    .connectTimeout(30, TimeUnit.SECONDS)
+                    .build()
+            }
+            
+            @Provides
+            @Singleton
+            fun provideRetrofit(okHttpClient: OkHttpClient): Retrofit {
+                return Retrofit.Builder()
+                    .baseUrl(BuildConfig.API_BASE_URL)
+                    .client(okHttpClient)
+                    .addConverterFactory(Json.asConverterFactory("application/json".toMediaType()))
+                    .build()
+            }
+            
+            @Provides
+            @Singleton
+            fun provideUserApi(retrofit: Retrofit): UserApi {
+                return retrofit.create()
+            }
+        }
+      
+      repository_module: |
+        @Module
+        @InstallIn(SingletonComponent::class)
+        abstract class RepositoryModule {
+            
+            @Binds
+            @Singleton
+            abstract fun bindUserRepository(
+                impl: UserRepositoryImpl
+            ): UserRepository
+            
+            @Binds
+            @Singleton
+            abstract fun bindMatchRepository(
+                impl: MatchRepositoryImpl
+            ): MatchRepository
+        }
+      
+      database_module: |
+        @Module
+        @InstallIn(SingletonComponent::class)
+        object DatabaseModule {
+            
+            @Provides
+            @Singleton
+            fun provideDatabase(@ApplicationContext context: Context): SafeConnectDatabase {
+                return Room.databaseBuilder(
+                    context,
+                    SafeConnectDatabase::class.java,
+                    "safeconnect.db"
+                )
+                .addMigrations(MIGRATION_1_2)
+                .build()
+            }
+            
+            @Provides
+            fun provideUserDao(database: SafeConnectDatabase): UserDao {
+                return database.userDao()
+            }
+        }
+    
+    viewmodel_injection: |
+      @HiltViewModel
+      class ChatViewModel @Inject constructor(
+          private val getMessagesUseCase: GetMessagesUseCase,
+          private val sendMessageUseCase: SendMessageUseCase,
+          private val messageMapper: MessageMapper,
+          savedStateHandle: SavedStateHandle
+      ) : ViewModel() {
+          
+          private val matchId: String = savedStateHandle.get<String>("matchId") ?: ""
+          
+          // ViewModel implementation
+      }
+    
+    testing: |
+      @HiltAndroidTest
+      @RunWith(AndroidJUnit4::class)
+      class UserRepositoryTest {
+          
+          @get:Rule
+          val hiltRule = HiltAndroidRule(this)
+          
+          @Inject
+          lateinit var userRepository: UserRepository
+          
+          @BindValue
+          @JvmField
+          val mockApi: UserApi = mockk()
+          
+          @Before
+          fun setup() {
+              hiltRule.inject()
+          }
+          
+          @Test
+          fun `getUser returns user from api`() = runTest {
+              coEvery { mockApi.getUser("1") } returns UserDto(...)
+              
+              val result = userRepository.getUser("1")
+              
+              assertThat(result.isSuccess).isTrue()
+          }
+      }
+
+  koin:
+    overview: "Lightweight DI for Kotlin Multiplatform"
+    
+    modules: |
+      val networkModule = module {
+          single {
+              HttpClient(CIO) {
+                  install(ContentNegotiation) {
+                      json(Json { ignoreUnknownKeys = true })
+                  }
+                  install(Logging) {
+                      level = LogLevel.BODY
+                  }
+              }
+          }
+          
+          single<UserApi> { UserApiImpl(get()) }
+      }
+      
+      val repositoryModule = module {
+          single<UserRepository> { UserRepositoryImpl(get(), get()) }
+          single<MatchRepository> { MatchRepositoryImpl(get(), get()) }
+      }
+      
+      val useCaseModule = module {
+          factory { GetUserUseCase(get()) }
+          factory { UpdateUserUseCase(get()) }
+          factory { GetMatchesUseCase(get()) }
+      }
+      
+      val viewModelModule = module {
+          viewModel { ProfileViewModel(get(), get(), get()) }
+          viewModel { (matchId: String) -> ChatViewModel(matchId, get(), get()) }
+      }
+    
+    initialization: |
+      class SafeConnectApplication : Application() {
+          override fun onCreate() {
+              super.onCreate()
+              
+              startKoin {
+                  androidContext(this@SafeConnectApplication)
+                  modules(
+                      networkModule,
+                      repositoryModule,
+                      useCaseModule,
+                      viewModelModule
+                  )
+              }
+          }
+      }
+    
+    usage: |
+      @Composable
+      fun ProfileScreen() {
+          val viewModel: ProfileViewModel = koinViewModel()
+          // Use viewModel
+      }
+      
+      // With parameters
+      @Composable
+      fun ChatScreen(matchId: String) {
+          val viewModel: ChatViewModel = koinViewModel { parametersOf(matchId) }
+          // Use viewModel
+      }
+
+# ============================================================
+# SECTION 3: DATA LAYER PATTERNS
+# ============================================================
+data_layer:
+
+  repository_pattern:
+    purpose: "Abstract data sources, provide single source of truth"
+    
+    implementation: |
+      class UserRepositoryImpl @Inject constructor(
+          private val remoteDataSource: UserRemoteDataSource,
+          private val localDataSource: UserLocalDataSource,
+          private val dispatcher: CoroutineDispatcher = Dispatchers.IO
+      ) : UserRepository {
+          
+          // Stream with local-first strategy
+          override fun observeUser(id: String): Flow<User> {
+              return localDataSource.observeUser(id)
+                  .map { entity -> entity?.toDomain() }
+                  .filterNotNull()
+                  .flowOn(dispatcher)
+                  .onStart {
+                      // Trigger network refresh
+                      refreshUser(id)
+                  }
+          }
+          
+          // One-shot with network-first, cache-fallback
+          override suspend fun getUser(id: String): Result<User> = withContext(dispatcher) {
+              try {
+                  val remote = remoteDataSource.getUser(id)
+                  localDataSource.saveUser(remote.toEntity())
+                  Result.success(remote.toDomain())
+              } catch (e: Exception) {
+                  val cached = localDataSource.getUser(id)
+                  if (cached != null) {
+                      Result.success(cached.toDomain())
+                  } else {
+                      Result.failure(e)
+                  }
+              }
+          }
+          
+          // Write-through
+          override suspend fun updateUser(user: User): Result<Unit> = withContext(dispatcher) {
+              try {
+                  remoteDataSource.updateUser(user.toDto())
+                  localDataSource.saveUser(user.toEntity())
+                  Result.success(Unit)
+              } catch (e: Exception) {
+                  Result.failure(e)
+              }
+          }
+          
+          private suspend fun refreshUser(id: String) {
+              try {
+                  val remote = remoteDataSource.getUser(id)
+                  localDataSource.saveUser(remote.toEntity())
+              } catch (e: Exception) {
+                  // Silent fail for background refresh
+                  Log.w("UserRepository", "Failed to refresh user", e)
+              }
+          }
+      }
+
+  offline_first:
+    strategy: |
+      1. Always read from local cache first
+      2. Return cached data immediately
+      3. Fetch fresh data in background
+      4. Update cache and emit new data
+      5. Handle conflicts gracefully
+    
+    implementation: |
+      class MatchRepositoryImpl @Inject constructor(
+          private val api: MatchApi,
+          private val dao: MatchDao
+      ) : MatchRepository {
+          
+          override fun observeMatches(): Flow<List<Match>> {
+              return dao.observeAll()
+                  .map { entities -> entities.map { it.toDomain() } }
+                  .onStart { refreshMatches() }
+                  .catch { e ->
+                      // Still emit cached data on error
+                      emit(dao.getAll().map { it.toDomain() })
+                  }
+          }
+          
+          override suspend fun refreshMatches(): Result<Unit> {
+              return try {
+                  val remote = api.getMatches()
+                  dao.replaceAll(remote.map { it.toEntity() })
+                  Result.success(Unit)
+              } catch (e: Exception) {
+                  Result.failure(e)
+              }
+          }
+          
+          // Optimistic update with rollback
+          override suspend fun unmatch(matchId: String): Result<Unit> {
+              val backup = dao.getById(matchId)
+              
+              // Optimistic: delete locally first
+              dao.delete(matchId)
+              
+              return try {
+                  api.unmatch(matchId)
+                  Result.success(Unit)
+              } catch (e: Exception) {
+                  // Rollback on failure
+                  backup?.let { dao.insert(it) }
+                  Result.failure(e)
+              }
+          }
+      }
+
+  paging:
+    overview: "Efficient loading of large datasets"
+    
+    implementation: |
+      // Paging source
+      class ProfilePagingSource @Inject constructor(
+          private val api: DiscoverApi
+      ) : PagingSource<Int, ProfileDto>() {
+          
+          override suspend fun load(params: LoadParams<Int>): LoadResult<Int, ProfileDto> {
+              val page = params.key ?: 0
+              
+              return try {
+                  val response = api.getProfiles(
+                      page = page,
+                      pageSize = params.loadSize
+                  )
+                  
+                  LoadResult.Page(
+                      data = response.profiles,
+                      prevKey = if (page == 0) null else page - 1,
+                      nextKey = if (response.profiles.isEmpty()) null else page + 1
+                  )
+              } catch (e: Exception) {
+                  LoadResult.Error(e)
+              }
+          }
+          
+          override fun getRefreshKey(state: PagingState<Int, ProfileDto>): Int? {
+              return state.anchorPosition?.let { anchor ->
+                  state.closestPageToPosition(anchor)?.prevKey?.plus(1)
+                      ?: state.closestPageToPosition(anchor)?.nextKey?.minus(1)
+              }
+          }
+      }
+      
+      // Repository
+      class DiscoverRepository @Inject constructor(
+          private val pagingSourceFactory: ProfilePagingSource.Factory
+      ) {
+          fun getProfilesPager(): Flow<PagingData<Profile>> {
+              return Pager(
+                  config = PagingConfig(
+                      pageSize = 20,
+                      enablePlaceholders = false,
+                      prefetchDistance = 5
+                  ),
+                  pagingSourceFactory = { pagingSourceFactory.create() }
+              ).flow.map { pagingData ->
+                  pagingData.map { dto -> dto.toDomain() }
+              }
+          }
+      }
+      
+      // ViewModel
+      @HiltViewModel
+      class DiscoverViewModel @Inject constructor(
+          private val repository: DiscoverRepository
+      ) : ViewModel() {
+          
+          val profiles: Flow<PagingData<Profile>> = repository.getProfilesPager()
+              .cachedIn(viewModelScope)
+      }
+      
+      // UI
+      @Composable
+      fun DiscoverScreen(viewModel: DiscoverViewModel = hiltViewModel()) {
+          val profiles = viewModel.profiles.collectAsLazyPagingItems()
+          
+          LazyColumn {
+              items(
+                  count = profiles.itemCount,
+                  key = profiles.itemKey { it.id }
+              ) { index ->
+                  profiles[index]?.let { profile ->
+                      ProfileCard(profile)
+                  }
+              }
+              
+              // Loading state
+              when (profiles.loadState.append) {
+                  is LoadState.Loading -> item { LoadingIndicator() }
+                  is LoadState.Error -> item { ErrorRetry { profiles.retry() } }
+                  else -> {}
+              }
+          }
+      }
+
+# ============================================================
+# SECTION 4: REAL-TIME ARCHITECTURE
+# ============================================================
+realtime_architecture:
+
+  websocket_chat:
+    overview: "Bidirectional communication for instant messaging"
+    
+    connection_management: |
+      class ChatWebSocketManager @Inject constructor(
+          private val okHttpClient: OkHttpClient,
+          private val authRepository: AuthRepository
+      ) {
+          private var webSocket: WebSocket? = null
+          private val _messages = MutableSharedFlow<ChatMessage>()
+          val messages: SharedFlow<ChatMessage> = _messages.asSharedFlow()
+          
+          private val _connectionState = MutableStateFlow(ConnectionState.Disconnected)
+          val connectionState: StateFlow<ConnectionState> = _connectionState.asStateFlow()
+          
+          fun connect(matchId: String) {
+              val token = authRepository.getAccessToken()
+              val request = Request.Builder()
+                  .url("wss://api.safeconnect.app/chat/$matchId")
+                  .addHeader("Authorization", "Bearer $token")
+                  .build()
+              
+              webSocket = okHttpClient.newWebSocket(request, object : WebSocketListener() {
+                  override fun onOpen(webSocket: WebSocket, response: Response) {
+                      _connectionState.value = ConnectionState.Connected
+                  }
+                  
+                  override fun onMessage(webSocket: WebSocket, text: String) {
+                      val message = Json.decodeFromString<ChatMessage>(text)
+                      runBlocking { _messages.emit(message) }
+                  }
+                  
+                  override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
+                      _connectionState.value = ConnectionState.Disconnecting
+                  }
+                  
+                  override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                      _connectionState.value = ConnectionState.Disconnected
+                  }
+                  
+                  override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                      _connectionState.value = ConnectionState.Error(t.message)
+                      // Implement reconnection logic
+                      reconnect(matchId)
+                  }
+              })
+          }
+          
+          fun send(message: String) {
+              webSocket?.send(Json.encodeToString(OutgoingMessage(content = message)))
+          }
+          
+          fun disconnect() {
+              webSocket?.close(1000, "User disconnected")
+              webSocket = null
+          }
+          
+          private fun reconnect(matchId: String) {
+              // Exponential backoff
+              var delay = 1000L
+              CoroutineScope(Dispatchers.IO).launch {
+                  repeat(5) { attempt ->
+                      delay(delay)
+                      if (_connectionState.value != ConnectionState.Connected) {
+                          connect(matchId)
+                          delay *= 2
+                      } else {
+                          return@launch
+                      }
+                  }
+              }
+          }
+      }
+      
+      enum class ConnectionState {
+          Connecting, Connected, Disconnecting, Disconnected;
+          data class Error(val message: String?) : ConnectionState
+      }
+    
+    chat_repository: |
+      class ChatRepository @Inject constructor(
+          private val webSocketManager: ChatWebSocketManager,
+          private val messageDao: MessageDao,
+          private val messageApi: MessageApi
+      ) {
+          fun observeMessages(matchId: String): Flow<List<Message>> {
+              return merge(
+                  // Local messages
+                  messageDao.observeMessages(matchId).map { it.toDomain() },
+                  // Real-time messages
+                  webSocketManager.messages
+                      .filter { it.matchId == matchId }
+                      .onEach { message ->
+                          messageDao.insert(message.toEntity())
+                      }
+                      .map { } // Trigger requery
+              ).flatMapLatest {
+                  messageDao.observeMessages(matchId).map { it.toDomain() }
+              }
+          }
+          
+          suspend fun sendMessage(matchId: String, content: String): Result<Message> {
+              val optimisticMessage = Message(
+                  id = UUID.randomUUID().toString(),
+                  matchId = matchId,
+                  content = content,
+                  senderId = getCurrentUserId(),
+                  status = MessageStatus.Sending,
+                  createdAt = Instant.now()
+              )
+              
+              // Optimistic insert
+              messageDao.insert(optimisticMessage.toEntity())
+              
+              return try {
+                  webSocketManager.send(content)
+                  messageDao.updateStatus(optimisticMessage.id, MessageStatus.Sent)
+                  Result.success(optimisticMessage.copy(status = MessageStatus.Sent))
+              } catch (e: Exception) {
+                  messageDao.updateStatus(optimisticMessage.id, MessageStatus.Failed)
+                  Result.failure(e)
+              }
+          }
+      }
+
+  push_notifications:
+    fcm_setup: |
+      class SafeConnectFirebaseService : FirebaseMessagingService() {
+          
+          @Inject
+          lateinit var notificationRepository: NotificationRepository
+          
+          override fun onNewToken(token: String) {
+              CoroutineScope(Dispatchers.IO).launch {
+                  notificationRepository.registerDeviceToken(token)
+              }
+          }
+          
+          override fun onMessageReceived(message: RemoteMessage) {
+              val data = message.data
+              
+              when (data["type"]) {
+                  "match" -> handleNewMatch(data)
+                  "message" -> handleNewMessage(data)
+                  "like" -> handleNewLike(data)
+                  "safety_alert" -> handleSafetyAlert(data)
+              }
+          }
+          
+          private fun handleNewMatch(data: Map<String, String>) {
+              val matchId = data["matchId"] ?: return
+              val userName = data["userName"] ?: "Someone"
+              
+              showNotification(
+                  title = "It's a Match! 💕",
+                  body = "You and $userName liked each other",
+                  channelId = CHANNEL_MATCHES,
+                  intent = DeepLinkIntent.chat(matchId)
+              )
+          }
+          
+          private fun handleSafetyAlert(data: Map<String, String>) {
+              // High priority notification
+              showNotification(
+                  title = "⚠️ Safety Alert",
+                  body = data["message"] ?: "Check in requested",
+                  channelId = CHANNEL_SAFETY,
+                  priority = NotificationCompat.PRIORITY_HIGH,
+                  intent = DeepLinkIntent.safetyCenter()
+              )
+          }
+      }
+
+# ============================================================
+# SECTION 5: NAVIGATION ARCHITECTURE
+# ============================================================
+navigation:
+
+  compose_navigation:
+    setup: |
+      // Navigation routes
+      sealed class Route(val path: String) {
+          // Auth flow
+          data object Login : Route("login")
+          data object Register : Route("register")
+          data object Verification : Route("verification/{type}") {
+              fun create(type: String) = "verification/$type"
+          }
+          
+          // Main flow
+          data object Discover : Route("discover")
+          data object Matches : Route("matches")
+          data object Chat : Route("chat/{matchId}") {
+              fun create(matchId: String) = "chat/$matchId"
+          }
+          data object Profile : Route("profile")
+          data object EditProfile : Route("profile/edit")
+          data object SafetyCenter : Route("safety")
+          
+          // Games
+          data object GamesHub : Route("games")
+          data object Game : Route("games/{gameType}/{matchId}") {
+              fun create(gameType: String, matchId: String) = "games/$gameType/$matchId"
+          }
+      }
+    
+    nav_graph: |
+      @Composable
+      fun SafeConnectNavGraph(
+          navController: NavHostController = rememberNavController(),
+          startDestination: String = Route.Discover.path
+      ) {
+          NavHost(
+              navController = navController,
+              startDestination = startDestination
+          ) {
+              // Auth
+              composable(Route.Login.path) {
+                  LoginScreen(
+                      onLoginSuccess = { navController.navigate(Route.Discover.path) },
+                      onRegisterClick = { navController.navigate(Route.Register.path) }
+                  )
+              }
+              
+              // Main with arguments
+              composable(
+                  route = Route.Chat.path,
+                  arguments = listOf(navArgument("matchId") { type = NavType.StringType })
+              ) { backStackEntry ->
+                  val matchId = backStackEntry.arguments?.getString("matchId") ?: return@composable
+                  ChatScreen(matchId = matchId)
+              }
+              
+              // Nested navigation for tabs
+              navigation(
+                  startDestination = Route.Profile.path,
+                  route = "profile_graph"
+              ) {
+                  composable(Route.Profile.path) {
+                      ProfileScreen(
+                          onEditClick = { navController.navigate(Route.EditProfile.path) },
+                          onSafetyClick = { navController.navigate(Route.SafetyCenter.path) }
+                      )
+                  }
+                  composable(Route.EditProfile.path) {
+                      EditProfileScreen(onSaveSuccess = { navController.popBackStack() })
+                  }
+                  composable(Route.SafetyCenter.path) {
+                      SafetyCenterScreen()
+                  }
+              }
+          }
+      }
+    
+    bottom_nav: |
+      @Composable
+      fun MainScreen() {
+          val navController = rememberNavController()
+          
+          Scaffold(
+              bottomBar = {
+                  NavigationBar {
+                      val navBackStackEntry by navController.currentBackStackEntryAsState()
+                      val currentRoute = navBackStackEntry?.destination?.route
+                      
+                      bottomNavItems.forEach { item ->
+                          NavigationBarItem(
+                              icon = { Icon(item.icon, contentDescription = item.label) },
+                              label = { Text(item.label) },
+                              selected = currentRoute == item.route.path,
+                              onClick = {
+                                  navController.navigate(item.route.path) {
+                                      popUpTo(navController.graph.findStartDestination().id) {
+                                          saveState = true
+                                      }
+                                      launchSingleTop = true
+                                      restoreState = true
+                                  }
+                              }
+                          )
+                      }
+                  }
+              }
+          ) { padding ->
+              SafeConnectNavGraph(
+                  navController = navController,
+                  modifier = Modifier.padding(padding)
+              )
+          }
+      }
+      
+      data class BottomNavItem(
+          val route: Route,
+          val icon: ImageVector,
+          val label: String
+      )
+      
+      val bottomNavItems = listOf(
+          BottomNavItem(Route.Discover, Icons.Default.Explore, "Discover"),
+          BottomNavItem(Route.Matches, Icons.Default.Favorite, "Matches"),
+          BottomNavItem(Route.GamesHub, Icons.Default.SportsEsports, "Games"),
+          BottomNavItem(Route.Profile, Icons.Default.Person, "Profile")
+      )
+
+  deep_linking:
+    setup: |
+      // AndroidManifest.xml
+      <activity android:name=".MainActivity">
+          <intent-filter android:autoVerify="true">
+              <action android:name="android.intent.action.VIEW" />
+              <category android:name="android.intent.category.DEFAULT" />
+              <category android:name="android.intent.category.BROWSABLE" />
+              <data
+                  android:scheme="https"
+                  android:host="safeconnect.app"
+                  android:pathPattern="/match/.*" />
+              <data
+                  android:scheme="https"
+                  android:host="safeconnect.app"
+                  android:pathPattern="/chat/.*" />
+          </intent-filter>
+      </activity>
+    
+    handling: |
+      composable(
+          route = Route.Chat.path,
+          deepLinks = listOf(
+              navDeepLink {
+                  uriPattern = "https://safeconnect.app/chat/{matchId}"
+              }
+          )
+      ) { backStackEntry ->
+          ChatScreen(matchId = backStackEntry.arguments?.getString("matchId") ?: "")
+      }
+
+# ============================================================
+# SECTION 6: TESTING ARCHITECTURE
+# ============================================================
+testing_architecture:
+
+  test_pyramid:
+    unit_tests: "70% - Fast, isolated, no dependencies"
+    integration_tests: "20% - Component interactions"
+    ui_tests: "10% - End-to-end, slow but valuable"
+
+  unit_testing:
+    viewmodel_tests: |
+      @OptIn(ExperimentalCoroutinesApi::class)
+      class ProfileViewModelTest {
+          
+          @get:Rule
+          val mainDispatcherRule = MainDispatcherRule()
+          
+          private val getUserUseCase: GetUserUseCase = mockk()
+          private val updateUserUseCase: UpdateUserUseCase = mockk()
+          private val savedStateHandle = SavedStateHandle(mapOf("userId" to "123"))
+          
+          private lateinit var viewModel: ProfileViewModel
+          
+          @Before
+          fun setup() {
+              viewModel = ProfileViewModel(
+                  getUserUseCase = getUserUseCase,
+                  updateUserUseCase = updateUserUseCase,
+                  savedStateHandle = savedStateHandle
+              )
+          }
+          
+          @Test
+          fun `initial state is loading`() = runTest {
+              coEvery { getUserUseCase("123") } coAnswers {
+                  delay(100)
+                  Result.success(testUser)
+              }
+              
+              viewModel.uiState.test {
+                  assertThat(awaitItem()).isEqualTo(ProfileUiState.Loading)
+              }
+          }
+          
+          @Test
+          fun `shows success state when user loaded`() = runTest {
+              coEvery { getUserUseCase("123") } returns Result.success(testUser)
+              
+              viewModel.uiState.test {
+                  skipItems(1) // Skip loading
+                  assertThat(awaitItem()).isEqualTo(ProfileUiState.Success(testUser))
+              }
+          }
+          
+          @Test
+          fun `shows error state on failure`() = runTest {
+              coEvery { getUserUseCase("123") } returns Result.failure(Exception("Network error"))
+              
+              viewModel.uiState.test {
+                  skipItems(1) // Skip loading
+                  val state = awaitItem()
+                  assertThat(state).isInstanceOf(ProfileUiState.Error::class.java)
+              }
+          }
+      }
+    
+    repository_tests: |
+      class UserRepositoryTest {
+          
+          private val remoteDataSource: UserRemoteDataSource = mockk()
+          private val localDataSource: UserLocalDataSource = mockk()
+          
+          private lateinit var repository: UserRepositoryImpl
+          
+          @Before
+          fun setup() {
+              repository = UserRepositoryImpl(
+                  remoteDataSource = remoteDataSource,
+                  localDataSource = localDataSource,
+                  dispatcher = StandardTestDispatcher()
+              )
+          }
+          
+          @Test
+          fun `getUser returns remote data and caches it`() = runTest {
+              val remoteUser = UserDto(id = "1", name = "Alice")
+              coEvery { remoteDataSource.getUser("1") } returns remoteUser
+              coEvery { localDataSource.saveUser(any()) } just Runs
+              
+              val result = repository.getUser("1")
+              
+              assertThat(result.isSuccess).isTrue()
+              coVerify { localDataSource.saveUser(any()) }
+          }
+          
+          @Test
+          fun `getUser falls back to cache on network error`() = runTest {
+              val cachedUser = UserEntity(id = "1", name = "Cached Alice")
+              coEvery { remoteDataSource.getUser("1") } throws IOException()
+              coEvery { localDataSource.getUser("1") } returns cachedUser
+              
+              val result = repository.getUser("1")
+              
+              assertThat(result.isSuccess).isTrue()
+              assertThat(result.getOrNull()?.name).isEqualTo("Cached Alice")
+          }
+      }
+    
+    use_case_tests: |
+      class SwipeUserUseCaseTest {
+          
+          private val matchRepository: MatchRepository = mockk()
+          private val analyticsTracker: AnalyticsTracker = mockk(relaxed = true)
+          
+          private lateinit var useCase: SwipeUserUseCase
+          
+          @Before
+          fun setup() {
+              useCase = SwipeUserUseCase(matchRepository, analyticsTracker)
+          }
+          
+          @Test
+          fun `swipe right creates match when mutual`() = runTest {
+              coEvery { matchRepository.likeUser("user123") } returns Result.success(
+                  LikeResult(isMatch = true, matchedUser = testUser)
+              )
+              
+              val result = useCase.swipeRight("user123")
+              
+              assertThat(result.isMatch).isTrue()
+              assertThat(result.matchedUser).isNotNull()
+              verify { analyticsTracker.track("swipe_right", any()) }
+              verify { analyticsTracker.track("match_created", any()) }
+          }
+      }
+
+  ui_testing:
+    compose_tests: |
+      class ProfileScreenTest {
+          
+          @get:Rule
+          val composeTestRule = createComposeRule()
+          
+          private val viewModel: ProfileViewModel = mockk(relaxed = true)
+          
+          @Test
+          fun `shows loading indicator when loading`() {
+              every { viewModel.uiState } returns MutableStateFlow(ProfileUiState.Loading)
+              
+              composeTestRule.setContent {
+                  ProfileScreen(viewModel = viewModel)
+              }
+              
+              composeTestRule
+                  .onNodeWithTag("loading_indicator")
+                  .assertIsDisplayed()
+          }
+          
+          @Test
+          fun `shows user name when loaded`() {
+              every { viewModel.uiState } returns MutableStateFlow(
+                  ProfileUiState.Success(testUser.copy(name = "Alice"))
+              )
+              
+              composeTestRule.setContent {
+                  ProfileScreen(viewModel = viewModel)
+              }
+              
+              composeTestRule
+                  .onNodeWithText("Alice")
+                  .assertIsDisplayed()
+          }
+          
+          @Test
+          fun `clicking edit navigates to edit screen`() {
+              every { viewModel.uiState } returns MutableStateFlow(ProfileUiState.Success(testUser))
+              
+              composeTestRule.setContent {
+                  ProfileScreen(viewModel = viewModel)
+              }
+              
+              composeTestRule
+                  .onNodeWithContentDescription("Edit profile")
+                  .performClick()
+              
+              verify { viewModel.onEditProfile() }
+          }
+      }
+
+  fakes_vs_mocks:
+    guidance: |
+      Use FAKES for:
+      - Repositories in integration tests
+      - Data sources for faster tests
+      - External services (network, database)
+      
+      Use MOCKS for:
+      - Verifying interactions
+      - Specific behavior testing
+      - Unit tests
+    
+    fake_example: |
+      class FakeUserRepository : UserRepository {
+          private val users = mutableMapOf<String, User>()
+          var shouldFail = false
+          
+          override suspend fun getUser(id: String): Result<User> {
+              if (shouldFail) return Result.failure(Exception("Fake error"))
+              return users[id]?.let { Result.success(it) }
+                  ?: Result.failure(NotFoundException())
+          }
+          
+          override suspend fun updateUser(user: User): Result<Unit> {
+              if (shouldFail) return Result.failure(Exception("Fake error"))
+              users[user.id] = user
+              return Result.success(Unit)
+          }
+          
+          // Test helpers
+          fun addUser(user: User) { users[user.id] = user }
+          fun clear() { users.clear() }
+      }

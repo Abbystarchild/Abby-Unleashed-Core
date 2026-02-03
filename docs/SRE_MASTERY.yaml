@@ -1,0 +1,1188 @@
+# Site Reliability Engineering (SRE) Mastery Knowledge Base
+# Comprehensive guide based on Google SRE principles and industry best practices
+# Last Updated: 2026-02-02
+
+metadata:
+  domain: Site Reliability Engineering
+  version: "1.0"
+  sources:
+    - "Google SRE Book (O'Reilly)"
+    - "Google SRE Workbook"
+    - "DORA State of DevOps Reports"
+    - "Charity Majors - Observability Engineering"
+    - "Netflix Chaos Engineering"
+  certifications:
+    - "Google Cloud Professional Cloud DevOps Engineer"
+    - "AWS Certified DevOps Engineer - Professional"
+    - "Certified Kubernetes Administrator (CKA)"
+    - "HashiCorp Certified: Terraform Associate"
+
+# =============================================================================
+# SECTION 1: SLIs, SLOs, and SLAs
+# =============================================================================
+service_level_indicators:
+  definition: |
+    Service Level Indicators (SLIs) are quantitative measures of service behavior.
+    They represent the "what" we measure to understand service health.
+  
+  core_principles:
+    - "SLIs should measure user experience, not system internals"
+    - "Good SLIs are directly tied to user happiness"
+    - "SLIs must be measurable, meaningful, and actionable"
+  
+  common_sli_types:
+    availability:
+      description: "Proportion of time service is usable"
+      formula: "successful_requests / total_requests"
+      measurement_window: "Rolling 28-day or calendar month"
+      example: "99.9% of requests return non-5xx responses"
+    
+    latency:
+      description: "Time to serve a request"
+      formula: "requests_below_threshold / total_requests"
+      percentiles: ["p50", "p90", "p95", "p99"]
+      example: "95% of requests complete in < 200ms"
+    
+    throughput:
+      description: "Rate of successful operations"
+      formula: "successful_operations / time_period"
+      example: "System processes > 10,000 transactions/second"
+    
+    correctness:
+      description: "Proportion of correct results"
+      formula: "correct_responses / total_responses"
+      example: "99.99% of data retrievals return accurate data"
+    
+    freshness:
+      description: "How up-to-date data is"
+      formula: "data_updated_within_threshold / total_data"
+      example: "95% of records updated within 1 minute"
+    
+    durability:
+      description: "Likelihood data will be retained"
+      formula: "data_preserved / data_stored"
+      example: "99.9999999% of objects stored are not lost"
+
+  sli_selection_criteria:
+    must_have:
+      - "Directly measurable from monitoring systems"
+      - "Reflects actual user experience"
+      - "Comparable across time periods"
+      - "Actionable when degraded"
+    avoid:
+      - "Internal system metrics not visible to users"
+      - "Vanity metrics that don't indicate problems"
+      - "Metrics that can't be reliably collected"
+
+service_level_objectives:
+  definition: |
+    Service Level Objectives (SLOs) are target values for SLIs that represent
+    the desired level of service. They define "how much" reliability is enough.
+  
+  setting_slos:
+    principles:
+      - "Set SLOs based on user expectations, not current performance"
+      - "Start with achievable targets, then tighten over time"
+      - "SLOs should be slightly below actual performance"
+      - "Document the rationale for each SLO"
+    
+    common_targets:
+      critical_user_facing: "99.9% - 99.99%"
+      internal_services: "99.5% - 99.9%"
+      batch_processing: "99% - 99.5%"
+      development_environments: "95% - 99%"
+    
+    slo_document_template:
+      service_name: "[Service Name]"
+      slo_owner: "[Team/Person]"
+      review_cadence: "Quarterly"
+      components:
+        - sli: "Availability"
+          target: "99.9%"
+          measurement: "Ratio of successful HTTP requests"
+          window: "28-day rolling"
+        - sli: "Latency (p99)"
+          target: "< 500ms"
+          measurement: "99th percentile response time"
+          window: "28-day rolling"
+
+  error_budgets:
+    definition: |
+      Error Budget = 1 - SLO. It represents the acceptable amount of unreliability.
+      For a 99.9% SLO, the error budget is 0.1% (43.2 minutes/month).
+    
+    calculation_examples:
+      "99.9%_slo":
+        monthly_budget_minutes: 43.2
+        annual_budget_hours: 8.76
+      "99.95%_slo":
+        monthly_budget_minutes: 21.6
+        annual_budget_hours: 4.38
+      "99.99%_slo":
+        monthly_budget_minutes: 4.32
+        annual_budget_hours: 0.876
+    
+    error_budget_policies:
+      budget_remaining_75_100:
+        actions:
+          - "Normal feature development velocity"
+          - "Acceptable to take calculated risks"
+          - "Focus on innovation"
+      budget_remaining_50_75:
+        actions:
+          - "Review recent changes for reliability impact"
+          - "Increase testing coverage"
+          - "Consider delaying risky deployments"
+      budget_remaining_25_50:
+        actions:
+          - "Halt non-critical feature work"
+          - "Focus on reliability improvements"
+          - "Conduct architecture reviews"
+      budget_remaining_0_25:
+        actions:
+          - "Feature freeze except reliability work"
+          - "Mandatory postmortems for all incidents"
+          - "Executive escalation required"
+      budget_exhausted:
+        actions:
+          - "Complete feature freeze"
+          - "All engineering focuses on reliability"
+          - "Deployment freeze except emergency fixes"
+
+service_level_agreements:
+  definition: |
+    Service Level Agreements (SLAs) are contractual commitments with consequences
+    for missing targets. SLAs should always be less stringent than internal SLOs.
+  
+  sla_vs_slo:
+    slo: "Internal target (e.g., 99.95%)"
+    sla: "External commitment (e.g., 99.9%)"
+    buffer: "SLO should be 0.05-0.5% higher than SLA"
+  
+  sla_components:
+    - metric: "What is being measured"
+    - target: "The committed level"
+    - measurement_method: "How it's calculated"
+    - reporting_period: "Time window"
+    - exclusions: "What doesn't count"
+    - remedies: "Consequences of missing"
+  
+  common_remedies:
+    service_credits:
+      "99.0-99.9%": "10% credit"
+      "95.0-99.0%": "25% credit"
+      "below_95%": "50% credit"
+
+# =============================================================================
+# SECTION 2: Incident Management
+# =============================================================================
+incident_management:
+  on_call_practices:
+    rotation_design:
+      principles:
+        - "Minimum 2 people in rotation (primary + secondary)"
+        - "Maximum shift length: 12 hours (ideal), 24 hours (acceptable)"
+        - "Minimum time between on-call shifts: 1 week"
+        - "On-call load should be < 25% of work time"
+      
+      compensation:
+        - "Time off in lieu (TOIL) for overnight pages"
+        - "Additional compensation for on-call duty"
+        - "Clear escalation paths to reduce burden"
+    
+    on_call_readiness:
+      requirements:
+        - "Completed shadowing period (minimum 1-2 weeks)"
+        - "Access to all necessary systems and runbooks"
+        - "Functioning alerting on personal devices"
+        - "Understanding of escalation procedures"
+      
+      handoff_checklist:
+        - "Review open incidents and ongoing issues"
+        - "Check recent deployments and changes"
+        - "Verify monitoring systems are functional"
+        - "Confirm contact information is current"
+
+  incident_response:
+    severity_levels:
+      sev1_critical:
+        definition: "Complete service outage or data breach"
+        response_time: "< 15 minutes"
+        communication: "Executive notification, status page update"
+        examples:
+          - "Production database unavailable"
+          - "Security breach detected"
+          - "Data loss event"
+      
+      sev2_major:
+        definition: "Significant degradation affecting many users"
+        response_time: "< 30 minutes"
+        communication: "Stakeholder notification, status page update"
+        examples:
+          - "50% of requests failing"
+          - "Critical feature unavailable"
+          - "Significant latency increase"
+      
+      sev3_minor:
+        definition: "Limited impact, workaround available"
+        response_time: "< 4 hours"
+        communication: "Team notification"
+        examples:
+          - "Non-critical feature degraded"
+          - "Single customer affected"
+          - "Minor data inconsistency"
+      
+      sev4_low:
+        definition: "Minimal impact, cosmetic issues"
+        response_time: "Next business day"
+        communication: "Ticket creation"
+        examples:
+          - "UI rendering issue"
+          - "Documentation error"
+          - "Non-user-facing bug"
+
+    incident_roles:
+      incident_commander:
+        responsibilities:
+          - "Coordinates response efforts"
+          - "Makes decisions on mitigation strategy"
+          - "Manages communication flow"
+          - "Declares incident resolved"
+        skills:
+          - "Clear communication under pressure"
+          - "Ability to delegate effectively"
+          - "System-wide understanding"
+      
+      communications_lead:
+        responsibilities:
+          - "Updates status page"
+          - "Manages stakeholder communication"
+          - "Coordinates with support team"
+          - "Documents timeline"
+      
+      operations_lead:
+        responsibilities:
+          - "Executes technical mitigation"
+          - "Coordinates with subject matter experts"
+          - "Implements fixes and rollbacks"
+      
+      subject_matter_experts:
+        responsibilities:
+          - "Provide deep technical analysis"
+          - "Suggest mitigation strategies"
+          - "Execute specialized fixes"
+
+    incident_lifecycle:
+      detection:
+        - "Automated alerting triggers"
+        - "Customer report received"
+        - "Manual observation"
+      
+      triage:
+        - "Assess severity and impact"
+        - "Assign incident commander"
+        - "Open communication channels"
+      
+      mitigation:
+        - "Implement immediate fixes"
+        - "Rollback if necessary"
+        - "Scale resources if needed"
+      
+      resolution:
+        - "Confirm service restored"
+        - "Verify no residual issues"
+        - "Update status page"
+      
+      postmortem:
+        - "Schedule blameless review"
+        - "Document timeline and actions"
+        - "Identify action items"
+
+  blameless_postmortems:
+    principles:
+      - "Focus on systems and processes, not individuals"
+      - "Assume everyone acted with best intentions"
+      - "Seek to understand, not to blame"
+      - "Learning is the primary goal"
+    
+    postmortem_template:
+      header:
+        incident_id: "[YYYY-MM-DD-XXX]"
+        title: "[Brief Description]"
+        date: "[Date of Incident]"
+        authors: "[Names]"
+        status: "[Draft/Final]"
+      
+      summary:
+        duration: "[Start time - End time]"
+        impact: "[Users/Revenue/Data affected]"
+        severity: "[Sev1-4]"
+        root_cause: "[One sentence summary]"
+      
+      timeline:
+        format: "HH:MM - Event description"
+        include:
+          - "Detection time"
+          - "Key decisions made"
+          - "Mitigation attempts"
+          - "Resolution confirmation"
+      
+      root_cause_analysis:
+        method: "5 Whys or Fishbone Diagram"
+        categories:
+          - "Process"
+          - "Technology"
+          - "People"
+          - "External"
+      
+      contributing_factors:
+        - "[Factor 1 with explanation]"
+        - "[Factor 2 with explanation]"
+      
+      what_went_well:
+        - "[Positive observation 1]"
+        - "[Positive observation 2]"
+      
+      what_could_be_improved:
+        - "[Improvement area 1]"
+        - "[Improvement area 2]"
+      
+      action_items:
+        format:
+          action: "[Description]"
+          owner: "[Name]"
+          priority: "[P0-P3]"
+          due_date: "[Date]"
+          ticket: "[Link]"
+
+# =============================================================================
+# SECTION 3: Observability (Three Pillars)
+# =============================================================================
+observability:
+  definition: |
+    Observability is the ability to understand the internal state of a system
+    by examining its external outputs. It enables answering novel questions
+    about system behavior without deploying new code.
+
+  three_pillars:
+    logs:
+      definition: "Immutable, timestamped records of discrete events"
+      
+      best_practices:
+        structure:
+          - "Use structured logging (JSON preferred)"
+          - "Include correlation IDs for request tracing"
+          - "Consistent timestamp format (ISO 8601 UTC)"
+          - "Include severity/log level"
+        
+        content:
+          - "Log actionable information"
+          - "Avoid logging sensitive data (PII, secrets)"
+          - "Include context (user ID, request ID, service name)"
+          - "Log at appropriate levels"
+        
+        log_levels:
+          ERROR: "Failures requiring immediate attention"
+          WARN: "Unexpected situations that may need review"
+          INFO: "Significant business events"
+          DEBUG: "Detailed diagnostic information"
+          TRACE: "Very detailed debugging (disabled in production)"
+      
+      structured_log_example:
+        timestamp: "2026-02-02T10:30:00.000Z"
+        level: "ERROR"
+        service: "payment-service"
+        trace_id: "abc123"
+        span_id: "def456"
+        message: "Payment processing failed"
+        error_code: "CARD_DECLINED"
+        user_id: "user_789"
+        amount: 99.99
+        duration_ms: 1523
+
+    metrics:
+      definition: "Numeric measurements collected at regular intervals"
+      
+      metric_types:
+        counter:
+          description: "Cumulative value that only increases"
+          examples: ["requests_total", "errors_total", "bytes_sent"]
+          use_when: "Counting occurrences over time"
+        
+        gauge:
+          description: "Point-in-time value that can go up or down"
+          examples: ["temperature", "memory_usage", "active_connections"]
+          use_when: "Measuring current state"
+        
+        histogram:
+          description: "Samples observations into configurable buckets"
+          examples: ["request_duration", "response_size"]
+          use_when: "Measuring distributions (latency, size)"
+        
+        summary:
+          description: "Similar to histogram but calculates quantiles"
+          examples: ["request_latency_p99"]
+          use_when: "Need accurate quantiles over sliding window"
+      
+      naming_conventions:
+        format: "<namespace>_<subsystem>_<name>_<unit>"
+        examples:
+          - "http_requests_total"
+          - "http_request_duration_seconds"
+          - "process_memory_bytes"
+          - "database_connections_active"
+      
+      cardinality_management:
+        guidelines:
+          - "Limit label cardinality (< 100 unique values)"
+          - "Never use high-cardinality fields as labels (user IDs, emails)"
+          - "Use histograms instead of individual metrics for distributions"
+          - "Review and prune unused metrics regularly"
+      
+      red_method:
+        description: "Key metrics for request-driven services"
+        rate: "Requests per second"
+        errors: "Failed requests per second"
+        duration: "Distribution of request latencies"
+      
+      use_method:
+        description: "Key metrics for resources"
+        utilization: "Percentage of resource used"
+        saturation: "Amount of work queued"
+        errors: "Number of error events"
+
+    traces:
+      definition: "Records of request paths through distributed systems"
+      
+      components:
+        trace:
+          description: "End-to-end journey of a request"
+          contains: "Multiple spans"
+        
+        span:
+          description: "Single operation within a trace"
+          attributes:
+            - "trace_id: Unique identifier for the trace"
+            - "span_id: Unique identifier for the span"
+            - "parent_span_id: ID of parent span"
+            - "operation_name: Name of the operation"
+            - "start_time: When operation started"
+            - "duration: How long operation took"
+            - "tags: Key-value metadata"
+            - "logs: Timestamped events within span"
+      
+      instrumentation:
+        automatic:
+          - "HTTP client/server middleware"
+          - "Database drivers"
+          - "Message queue clients"
+        
+        manual:
+          - "Business logic boundaries"
+          - "External API calls"
+          - "Cache operations"
+      
+      sampling_strategies:
+        head_based:
+          description: "Decision made at trace start"
+          pros: "Simple, consistent"
+          cons: "May miss interesting traces"
+        
+        tail_based:
+          description: "Decision made after trace completes"
+          pros: "Can capture all errors/slow traces"
+          cons: "More complex, requires buffering"
+        
+        rate_limiting:
+          description: "Fixed sample rate"
+          typical_rates:
+            high_volume: "0.1% - 1%"
+            medium_volume: "1% - 10%"
+            low_volume: "10% - 100%"
+
+  observability_tools:
+    logging:
+      - "ELK Stack (Elasticsearch, Logstash, Kibana)"
+      - "Splunk"
+      - "Grafana Loki"
+      - "Datadog Logs"
+    
+    metrics:
+      - "Prometheus + Grafana"
+      - "Datadog"
+      - "New Relic"
+      - "AWS CloudWatch"
+    
+    tracing:
+      - "Jaeger"
+      - "Zipkin"
+      - "AWS X-Ray"
+      - "Datadog APM"
+      - "Honeycomb"
+    
+    unified_platforms:
+      - "Datadog"
+      - "New Relic"
+      - "Dynatrace"
+      - "Splunk Observability"
+      - "Grafana Cloud"
+
+# =============================================================================
+# SECTION 4: Alerting
+# =============================================================================
+alerting:
+  alert_design_principles:
+    actionable:
+      - "Every alert should require human action"
+      - "If no action needed, it's not an alert"
+      - "Include clear remediation steps"
+    
+    relevant:
+      - "Alert on symptoms, not causes"
+      - "Focus on user-facing impact"
+      - "Avoid alerting on internal metrics unless critical"
+    
+    timely:
+      - "Alert early enough to prevent user impact"
+      - "Balance between too early (noise) and too late (damage)"
+    
+    prioritized:
+      - "Clear severity levels"
+      - "Different channels for different priorities"
+      - "Critical alerts should be rare"
+
+  alert_fatigue_prevention:
+    causes:
+      - "Too many alerts"
+      - "Flapping alerts"
+      - "Non-actionable alerts"
+      - "Duplicate alerts"
+      - "Alerts that auto-resolve"
+    
+    prevention_strategies:
+      reduce_noise:
+        - "Review and delete alerts nobody acts on"
+        - "Consolidate similar alerts"
+        - "Increase thresholds to reduce sensitivity"
+        - "Add hysteresis (different thresholds for alerting vs. resolving)"
+      
+      improve_quality:
+        - "Add runbook links to every alert"
+        - "Include relevant context in alert message"
+        - "Test alerts in staging before production"
+        - "Regular alert hygiene reviews (monthly)"
+      
+      smart_routing:
+        - "Route by severity and team"
+        - "Time-based routing (business hours vs. off-hours)"
+        - "Escalation policies for unacknowledged alerts"
+
+  alert_structure:
+    required_fields:
+      title: "Clear, descriptive summary"
+      severity: "Critical/Warning/Info"
+      description: "What is happening"
+      impact: "Who/what is affected"
+      runbook_url: "Link to remediation steps"
+      dashboard_url: "Link to relevant dashboard"
+    
+    recommended_fields:
+      affected_service: "Service name"
+      affected_environment: "Production/Staging"
+      current_value: "The value that triggered alert"
+      threshold: "The threshold that was exceeded"
+      started_at: "When the condition started"
+
+  alerting_rules_examples:
+    high_error_rate:
+      name: "High Error Rate"
+      condition: "error_rate > 1% for 5 minutes"
+      severity: "critical"
+      description: "Error rate exceeds 1% of requests"
+      runbook: "https://wiki/runbooks/high-error-rate"
+    
+    high_latency:
+      name: "High P99 Latency"
+      condition: "p99_latency > 1000ms for 10 minutes"
+      severity: "warning"
+      description: "99th percentile latency exceeds 1 second"
+      runbook: "https://wiki/runbooks/high-latency"
+    
+    disk_space:
+      name: "Disk Space Low"
+      condition: "disk_usage > 85% AND rate(disk_usage) > 1%/hour"
+      severity: "warning"
+      description: "Disk usage high and growing"
+      runbook: "https://wiki/runbooks/disk-space"
+    
+    error_budget_burn:
+      name: "Error Budget Burn Rate High"
+      condition: "error_budget_burn_rate > 10x for 1 hour"
+      severity: "critical"
+      description: "Burning error budget 10x faster than sustainable"
+      runbook: "https://wiki/runbooks/error-budget"
+
+  multi_window_alerting:
+    description: |
+      Use multiple time windows to balance sensitivity and specificity.
+      Short windows catch acute issues, long windows catch gradual degradation.
+    
+    example:
+      short_window: "5 minutes at 14x burn rate"
+      long_window: "1 hour at 14x burn rate"
+      alert_condition: "Both windows must be true"
+
+# =============================================================================
+# SECTION 5: Chaos Engineering
+# =============================================================================
+chaos_engineering:
+  definition: |
+    Chaos Engineering is the discipline of experimenting on a system to build
+    confidence in the system's capability to withstand turbulent conditions
+    in production.
+
+  principles:
+    build_hypothesis:
+      description: "Start by defining steady state behavior"
+      example: "Under normal load, p99 latency < 200ms and error rate < 0.1%"
+    
+    vary_real_world_events:
+      description: "Inject failures that could happen in production"
+      examples:
+        - "Server/container failures"
+        - "Network partitions"
+        - "Dependency failures"
+        - "Resource exhaustion"
+    
+    run_in_production:
+      description: "Test against production or production-like systems"
+      note: "Start in staging, graduate to production with safeguards"
+    
+    automate_experiments:
+      description: "Continuous chaos to verify ongoing resilience"
+    
+    minimize_blast_radius:
+      description: "Start small and increase scope gradually"
+
+  fault_injection_types:
+    infrastructure:
+      - name: "Instance termination"
+        tools: ["Chaos Monkey", "AWS FIS", "Gremlin"]
+        validates: "Auto-scaling, instance replacement"
+      
+      - name: "Network partition"
+        tools: ["tc", "Gremlin", "Chaos Mesh"]
+        validates: "Service isolation, failover"
+      
+      - name: "DNS failure"
+        tools: ["Gremlin", "custom scripts"]
+        validates: "DNS caching, fallback resolution"
+    
+    application:
+      - name: "Latency injection"
+        tools: ["Istio", "Envoy", "Gremlin"]
+        validates: "Timeout handling, circuit breakers"
+      
+      - name: "Error injection"
+        tools: ["Istio", "Feature flags"]
+        validates: "Error handling, retry logic"
+      
+      - name: "Resource exhaustion"
+        tools: ["stress-ng", "Gremlin"]
+        validates: "Resource limits, OOM handling"
+    
+    dependency:
+      - name: "Database failure"
+        tools: ["Gremlin", "custom scripts"]
+        validates: "Connection pooling, failover"
+      
+      - name: "Cache failure"
+        tools: ["Custom scripts"]
+        validates: "Cache miss handling, degradation"
+      
+      - name: "Third-party API failure"
+        tools: ["Mockoon", "Feature flags"]
+        validates: "Fallback behavior, timeouts"
+
+  game_days:
+    definition: |
+      Planned events where teams practice incident response through
+      simulated failures in a controlled environment.
+    
+    planning_checklist:
+      before:
+        - "Define clear objectives and success criteria"
+        - "Identify systems and failure scenarios"
+        - "Prepare rollback procedures"
+        - "Notify stakeholders"
+        - "Ensure monitoring is in place"
+        - "Brief participants on roles"
+      
+      during:
+        - "Start with small-scope failures"
+        - "Observe and document system behavior"
+        - "Track incident response effectiveness"
+        - "Be prepared to abort if necessary"
+      
+      after:
+        - "Conduct debrief with all participants"
+        - "Document findings and surprises"
+        - "Create action items for improvements"
+        - "Share learnings with broader organization"
+    
+    game_day_scenarios:
+      beginner:
+        - "Single instance failure"
+        - "Single dependency timeout"
+        - "Configuration change rollback"
+      
+      intermediate:
+        - "Availability zone failure"
+        - "Database primary failover"
+        - "Third-party service outage"
+      
+      advanced:
+        - "Region failover"
+        - "Data corruption detection"
+        - "Cascading failures"
+
+  chaos_tools:
+    netflix_stack:
+      - name: "Chaos Monkey"
+        purpose: "Random instance termination"
+      - name: "Chaos Kong"
+        purpose: "Region evacuation"
+      - name: "Chaos Gorilla"
+        purpose: "AZ failure simulation"
+    
+    open_source:
+      - name: "Chaos Mesh"
+        platform: "Kubernetes"
+        features: ["Network chaos", "Pod chaos", "IO chaos"]
+      - name: "Litmus"
+        platform: "Kubernetes"
+        features: ["Pre-built experiments", "Observability"]
+      - name: "Pumba"
+        platform: "Docker"
+        features: ["Container chaos", "Network emulation"]
+    
+    commercial:
+      - name: "Gremlin"
+        features: ["Full chaos platform", "GameDay management"]
+      - name: "AWS Fault Injection Simulator"
+        features: ["Native AWS integration", "Managed service"]
+
+# =============================================================================
+# SECTION 6: Capacity Planning
+# =============================================================================
+capacity_planning:
+  definition: |
+    The process of determining the production capacity needed to meet
+    changing demands for services while maintaining acceptable performance.
+
+  load_forecasting:
+    methods:
+      trend_analysis:
+        description: "Project future load from historical patterns"
+        techniques:
+          - "Linear regression"
+          - "Exponential smoothing"
+          - "ARIMA models"
+        considerations:
+          - "Account for seasonality (daily, weekly, monthly)"
+          - "Include growth rate assumptions"
+          - "Plan for special events"
+      
+      capacity_testing:
+        description: "Empirically determine system limits"
+        approaches:
+          load_testing:
+            purpose: "Verify expected load handling"
+            tools: ["k6", "Locust", "Gatling", "JMeter"]
+          
+          stress_testing:
+            purpose: "Find breaking point"
+            approach: "Increase load until failure"
+          
+          soak_testing:
+            purpose: "Detect memory leaks, resource exhaustion"
+            approach: "Sustained load over extended period"
+    
+    key_metrics_to_forecast:
+      - "Request rate (QPS)"
+      - "Data storage growth"
+      - "Bandwidth utilization"
+      - "Compute utilization"
+      - "User/customer count"
+
+  scaling_strategies:
+    vertical_scaling:
+      description: "Increase resources on existing instances"
+      pros:
+        - "Simple to implement"
+        - "No application changes needed"
+        - "Good for stateful workloads"
+      cons:
+        - "Hardware limits exist"
+        - "Usually requires downtime"
+        - "Can be expensive"
+      use_when:
+        - "Single-threaded workloads"
+        - "Database servers"
+        - "Quick fixes"
+    
+    horizontal_scaling:
+      description: "Add more instances"
+      pros:
+        - "Near-infinite scaling potential"
+        - "Better fault tolerance"
+        - "Cost-effective at scale"
+      cons:
+        - "Application must support distribution"
+        - "More complex architecture"
+        - "State management challenges"
+      use_when:
+        - "Stateless services"
+        - "High availability requirements"
+        - "Variable load patterns"
+    
+    auto_scaling:
+      description: "Automatically adjust capacity based on demand"
+      
+      scaling_policies:
+        target_tracking:
+          description: "Maintain metric at target value"
+          example: "Keep CPU at 70%"
+          best_for: "Stable, predictable scaling"
+        
+        step_scaling:
+          description: "Scale in steps based on thresholds"
+          example: "Add 2 instances when CPU > 80%"
+          best_for: "Granular control"
+        
+        scheduled_scaling:
+          description: "Scale based on time"
+          example: "Scale up at 8 AM, down at 6 PM"
+          best_for: "Predictable patterns"
+      
+      scaling_metrics:
+        cpu_utilization:
+          target: "60-80%"
+          pros: "Universal, simple"
+          cons: "Not always correlated with user experience"
+        
+        request_count:
+          target: "Based on capacity testing"
+          pros: "Directly tied to load"
+          cons: "Needs baseline establishment"
+        
+        queue_depth:
+          target: "Near zero for real-time, varies for batch"
+          pros: "Shows actual backlog"
+          cons: "Only for queue-based systems"
+        
+        custom_metrics:
+          examples: ["Active users", "Response time", "Error rate"]
+          pros: "Business-relevant"
+          cons: "More complex to implement"
+
+  capacity_planning_process:
+    quarterly_review:
+      - "Review current utilization trends"
+      - "Update growth projections"
+      - "Identify bottlenecks and constraints"
+      - "Plan infrastructure changes"
+      - "Budget for upcoming needs"
+    
+    continuous_monitoring:
+      - "Track key capacity metrics"
+      - "Alert on approaching limits"
+      - "Maintain headroom (20-30% minimum)"
+
+# =============================================================================
+# RUNBOOK TEMPLATES
+# =============================================================================
+runbook_templates:
+  generic_runbook_structure:
+    metadata:
+      title: "[Alert/Issue Name]"
+      owner: "[Team Name]"
+      last_updated: "[Date]"
+      review_cadence: "Quarterly"
+    
+    overview:
+      description: "[What this runbook addresses]"
+      impact: "[User/business impact]"
+      related_alerts: ["[Alert 1]", "[Alert 2]"]
+    
+    diagnosis:
+      steps:
+        - "Check [Dashboard Link] for overall health"
+        - "Review [Log Query] for recent errors"
+        - "Verify [Dependency] status"
+      
+      common_causes:
+        - cause: "[Cause 1]"
+          indicators: "[How to identify]"
+        - cause: "[Cause 2]"
+          indicators: "[How to identify]"
+    
+    mitigation:
+      immediate_actions:
+        - "Step 1: [Action with command if applicable]"
+        - "Step 2: [Action]"
+      
+      rollback_procedure:
+        - "If recent deployment: [rollback command]"
+        - "If configuration change: [revert steps]"
+    
+    resolution:
+      verification:
+        - "Confirm [metric] returns to normal"
+        - "Verify no ongoing errors in [log]"
+      
+      communication:
+        - "Update status page"
+        - "Notify [stakeholders]"
+    
+    escalation:
+      when_to_escalate:
+        - "Issue persists > 30 minutes"
+        - "Root cause unclear"
+        - "Customer-facing impact"
+      
+      escalation_contacts:
+        primary: "[Team/Person]"
+        secondary: "[Team/Person]"
+        management: "[Manager]"
+
+  high_cpu_runbook:
+    title: "High CPU Utilization"
+    diagnosis:
+      - "Check `top` or `htop` for process breakdown"
+      - "Review application metrics for request spike"
+      - "Check for recent deployments"
+    commands:
+      linux:
+        - "top -c -p $(pgrep -d',' -f [process_name])"
+        - "ps aux --sort=-%cpu | head -20"
+      kubernetes:
+        - "kubectl top pods -n [namespace]"
+        - "kubectl describe pod [pod_name]"
+    mitigation:
+      - "Scale up instances if auto-scaling not triggered"
+      - "Kill runaway processes if identified"
+      - "Roll back recent deployment if correlated"
+
+  database_connection_pool_exhausted:
+    title: "Database Connection Pool Exhausted"
+    diagnosis:
+      - "Check current connections: SELECT count(*) FROM pg_stat_activity"
+      - "Identify blocking queries"
+      - "Review application connection pool settings"
+    commands:
+      - "SELECT * FROM pg_stat_activity WHERE state = 'active' ORDER BY query_start"
+      - "SELECT * FROM pg_locks WHERE NOT granted"
+    mitigation:
+      - "Kill long-running queries if safe"
+      - "Increase connection pool size temporarily"
+      - "Restart affected application pods"
+
+  memory_leak_runbook:
+    title: "Memory Usage High / Potential Leak"
+    diagnosis:
+      - "Check memory trend over time in metrics"
+      - "Review heap dumps if available"
+      - "Correlate with deployment timeline"
+    commands:
+      linux:
+        - "free -h"
+        - "ps aux --sort=-%mem | head -20"
+        - "cat /proc/meminfo"
+    mitigation:
+      - "Restart affected services to reclaim memory"
+      - "Scale horizontally to distribute load"
+      - "Roll back if correlated with recent deployment"
+
+# =============================================================================
+# SRE CHECKLISTS
+# =============================================================================
+sre_checklist:
+  production_readiness:
+    observability:
+      - item: "Structured logging implemented"
+        required: true
+      - item: "Key metrics exposed (RED/USE)"
+        required: true
+      - item: "Distributed tracing enabled"
+        required: true
+      - item: "Dashboards created for key metrics"
+        required: true
+      - item: "Log retention policy defined"
+        required: true
+    
+    reliability:
+      - item: "SLIs and SLOs defined"
+        required: true
+      - item: "Error budget policy documented"
+        required: true
+      - item: "Alerts configured for SLO violations"
+        required: true
+      - item: "Runbooks created for all alerts"
+        required: true
+      - item: "On-call rotation established"
+        required: true
+    
+    resilience:
+      - item: "Health check endpoints implemented"
+        required: true
+      - item: "Graceful degradation strategies"
+        required: true
+      - item: "Circuit breakers for dependencies"
+        required: true
+      - item: "Retry logic with exponential backoff"
+        required: true
+      - item: "Timeouts configured for all calls"
+        required: true
+    
+    capacity:
+      - item: "Load testing performed"
+        required: true
+      - item: "Auto-scaling configured"
+        required: true
+      - item: "Resource limits defined"
+        required: true
+      - item: "Capacity plan documented"
+        required: false
+    
+    security:
+      - item: "Secrets managed securely"
+        required: true
+      - item: "TLS enabled for all traffic"
+        required: true
+      - item: "Least privilege access"
+        required: true
+      - item: "Security scanning in CI/CD"
+        required: true
+
+  incident_response_checklist:
+    detection:
+      - "Incident detected via: [ ] Alert [ ] Customer [ ] Manual"
+      - "Severity assessed: [ ] Sev1 [ ] Sev2 [ ] Sev3 [ ] Sev4"
+      - "Incident ticket created"
+    
+    response:
+      - "Incident Commander assigned"
+      - "Communication channel opened"
+      - "Status page updated (if customer-facing)"
+      - "Relevant teams notified"
+    
+    mitigation:
+      - "Impact scope determined"
+      - "Mitigation strategy decided"
+      - "Changes documented as made"
+    
+    resolution:
+      - "Service restored to normal"
+      - "Verification tests passed"
+      - "Status page updated to resolved"
+      - "Stakeholders notified"
+    
+    follow_up:
+      - "Postmortem scheduled within 48 hours"
+      - "Timeline documented"
+      - "Action items created and assigned"
+
+  on_call_handoff_checklist:
+    outgoing:
+      - "Document all ongoing incidents"
+      - "List recent significant changes"
+      - "Note any flaky alerts or known issues"
+      - "Highlight upcoming maintenance windows"
+      - "Transfer any open tickets"
+    
+    incoming:
+      - "Review incident history from past shift"
+      - "Verify access to all systems"
+      - "Confirm alerting is working"
+      - "Review on-call calendar for escalations"
+      - "Check runbook updates"
+
+  postmortem_review_checklist:
+    completeness:
+      - "Timeline is detailed and accurate"
+      - "Root cause clearly identified"
+      - "Contributing factors documented"
+      - "User impact quantified"
+    
+    quality:
+      - "Blameless language used throughout"
+      - "Analysis goes beyond surface causes"
+      - "Action items are specific and measurable"
+      - "Each action item has an owner and due date"
+    
+    follow_through:
+      - "Action items tracked to completion"
+      - "Postmortem shared with relevant teams"
+      - "Similar incidents reviewed for patterns"
+      - "Monitoring gaps addressed"
+
+# =============================================================================
+# BEST PRACTICES SUMMARY
+# =============================================================================
+best_practices:
+  sli_slo_management:
+    - "Define SLIs from user perspective, not system internals"
+    - "Set SLOs based on user expectations, not current performance"
+    - "Maintain SLO buffer above SLA commitments"
+    - "Review and adjust SLOs quarterly"
+    - "Use error budgets to balance reliability and velocity"
+    - "Automate error budget tracking and policy enforcement"
+
+  incident_management:
+    - "Establish clear severity definitions"
+    - "Define and practice incident response roles"
+    - "Maintain up-to-date runbooks for all alerts"
+    - "Conduct blameless postmortems for all significant incidents"
+    - "Track and close postmortem action items"
+    - "Regularly practice incident response through game days"
+
+  observability:
+    - "Implement all three pillars: logs, metrics, traces"
+    - "Use structured logging with correlation IDs"
+    - "Follow naming conventions for metrics"
+    - "Manage cardinality to control costs"
+    - "Sample traces appropriately for volume"
+    - "Create actionable dashboards, not vanity displays"
+
+  alerting:
+    - "Every alert must be actionable"
+    - "Alert on symptoms, not causes"
+    - "Include runbook links in all alerts"
+    - "Review and prune alerts regularly"
+    - "Use multi-window alerting for accuracy"
+    - "Route alerts appropriately by severity"
+
+  chaos_engineering:
+    - "Start with a hypothesis about steady state"
+    - "Begin with small blast radius"
+    - "Graduate from staging to production"
+    - "Automate experiments for continuous validation"
+    - "Always have abort procedures ready"
+    - "Document and share learnings"
+
+  capacity_planning:
+    - "Maintain 20-30% headroom minimum"
+    - "Forecast using multiple methods"
+    - "Conduct regular load testing"
+    - "Plan for peak events in advance"
+    - "Review capacity quarterly"
+    - "Use auto-scaling where possible"
+
+  team_health:
+    - "Limit on-call burden to < 25% of time"
+    - "Provide compensation for on-call duty"
+    - "Ensure minimum two people in rotation"
+    - "Invest in toil reduction"
+    - "Balance reliability work with feature work"
+    - "Celebrate reliability wins"

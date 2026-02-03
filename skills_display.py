@@ -54,6 +54,12 @@ class SkillsManager:
             'color': '#64748b',
             'name': 'Engineering',
             'description': 'System design and architecture'
+        },
+        'design': {
+            'icon': '🎨',
+            'color': '#f472b6',
+            'name': 'Design',
+            'description': 'UI/UX, visual design, and user research'
         }
     }
     
@@ -249,6 +255,20 @@ class SkillsManager:
             'base_level': 75,
             'subskills': ['Documentation', 'API Docs', 'Tutorials', 'Architecture Docs']
         },
+        'software_architecture_mastery.yaml': {
+            'category': 'engineering',
+            'name': 'Software Architecture',
+            'icon': '🏗️',
+            'base_level': 70,
+            'subskills': ['Task Decomposition', 'Codebase Analysis', 'Kotlin Multiplatform', 'Project Planning']
+        },
+        'intelligent_agent_mastery.yaml': {
+            'category': 'engineering',
+            'name': 'Agent Intelligence',
+            'icon': '🧠',
+            'base_level': 77,
+            'subskills': ['Context Gathering', 'Plan Persistence', 'Work Verification', 'Self-Correction', 'Execution Tracking']
+        },
         'illusionism_mastery.yaml': {
             'category': 'performance',
             'name': 'Illusionism',
@@ -280,10 +300,46 @@ class SkillsManager:
         },
         'safeconnect_production_mastery.yaml': {
             'category': 'programming',
-            'name': 'SafeConnect Production',
+            'name': 'SafeConnect Backend',
             'icon': '💜',
-            'base_level': 60,
-            'subskills': ['Ktor Backend', 'Real-time Chat', 'Dating UX', '3D Discovery UI']
+            'base_level': 75,
+            'subskills': ['Ktor Backend', 'Real-time Chat', 'Authentication', 'API Design']
+        },
+        # NEW SKILLS - App Development Mastery (for SafeConnect and beyond)
+        'ui_ux_design_mastery.yaml': {
+            'category': 'design',
+            'name': 'UI/UX Design',
+            'icon': '🎨',
+            'base_level': 80,
+            'subskills': ['Visual Design', 'Color Theory', 'Typography', 'Design Systems']
+        },
+        'user_experience_research_mastery.yaml': {
+            'category': 'design',
+            'name': 'UX Research',
+            'icon': '🔬',
+            'base_level': 75,
+            'subskills': ['User Interviews', 'Usability Testing', 'Personas', 'Journey Mapping']
+        },
+        'mobile_app_architecture_mastery.yaml': {
+            'category': 'programming',
+            'name': 'Mobile Architecture',
+            'icon': '📱',
+            'base_level': 80,
+            'subskills': ['MVVM', 'Clean Architecture', 'Dependency Injection', 'Testing']
+        },
+        'realtime_systems_mastery.yaml': {
+            'category': 'engineering',
+            'name': 'Real-Time Systems',
+            'icon': '⚡',
+            'base_level': 78,
+            'subskills': ['WebSockets', 'Push Notifications', 'Presence', 'Message Queues']
+        },
+        'jetpack_compose_mastery.yaml': {
+            'category': 'programming',
+            'name': 'Jetpack Compose',
+            'icon': '🚀',
+            'base_level': 82,
+            'subskills': ['Composables', 'State Management', 'Animations', 'Material 3']
         }
     }
     

@@ -108,9 +108,9 @@ class AgentStressTester:
                 seniority="Senior",
                 domain=domain,
                 industry_knowledge=[domain, "Best Practices"],
-                methodologies=["Agile"],
-                constraints={},
-                output_format={"style": "professional"}
+                methodologies=["Agile", "Test-Driven Development"],
+                constraints={"quality": "Production-ready", "timeline": "Standard"},
+                output_format={"style": "professional", "format": "markdown"}
             )
             
             agent = Agent(dna=dna)
@@ -329,8 +329,8 @@ class TestKnowledgeAccess:
             domain="Python Web Development",
             industry_knowledge=["REST APIs", "Databases"],
             methodologies=["TDD"],
-            constraints={},
-            output_format={}
+            constraints={"quality": "Production-ready"},
+            output_format={"style": "professional"}
         )
         
         agent = Agent(dna=dna)
@@ -349,8 +349,8 @@ class TestKnowledgeAccess:
             domain="Digital Marketing",
             industry_knowledge=["SEO", "Social Media"],
             methodologies=["Agile Marketing"],
-            constraints={},
-            output_format={}
+            constraints={"quality": "High-quality content"},
+            output_format={"style": "marketing"}
         )
         
         agent = Agent(dna=dna)
@@ -368,8 +368,8 @@ class TestKnowledgeAccess:
             domain="Python",
             industry_knowledge=["APIs"],
             methodologies=["TDD"],
-            constraints={},
-            output_format={}
+            constraints={"quality": "Production-ready"},
+            output_format={"style": "code"}
         ))
         time1 = time.perf_counter() - start1
         
@@ -381,8 +381,8 @@ class TestKnowledgeAccess:
             domain="JavaScript",
             industry_knowledge=["React"],
             methodologies=["TDD"],
-            constraints={},
-            output_format={}
+            constraints={"quality": "Production-ready"},
+            output_format={"style": "code"}
         ))
         time2 = time.perf_counter() - start2
         
@@ -426,8 +426,8 @@ class TestCrossDisciplinaryKnowledge:
             domain="Python APIs",
             industry_knowledge=["REST", "Databases"],
             methodologies=["TDD"],
-            constraints={},
-            output_format={}
+            constraints={"quality": "Production-ready", "security": "OWASP compliant"},
+            output_format={"style": "code"}
         )
         
         agent = Agent(dna=dna)
@@ -448,8 +448,8 @@ class TestCrossDisciplinaryKnowledge:
             domain="React/TypeScript",
             industry_knowledge=["UI/UX", "State Management"],
             methodologies=["Component-Based"],
-            constraints={},
-            output_format={}
+            constraints={"quality": "Production-ready", "accessibility": "WCAG 2.1"},
+            output_format={"style": "component"}
         )
         
         agent = Agent(dna=dna)
@@ -499,8 +499,8 @@ class TestAgentTaskCapabilities:
             domain=role.split()[0],  # First word as domain
             industry_knowledge=[role],
             methodologies=["Best Practices"],
-            constraints={},
-            output_format={"style": "code"}
+            constraints={"quality": "Production-ready", "timeline": "Standard"},
+            output_format={"style": "code", "format": "markdown"}
         )
         
         agent = Agent(dna=dna)

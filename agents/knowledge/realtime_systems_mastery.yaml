@@ -1,0 +1,1262 @@
+# Real-Time Systems Mastery
+# Comprehensive patterns for building real-time features in mobile and web apps
+# Version: 1.0.0
+# Last Updated: 2026-02-02
+
+metadata:
+  skill_name: "Real-Time Systems Mastery"
+  category: "backend_development"
+  purpose: "Master real-time communication patterns for chat, notifications, and live features"
+  relevance:
+    - "Chat applications"
+    - "Dating app messaging"
+    - "Push notifications"
+    - "Live updates"
+    - "Presence systems"
+
+# ============================================================
+# SECTION 1: WEBSOCKET FUNDAMENTALS
+# ============================================================
+websocket_fundamentals:
+
+  overview:
+    description: "Full-duplex communication protocol over single TCP connection"
+    use_cases:
+      - "Real-time chat"
+      - "Live notifications"
+      - "Presence indicators"
+      - "Collaborative features"
+      - "Live game state sync"
+    
+    vs_http:
+      http_polling:
+        description: "Repeated HTTP requests at intervals"
+        pros: ["Simple", "Works everywhere", "Stateless"]
+        cons: ["High latency", "Wasteful bandwidth", "Server load"]
+        use_when: "Low-frequency updates, simple clients"
+      
+      long_polling:
+        description: "HTTP request held open until data available"
+        pros: ["Works everywhere", "Lower latency than polling"]
+        cons: ["Connection overhead", "Timeout handling", "Complex"]
+        use_when: "WebSocket unavailable, moderate latency OK"
+      
+      server_sent_events:
+        description: "Unidirectional server-to-client streaming"
+        pros: ["Simple API", "Auto-reconnect", "Works over HTTP"]
+        cons: ["Unidirectional only", "Limited browser support"]
+        use_when: "Server push only, like live feeds"
+      
+      websocket:
+        description: "Full-duplex bidirectional communication"
+        pros: ["Low latency", "Efficient", "True real-time"]
+        cons: ["Connection management", "Proxy issues", "More complex"]
+        use_when: "Chat, games, collaboration, presence"
+
+  ktor_websocket_server:
+    setup: |
+      // build.gradle.kts
+      dependencies {
+          implementation("io.ktor:ktor-server-websockets")
+          implementation("io.ktor:ktor-serialization-kotlinx-json")
+      }
+      
+      // Application.kt
+      fun Application.configureWebSockets() {
+          install(WebSockets) {
+              pingPeriod = Duration.ofSeconds(15)
+              timeout = Duration.ofSeconds(30)
+              maxFrameSize = Long.MAX_VALUE
+              masking = false
+          }
+      }
+    
+    chat_implementation: |
+      // Chat message models
+      @Serializable
+      sealed class ChatMessage {
+          @Serializable
+          @SerialName("text")
+          data class Text(
+              val id: String,
+              val matchId: String,
+              val senderId: String,
+              val content: String,
+              val timestamp: Long
+          ) : ChatMessage()
+          
+          @Serializable
+          @SerialName("typing")
+          data class Typing(
+              val matchId: String,
+              val userId: String,
+              val isTyping: Boolean
+          ) : ChatMessage()
+          
+          @Serializable
+          @SerialName("read")
+          data class ReadReceipt(
+              val matchId: String,
+              val userId: String,
+              val lastReadMessageId: String
+          ) : ChatMessage()
+      }
+      
+      // Connection manager
+      class ConnectionManager {
+          private val connections = ConcurrentHashMap<String, MutableSet<WebSocketSession>>()
+          
+          suspend fun addConnection(userId: String, session: WebSocketSession) {
+              connections.getOrPut(userId) { ConcurrentHashMap.newKeySet() }.add(session)
+          }
+          
+          suspend fun removeConnection(userId: String, session: WebSocketSession) {
+              connections[userId]?.remove(session)
+              if (connections[userId]?.isEmpty() == true) {
+                  connections.remove(userId)
+              }
+          }
+          
+          suspend fun sendToUser(userId: String, message: ChatMessage) {
+              val json = Json.encodeToString(ChatMessage.serializer(), message)
+              connections[userId]?.forEach { session ->
+                  try {
+                      session.send(Frame.Text(json))
+                  } catch (e: Exception) {
+                      // Connection closed, will be cleaned up
+                  }
+              }
+          }
+          
+          suspend fun sendToMatch(matchId: String, userIds: List<String>, message: ChatMessage) {
+              userIds.forEach { userId -> sendToUser(userId, message) }
+          }
+          
+          fun isOnline(userId: String): Boolean = connections[userId]?.isNotEmpty() == true
+      }
+      
+      // WebSocket routing
+      fun Route.chatWebSocket(
+          connectionManager: ConnectionManager,
+          chatService: ChatService
+      ) {
+          authenticate {
+              webSocket("/chat/{matchId}") {
+                  val userId = call.principal<JWTPrincipal>()?.subject ?: return@webSocket close()
+                  val matchId = call.parameters["matchId"] ?: return@webSocket close()
+                  
+                  // Verify user belongs to this match
+                  if (!chatService.canAccessMatch(userId, matchId)) {
+                      close(CloseReason(CloseReason.Codes.VIOLATED_POLICY, "Unauthorized"))
+                      return@webSocket
+                  }
+                  
+                  connectionManager.addConnection(userId, this)
+                  
+                  try {
+                      for (frame in incoming) {
+                          if (frame is Frame.Text) {
+                              val text = frame.readText()
+                              val message = Json.decodeFromString<ChatMessage>(text)
+                              
+                              when (message) {
+                                  is ChatMessage.Text -> {
+                                      // Save to database
+                                      val saved = chatService.saveMessage(message)
+                                      
+                                      // Send to all participants
+                                      val participants = chatService.getMatchParticipants(matchId)
+                                      connectionManager.sendToMatch(matchId, participants, saved)
+                                      
+                                      // Send push notification to offline users
+                                      participants.filter { !connectionManager.isOnline(it) }
+                                          .forEach { chatService.sendPushNotification(it, saved) }
+                                  }
+                                  
+                                  is ChatMessage.Typing -> {
+                                      // Broadcast typing indicator to other participant
+                                      val participants = chatService.getMatchParticipants(matchId)
+                                      participants.filter { it != userId }.forEach {
+                                          connectionManager.sendToUser(it, message)
+                                      }
+                                  }
+                                  
+                                  is ChatMessage.ReadReceipt -> {
+                                      // Update read status in database
+                                      chatService.markAsRead(message)
+                                      
+                                      // Notify sender their message was read
+                                      val participants = chatService.getMatchParticipants(matchId)
+                                      participants.filter { it != userId }.forEach {
+                                          connectionManager.sendToUser(it, message)
+                                      }
+                                  }
+                              }
+                          }
+                      }
+                  } catch (e: Exception) {
+                      println("WebSocket error: ${e.message}")
+                  } finally {
+                      connectionManager.removeConnection(userId, this)
+                  }
+              }
+          }
+      }
+
+  android_client:
+    implementation: |
+      class ChatWebSocketClient @Inject constructor(
+          private val okHttpClient: OkHttpClient,
+          private val authRepository: AuthRepository,
+          private val json: Json
+      ) {
+          private var webSocket: WebSocket? = null
+          
+          private val _messages = MutableSharedFlow<ChatMessage>(extraBufferCapacity = 64)
+          val messages: SharedFlow<ChatMessage> = _messages.asSharedFlow()
+          
+          private val _connectionState = MutableStateFlow<ConnectionState>(ConnectionState.Disconnected)
+          val connectionState: StateFlow<ConnectionState> = _connectionState.asStateFlow()
+          
+          private var reconnectJob: Job? = null
+          private var reconnectAttempts = 0
+          private val maxReconnectAttempts = 5
+          private val baseReconnectDelay = 1000L
+          
+          fun connect(matchId: String) {
+              if (_connectionState.value is ConnectionState.Connected) return
+              
+              _connectionState.value = ConnectionState.Connecting
+              
+              val token = authRepository.getAccessToken()
+              val request = Request.Builder()
+                  .url("${BuildConfig.WS_BASE_URL}/chat/$matchId")
+                  .addHeader("Authorization", "Bearer $token")
+                  .build()
+              
+              webSocket = okHttpClient.newWebSocket(request, createWebSocketListener(matchId))
+          }
+          
+          private fun createWebSocketListener(matchId: String) = object : WebSocketListener() {
+              override fun onOpen(webSocket: WebSocket, response: Response) {
+                  _connectionState.value = ConnectionState.Connected
+                  reconnectAttempts = 0
+                  reconnectJob?.cancel()
+              }
+              
+              override fun onMessage(webSocket: WebSocket, text: String) {
+                  try {
+                      val message = json.decodeFromString<ChatMessage>(text)
+                      _messages.tryEmit(message)
+                  } catch (e: Exception) {
+                      Log.e("ChatWS", "Failed to parse message", e)
+                  }
+              }
+              
+              override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
+                  _connectionState.value = ConnectionState.Disconnected
+              }
+              
+              override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                  _connectionState.value = ConnectionState.Disconnected
+                  
+                  // Don't reconnect if closed intentionally
+                  if (code != 1000) {
+                      scheduleReconnect(matchId)
+                  }
+              }
+              
+              override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                  Log.e("ChatWS", "WebSocket failure", t)
+                  _connectionState.value = ConnectionState.Error(t.message)
+                  scheduleReconnect(matchId)
+              }
+          }
+          
+          private fun scheduleReconnect(matchId: String) {
+              if (reconnectAttempts >= maxReconnectAttempts) {
+                  _connectionState.value = ConnectionState.Failed
+                  return
+              }
+              
+              reconnectJob?.cancel()
+              reconnectJob = CoroutineScope(Dispatchers.IO).launch {
+                  val delay = baseReconnectDelay * (1 shl reconnectAttempts) // Exponential backoff
+                  delay(delay.coerceAtMost(30_000L)) // Max 30 seconds
+                  reconnectAttempts++
+                  connect(matchId)
+              }
+          }
+          
+          fun send(message: ChatMessage) {
+              val json = json.encodeToString(ChatMessage.serializer(), message)
+              webSocket?.send(json)
+          }
+          
+          fun sendTypingIndicator(matchId: String, isTyping: Boolean) {
+              send(ChatMessage.Typing(
+                  matchId = matchId,
+                  userId = authRepository.getCurrentUserId(),
+                  isTyping = isTyping
+              ))
+          }
+          
+          fun disconnect() {
+              reconnectJob?.cancel()
+              webSocket?.close(1000, "User disconnected")
+              webSocket = null
+              _connectionState.value = ConnectionState.Disconnected
+          }
+      }
+      
+      sealed interface ConnectionState {
+          data object Connecting : ConnectionState
+          data object Connected : ConnectionState
+          data object Disconnected : ConnectionState
+          data object Failed : ConnectionState
+          data class Error(val message: String?) : ConnectionState
+      }
+
+# ============================================================
+# SECTION 2: PRESENCE SYSTEM
+# ============================================================
+presence_system:
+
+  overview:
+    description: "Track and display user online/offline status"
+    components:
+      - "Presence tracking (server)"
+      - "Presence storage (Redis)"
+      - "Presence broadcasting"
+      - "Last seen tracking"
+
+  redis_presence:
+    implementation: |
+      class PresenceService(
+          private val redisClient: RedisCoroutinesCommands<String, String>,
+          private val connectionManager: ConnectionManager
+      ) {
+          private val presencePrefix = "presence:"
+          private val lastSeenPrefix = "lastseen:"
+          private val onlineTimeout = 60L // seconds
+          
+          suspend fun setOnline(userId: String) {
+              // Set presence with expiry
+              redisClient.setex(
+                  "$presencePrefix$userId",
+                  onlineTimeout,
+                  System.currentTimeMillis().toString()
+              )
+              
+              // Publish presence change
+              redisClient.publish("presence:updates", 
+                  Json.encodeToString(PresenceUpdate(userId, true))
+              )
+          }
+          
+          suspend fun setOffline(userId: String) {
+              // Remove presence
+              redisClient.del("$presencePrefix$userId")
+              
+              // Update last seen
+              redisClient.set(
+                  "$lastSeenPrefix$userId",
+                  System.currentTimeMillis().toString()
+              )
+              
+              // Publish presence change
+              redisClient.publish("presence:updates",
+                  Json.encodeToString(PresenceUpdate(userId, false))
+              )
+          }
+          
+          suspend fun heartbeat(userId: String) {
+              redisClient.expire("$presencePrefix$userId", onlineTimeout)
+          }
+          
+          suspend fun isOnline(userId: String): Boolean {
+              return redisClient.exists("$presencePrefix$userId") == 1L
+          }
+          
+          suspend fun getPresenceStatus(userIds: List<String>): Map<String, PresenceInfo> {
+              return userIds.associateWith { userId ->
+                  val isOnline = isOnline(userId)
+                  val lastSeen = if (!isOnline) {
+                      redisClient.get("$lastSeenPrefix$userId")?.toLongOrNull()
+                  } else null
+                  
+                  PresenceInfo(
+                      userId = userId,
+                      isOnline = isOnline,
+                      lastSeenTimestamp = lastSeen
+                  )
+              }
+          }
+          
+          // Subscribe to presence updates for real-time changes
+          suspend fun subscribeToPresenceUpdates(
+              userIds: Set<String>,
+              onUpdate: suspend (PresenceUpdate) -> Unit
+          ) {
+              redisClient.subscribe("presence:updates").collect { message ->
+                  val update = Json.decodeFromString<PresenceUpdate>(message)
+                  if (update.userId in userIds) {
+                      onUpdate(update)
+                  }
+              }
+          }
+      }
+      
+      @Serializable
+      data class PresenceInfo(
+          val userId: String,
+          val isOnline: Boolean,
+          val lastSeenTimestamp: Long?
+      )
+      
+      @Serializable
+      data class PresenceUpdate(
+          val userId: String,
+          val isOnline: Boolean
+      )
+
+  client_integration:
+    viewmodel: |
+      @HiltViewModel
+      class MatchesViewModel @Inject constructor(
+          private val matchRepository: MatchRepository,
+          private val presenceRepository: PresenceRepository
+      ) : ViewModel() {
+          
+          private val _matches = MutableStateFlow<List<MatchWithPresence>>(emptyList())
+          val matches: StateFlow<List<MatchWithPresence>> = _matches.asStateFlow()
+          
+          init {
+              loadMatches()
+              observePresence()
+          }
+          
+          private fun loadMatches() {
+              viewModelScope.launch {
+                  matchRepository.getMatches()
+                      .onSuccess { matchList ->
+                          // Initial load with presence
+                          val userIds = matchList.map { it.otherUser.id }
+                          val presence = presenceRepository.getPresence(userIds)
+                          
+                          _matches.value = matchList.map { match ->
+                              MatchWithPresence(
+                                  match = match,
+                                  presence = presence[match.otherUser.id] ?: PresenceInfo.offline()
+                              )
+                          }
+                      }
+              }
+          }
+          
+          private fun observePresence() {
+              viewModelScope.launch {
+                  presenceRepository.observePresenceUpdates().collect { update ->
+                      _matches.update { currentMatches ->
+                          currentMatches.map { matchWithPresence ->
+                              if (matchWithPresence.match.otherUser.id == update.userId) {
+                                  matchWithPresence.copy(
+                                      presence = PresenceInfo(
+                                          userId = update.userId,
+                                          isOnline = update.isOnline,
+                                          lastSeenTimestamp = if (!update.isOnline) {
+                                              System.currentTimeMillis()
+                                          } else null
+                                      )
+                                  )
+                              } else matchWithPresence
+                          }
+                      }
+                  }
+              }
+          }
+      }
+    
+    ui_display: |
+      @Composable
+      fun PresenceIndicator(
+          isOnline: Boolean,
+          lastSeenTimestamp: Long?,
+          modifier: Modifier = Modifier
+      ) {
+          Row(
+              modifier = modifier,
+              verticalAlignment = Alignment.CenterVertically
+          ) {
+              // Online dot
+              Box(
+                  modifier = Modifier
+                      .size(8.dp)
+                      .background(
+                          color = if (isOnline) Color.Green else Color.Gray,
+                          shape = CircleShape
+                      )
+              )
+              
+              Spacer(modifier = Modifier.width(4.dp))
+              
+              Text(
+                  text = when {
+                      isOnline -> "Online"
+                      lastSeenTimestamp != null -> "Last seen ${formatLastSeen(lastSeenTimestamp)}"
+                      else -> "Offline"
+                  },
+                  style = MaterialTheme.typography.labelSmall,
+                  color = if (isOnline) Color.Green else MaterialTheme.colorScheme.onSurfaceVariant
+              )
+          }
+      }
+      
+      fun formatLastSeen(timestamp: Long): String {
+          val now = System.currentTimeMillis()
+          val diff = now - timestamp
+          
+          return when {
+              diff < 60_000 -> "just now"
+              diff < 3600_000 -> "${diff / 60_000}m ago"
+              diff < 86400_000 -> "${diff / 3600_000}h ago"
+              else -> "${diff / 86400_000}d ago"
+          }
+      }
+
+# ============================================================
+# SECTION 3: PUSH NOTIFICATIONS
+# ============================================================
+push_notifications:
+
+  firebase_cloud_messaging:
+    server_setup: |
+      // Ktor server sending FCM notifications
+      class FcmService(
+          private val firebaseApp: FirebaseApp,
+          private val userRepository: UserRepository
+      ) {
+          private val messaging = FirebaseMessaging.getInstance(firebaseApp)
+          
+          suspend fun sendMatchNotification(userId: String, matchedUser: User) {
+              val token = userRepository.getDeviceToken(userId) ?: return
+              
+              val message = Message.builder()
+                  .setToken(token)
+                  .putData("type", "match")
+                  .putData("matchId", matchedUser.id)
+                  .putData("userName", matchedUser.name)
+                  .putData("userPhoto", matchedUser.photoUrl)
+                  .setNotification(
+                      Notification.builder()
+                          .setTitle("It's a Match! 💕")
+                          .setBody("You and ${matchedUser.name} liked each other")
+                          .setImage(matchedUser.photoUrl)
+                          .build()
+                  )
+                  .setAndroidConfig(
+                      AndroidConfig.builder()
+                          .setNotification(
+                              AndroidNotification.builder()
+                                  .setChannelId("matches")
+                                  .setSound("match_sound.mp3")
+                                  .setPriority(AndroidNotification.Priority.HIGH)
+                                  .build()
+                          )
+                          .build()
+                  )
+                  .setApnsConfig(
+                      ApnsConfig.builder()
+                          .setAps(
+                              Aps.builder()
+                                  .setSound("match_sound.aiff")
+                                  .setBadge(1)
+                                  .build()
+                          )
+                          .build()
+                  )
+                  .build()
+              
+              try {
+                  messaging.send(message)
+              } catch (e: FirebaseMessagingException) {
+                  if (e.messagingErrorCode == MessagingErrorCode.UNREGISTERED) {
+                      // Token invalid, remove it
+                      userRepository.removeDeviceToken(userId)
+                  }
+              }
+          }
+          
+          suspend fun sendChatNotification(
+              userId: String,
+              senderName: String,
+              messagePreview: String,
+              matchId: String
+          ) {
+              val token = userRepository.getDeviceToken(userId) ?: return
+              
+              val message = Message.builder()
+                  .setToken(token)
+                  .putData("type", "message")
+                  .putData("matchId", matchId)
+                  .putData("senderName", senderName)
+                  .setNotification(
+                      Notification.builder()
+                          .setTitle(senderName)
+                          .setBody(messagePreview.take(100))
+                          .build()
+                  )
+                  .setAndroidConfig(
+                      AndroidConfig.builder()
+                          .setNotification(
+                              AndroidNotification.builder()
+                                  .setChannelId("messages")
+                                  .build()
+                          )
+                          .build()
+                  )
+                  .build()
+              
+              messaging.send(message)
+          }
+          
+          suspend fun sendSafetyAlert(userId: String, alertType: String, message: String) {
+              val token = userRepository.getDeviceToken(userId) ?: return
+              
+              val fcmMessage = Message.builder()
+                  .setToken(token)
+                  .putData("type", "safety_alert")
+                  .putData("alertType", alertType)
+                  .setNotification(
+                      Notification.builder()
+                          .setTitle("⚠️ Safety Alert")
+                          .setBody(message)
+                          .build()
+                  )
+                  .setAndroidConfig(
+                      AndroidConfig.builder()
+                          .setPriority(AndroidConfig.Priority.HIGH)
+                          .setNotification(
+                              AndroidNotification.builder()
+                                  .setChannelId("safety")
+                                  .setPriority(AndroidNotification.Priority.MAX)
+                                  .setDefaultVibrateTimings(true)
+                                  .build()
+                          )
+                          .build()
+                  )
+                  .build()
+              
+              messaging.send(fcmMessage)
+          }
+      }
+
+  android_receiver:
+    service: |
+      class SafeConnectFirebaseService : FirebaseMessagingService() {
+          
+          @Inject
+          lateinit var notificationRepository: NotificationRepository
+          
+          @Inject
+          lateinit var deepLinkHandler: DeepLinkHandler
+          
+          override fun onNewToken(token: String) {
+              CoroutineScope(Dispatchers.IO).launch {
+                  notificationRepository.registerDeviceToken(token)
+              }
+          }
+          
+          override fun onMessageReceived(message: RemoteMessage) {
+              val data = message.data
+              
+              when (data["type"]) {
+                  "match" -> showMatchNotification(data)
+                  "message" -> showMessageNotification(data)
+                  "safety_alert" -> showSafetyNotification(data)
+                  "like" -> showLikeNotification(data)
+              }
+          }
+          
+          private fun showMatchNotification(data: Map<String, String>) {
+              val matchId = data["matchId"] ?: return
+              val userName = data["userName"] ?: "Someone"
+              val userPhoto = data["userPhoto"]
+              
+              val intent = deepLinkHandler.createChatIntent(matchId)
+              val pendingIntent = PendingIntent.getActivity(
+                  this, matchId.hashCode(), intent,
+                  PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+              )
+              
+              val builder = NotificationCompat.Builder(this, CHANNEL_MATCHES)
+                  .setSmallIcon(R.drawable.ic_heart)
+                  .setContentTitle("It's a Match! 💕")
+                  .setContentText("You and $userName liked each other")
+                  .setPriority(NotificationCompat.PRIORITY_HIGH)
+                  .setContentIntent(pendingIntent)
+                  .setAutoCancel(true)
+                  .setCategory(NotificationCompat.CATEGORY_SOCIAL)
+              
+              // Load large icon (profile photo)
+              userPhoto?.let { url ->
+                  CoroutineScope(Dispatchers.IO).launch {
+                      try {
+                          val bitmap = Glide.with(applicationContext)
+                              .asBitmap()
+                              .load(url)
+                              .circleCrop()
+                              .submit()
+                              .get()
+                          
+                          builder.setLargeIcon(bitmap)
+                          showNotification(matchId.hashCode(), builder.build())
+                      } catch (e: Exception) {
+                          showNotification(matchId.hashCode(), builder.build())
+                      }
+                  }
+              } ?: showNotification(matchId.hashCode(), builder.build())
+          }
+          
+          private fun showSafetyNotification(data: Map<String, String>) {
+              val alertType = data["alertType"] ?: "check_in"
+              val message = data["message"] ?: "Please check in"
+              
+              val intent = deepLinkHandler.createSafetyCenterIntent()
+              val pendingIntent = PendingIntent.getActivity(
+                  this, 0, intent,
+                  PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+              )
+              
+              // Add action buttons for quick response
+              val safeIntent = deepLinkHandler.createSafetyResponseIntent("safe")
+              val safePendingIntent = PendingIntent.getBroadcast(
+                  this, 1, safeIntent,
+                  PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+              )
+              
+              val helpIntent = deepLinkHandler.createSafetyResponseIntent("help")
+              val helpPendingIntent = PendingIntent.getBroadcast(
+                  this, 2, helpIntent,
+                  PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+              )
+              
+              val notification = NotificationCompat.Builder(this, CHANNEL_SAFETY)
+                  .setSmallIcon(R.drawable.ic_safety)
+                  .setContentTitle("⚠️ Safety Check-In")
+                  .setContentText(message)
+                  .setPriority(NotificationCompat.PRIORITY_MAX)
+                  .setCategory(NotificationCompat.CATEGORY_ALARM)
+                  .setContentIntent(pendingIntent)
+                  .setAutoCancel(false)
+                  .setOngoing(true) // Can't be swiped away
+                  .addAction(R.drawable.ic_check, "I'm Safe", safePendingIntent)
+                  .addAction(R.drawable.ic_alert, "Need Help", helpPendingIntent)
+                  .setFullScreenIntent(pendingIntent, true) // Shows even when locked
+                  .build()
+              
+              showNotification(SAFETY_NOTIFICATION_ID, notification)
+          }
+          
+          private fun showNotification(id: Int, notification: Notification) {
+              val manager = getSystemService(NotificationManager::class.java)
+              manager.notify(id, notification)
+          }
+          
+          companion object {
+              const val CHANNEL_MATCHES = "matches"
+              const val CHANNEL_MESSAGES = "messages"
+              const val CHANNEL_SAFETY = "safety"
+              const val SAFETY_NOTIFICATION_ID = 9999
+          }
+      }
+
+  notification_channels:
+    setup: |
+      class NotificationChannelManager @Inject constructor(
+          @ApplicationContext private val context: Context
+      ) {
+          fun createChannels() {
+              if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                  val manager = context.getSystemService(NotificationManager::class.java)
+                  
+                  // Matches channel - high importance
+                  val matchesChannel = NotificationChannel(
+                      "matches",
+                      "Matches",
+                      NotificationManager.IMPORTANCE_HIGH
+                  ).apply {
+                      description = "New match notifications"
+                      enableLights(true)
+                      lightColor = Color.MAGENTA
+                      enableVibration(true)
+                      setSound(
+                          Uri.parse("android.resource://${context.packageName}/raw/match_sound"),
+                          AudioAttributes.Builder()
+                              .setUsage(AudioAttributes.USAGE_NOTIFICATION)
+                              .build()
+                      )
+                  }
+                  
+                  // Messages channel - default importance
+                  val messagesChannel = NotificationChannel(
+                      "messages",
+                      "Messages",
+                      NotificationManager.IMPORTANCE_DEFAULT
+                  ).apply {
+                      description = "Chat message notifications"
+                      enableLights(true)
+                      lightColor = Color.BLUE
+                  }
+                  
+                  // Safety channel - maximum importance
+                  val safetyChannel = NotificationChannel(
+                      "safety",
+                      "Safety Alerts",
+                      NotificationManager.IMPORTANCE_HIGH
+                  ).apply {
+                      description = "Important safety notifications"
+                      enableLights(true)
+                      lightColor = Color.RED
+                      enableVibration(true)
+                      vibrationPattern = longArrayOf(0, 500, 200, 500, 200, 500)
+                      lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+                      setBypassDnd(true)
+                  }
+                  
+                  manager.createNotificationChannels(listOf(
+                      matchesChannel,
+                      messagesChannel,
+                      safetyChannel
+                  ))
+              }
+          }
+      }
+
+# ============================================================
+# SECTION 4: MESSAGE QUEUE PATTERNS
+# ============================================================
+message_queues:
+
+  overview:
+    purpose: "Decouple components and handle async processing"
+    use_cases:
+      - "Background processing"
+      - "Event-driven architecture"
+      - "Rate limiting"
+      - "Retry logic"
+      - "Load leveling"
+
+  redis_pub_sub:
+    implementation: |
+      // Event bus using Redis Pub/Sub
+      class EventBus(
+          private val redisClient: RedisCoroutinesCommands<String, String>,
+          private val json: Json
+      ) {
+          suspend fun publish(event: DomainEvent) {
+              val channel = "events:${event.type}"
+              val payload = json.encodeToString(DomainEvent.serializer(), event)
+              redisClient.publish(channel, payload)
+          }
+          
+          suspend fun subscribe(
+              eventType: String,
+              handler: suspend (DomainEvent) -> Unit
+          ) {
+              redisClient.subscribe("events:$eventType").collect { message ->
+                  try {
+                      val event = json.decodeFromString<DomainEvent>(message)
+                      handler(event)
+                  } catch (e: Exception) {
+                      println("Failed to process event: ${e.message}")
+                  }
+              }
+          }
+      }
+      
+      @Serializable
+      sealed class DomainEvent {
+          abstract val type: String
+          abstract val timestamp: Long
+          
+          @Serializable
+          @SerialName("user_matched")
+          data class UserMatched(
+              val userId1: String,
+              val userId2: String,
+              val matchId: String,
+              override val timestamp: Long = System.currentTimeMillis()
+          ) : DomainEvent() {
+              override val type = "user_matched"
+          }
+          
+          @Serializable
+          @SerialName("message_sent")
+          data class MessageSent(
+              val matchId: String,
+              val senderId: String,
+              val messageId: String,
+              val preview: String,
+              override val timestamp: Long = System.currentTimeMillis()
+          ) : DomainEvent() {
+              override val type = "message_sent"
+          }
+          
+          @Serializable
+          @SerialName("safety_check_requested")
+          data class SafetyCheckRequested(
+              val userId: String,
+              val checkType: String,
+              override val timestamp: Long = System.currentTimeMillis()
+          ) : DomainEvent() {
+              override val type = "safety_check_requested"
+          }
+      }
+      
+      // Event handlers
+      class MatchEventHandler(
+          private val fcmService: FcmService,
+          private val analyticsService: AnalyticsService
+      ) {
+          suspend fun handle(event: DomainEvent.UserMatched) {
+              // Send notifications to both users
+              fcmService.sendMatchNotification(event.userId1, event.userId2)
+              fcmService.sendMatchNotification(event.userId2, event.userId1)
+              
+              // Track analytics
+              analyticsService.trackMatch(event.matchId)
+          }
+      }
+      
+      // Wire up handlers
+      fun Application.configureEventHandlers(
+          eventBus: EventBus,
+          matchEventHandler: MatchEventHandler
+      ) {
+          launch {
+              eventBus.subscribe("user_matched") { event ->
+                  if (event is DomainEvent.UserMatched) {
+                      matchEventHandler.handle(event)
+                  }
+              }
+          }
+      }
+
+  job_queue:
+    delayed_jobs: |
+      // Job scheduler for delayed/scheduled tasks
+      class JobScheduler(
+          private val redisClient: RedisCoroutinesCommands<String, String>,
+          private val json: Json
+      ) {
+          private val jobQueue = "jobs:queue"
+          private val delayedQueue = "jobs:delayed"
+          
+          // Schedule a job to run immediately
+          suspend fun enqueue(job: Job) {
+              val payload = json.encodeToString(Job.serializer(), job)
+              redisClient.lpush(jobQueue, payload)
+          }
+          
+          // Schedule a job to run after delay
+          suspend fun scheduleIn(job: Job, delayMs: Long) {
+              val executeAt = System.currentTimeMillis() + delayMs
+              val payload = json.encodeToString(Job.serializer(), job)
+              redisClient.zadd(delayedQueue, executeAt.toDouble(), payload)
+          }
+          
+          // Schedule a job at specific time
+          suspend fun scheduleAt(job: Job, timestamp: Long) {
+              val payload = json.encodeToString(Job.serializer(), job)
+              redisClient.zadd(delayedQueue, timestamp.toDouble(), payload)
+          }
+          
+          // Process delayed jobs (run in background)
+          suspend fun processDelayedJobs() {
+              while (true) {
+                  val now = System.currentTimeMillis()
+                  
+                  // Get jobs ready to execute
+                  val readyJobs = redisClient.zrangebyscore(
+                      delayedQueue,
+                      Range.create(0.0, now.toDouble()),
+                      Limit.create(0, 100)
+                  )
+                  
+                  readyJobs.forEach { payload ->
+                      // Move to immediate queue
+                      redisClient.zrem(delayedQueue, payload)
+                      redisClient.lpush(jobQueue, payload)
+                  }
+                  
+                  delay(1000) // Check every second
+              }
+          }
+      }
+      
+      @Serializable
+      sealed class Job {
+          @Serializable
+          @SerialName("send_reminder")
+          data class SendReminder(
+              val userId: String,
+              val reminderType: String,
+              val message: String
+          ) : Job()
+          
+          @Serializable
+          @SerialName("safety_checkin")
+          data class SafetyCheckIn(
+              val userId: String,
+              val dateId: String,
+              val checkInNumber: Int
+          ) : Job()
+          
+          @Serializable
+          @SerialName("cleanup_expired")
+          data class CleanupExpired(
+              val entityType: String
+          ) : Job()
+      }
+      
+      // Usage: Schedule safety check-ins during a date
+      class SafeDateService(
+          private val jobScheduler: JobScheduler
+      ) {
+          suspend fun scheduleDateCheckins(userId: String, dateId: String, startTime: Long) {
+              // Schedule check-ins at 30 min, 1 hour, 2 hours
+              val intervals = listOf(30, 60, 120) // minutes
+              
+              intervals.forEachIndexed { index, minutes ->
+                  jobScheduler.scheduleAt(
+                      Job.SafetyCheckIn(userId, dateId, index + 1),
+                      startTime + (minutes * 60 * 1000)
+                  )
+              }
+          }
+      }
+
+# ============================================================
+# SECTION 5: TYPING INDICATORS & READ RECEIPTS
+# ============================================================
+chat_features:
+
+  typing_indicator:
+    debounce_strategy: |
+      // Client-side: Debounce typing events
+      class TypingIndicatorManager(
+          private val webSocketClient: ChatWebSocketClient,
+          private val matchId: String
+      ) {
+          private var typingJob: Job? = null
+          private var isCurrentlyTyping = false
+          private val stopTypingDelay = 3000L // Stop after 3 seconds of no input
+          
+          fun onTextChanged(text: String) {
+              if (text.isNotEmpty() && !isCurrentlyTyping) {
+                  // Start typing
+                  isCurrentlyTyping = true
+                  webSocketClient.sendTypingIndicator(matchId, true)
+              }
+              
+              // Reset stop timer
+              typingJob?.cancel()
+              typingJob = CoroutineScope(Dispatchers.Main).launch {
+                  delay(stopTypingDelay)
+                  stopTyping()
+              }
+          }
+          
+          fun onMessageSent() {
+              stopTyping()
+          }
+          
+          private fun stopTyping() {
+              if (isCurrentlyTyping) {
+                  isCurrentlyTyping = false
+                  webSocketClient.sendTypingIndicator(matchId, false)
+              }
+              typingJob?.cancel()
+          }
+      }
+    
+    ui_display: |
+      @Composable
+      fun TypingIndicator(
+          isTyping: Boolean,
+          userName: String,
+          modifier: Modifier = Modifier
+      ) {
+          AnimatedVisibility(
+              visible = isTyping,
+              enter = fadeIn() + slideInVertically(),
+              exit = fadeOut() + slideOutVertically()
+          ) {
+              Row(
+                  modifier = modifier
+                      .padding(horizontal = 16.dp, vertical = 8.dp),
+                  verticalAlignment = Alignment.CenterVertically
+              ) {
+                  // Animated dots
+                  TypingDots()
+                  
+                  Spacer(modifier = Modifier.width(8.dp))
+                  
+                  Text(
+                      text = "$userName is typing...",
+                      style = MaterialTheme.typography.bodySmall,
+                      color = MaterialTheme.colorScheme.onSurfaceVariant
+                  )
+              }
+          }
+      }
+      
+      @Composable
+      fun TypingDots() {
+          val infiniteTransition = rememberInfiniteTransition()
+          
+          Row {
+              repeat(3) { index ->
+                  val alpha by infiniteTransition.animateFloat(
+                      initialValue = 0.3f,
+                      targetValue = 1f,
+                      animationSpec = infiniteRepeatable(
+                          animation = tween(600),
+                          repeatMode = RepeatMode.Reverse,
+                          initialStartOffset = StartOffset(index * 200)
+                      )
+                  )
+                  
+                  Box(
+                      modifier = Modifier
+                          .size(6.dp)
+                          .padding(horizontal = 1.dp)
+                          .background(
+                              MaterialTheme.colorScheme.primary.copy(alpha = alpha),
+                              CircleShape
+                          )
+                  )
+              }
+          }
+      }
+
+  read_receipts:
+    implementation: |
+      // Server-side tracking
+      class ReadReceiptService(
+          private val messageRepository: MessageRepository,
+          private val connectionManager: ConnectionManager
+      ) {
+          suspend fun markAsRead(matchId: String, userId: String, lastMessageId: String) {
+              // Update database
+              messageRepository.markMessagesAsRead(matchId, userId, lastMessageId)
+              
+              // Notify sender
+              val participants = messageRepository.getMatchParticipants(matchId)
+              val receipt = ChatMessage.ReadReceipt(matchId, userId, lastMessageId)
+              
+              participants.filter { it != userId }.forEach { participantId ->
+                  connectionManager.sendToUser(participantId, receipt)
+              }
+          }
+      }
+      
+      // Client-side: Track visibility and send read receipts
+      class ReadReceiptTracker(
+          private val webSocketClient: ChatWebSocketClient,
+          private val matchId: String
+      ) {
+          private var lastSeenMessageId: String? = null
+          private var debounceJob: Job? = null
+          
+          fun onMessageVisible(messageId: String) {
+              if (messageId != lastSeenMessageId) {
+                  lastSeenMessageId = messageId
+                  
+                  // Debounce to avoid sending too many receipts while scrolling
+                  debounceJob?.cancel()
+                  debounceJob = CoroutineScope(Dispatchers.Main).launch {
+                      delay(500)
+                      sendReadReceipt(messageId)
+                  }
+              }
+          }
+          
+          private fun sendReadReceipt(messageId: String) {
+              webSocketClient.send(ChatMessage.ReadReceipt(
+                  matchId = matchId,
+                  userId = getCurrentUserId(),
+                  lastReadMessageId = messageId
+              ))
+          }
+      }
+    
+    ui_display: |
+      @Composable
+      fun MessageBubble(
+          message: Message,
+          isSentByMe: Boolean,
+          readStatus: ReadStatus
+      ) {
+          Column(
+              horizontalAlignment = if (isSentByMe) Alignment.End else Alignment.Start
+          ) {
+              // Message content
+              Surface(
+                  color = if (isSentByMe) {
+                      MaterialTheme.colorScheme.primary
+                  } else {
+                      MaterialTheme.colorScheme.surfaceVariant
+                  },
+                  shape = RoundedCornerShape(16.dp)
+              ) {
+                  Text(
+                      text = message.content,
+                      modifier = Modifier.padding(12.dp),
+                      color = if (isSentByMe) {
+                          MaterialTheme.colorScheme.onPrimary
+                      } else {
+                          MaterialTheme.colorScheme.onSurfaceVariant
+                      }
+                  )
+              }
+              
+              // Read status (only for sent messages)
+              if (isSentByMe) {
+                  Row(
+                      modifier = Modifier.padding(top = 2.dp, end = 4.dp),
+                      verticalAlignment = Alignment.CenterVertically
+                  ) {
+                      Text(
+                          text = formatTimestamp(message.timestamp),
+                          style = MaterialTheme.typography.labelSmall,
+                          color = MaterialTheme.colorScheme.onSurfaceVariant
+                      )
+                      
+                      Spacer(modifier = Modifier.width(4.dp))
+                      
+                      // Read receipt indicator
+                      Icon(
+                          imageVector = when (readStatus) {
+                              ReadStatus.Sending -> Icons.Default.Schedule
+                              ReadStatus.Sent -> Icons.Default.Check
+                              ReadStatus.Delivered -> Icons.Default.DoneAll
+                              ReadStatus.Read -> Icons.Default.DoneAll
+                          },
+                          contentDescription = readStatus.name,
+                          modifier = Modifier.size(14.dp),
+                          tint = if (readStatus == ReadStatus.Read) {
+                              MaterialTheme.colorScheme.primary
+                          } else {
+                              MaterialTheme.colorScheme.onSurfaceVariant
+                          }
+                      )
+                  }
+              }
+          }
+      }
+      
+      enum class ReadStatus {
+          Sending, Sent, Delivered, Read
+      }

@@ -15,16 +15,23 @@ logger = logging.getLogger(__name__)
 class PersonaLibrary:
     """
     Manages persistent storage and retrieval of agent personas
+    
+    Structure:
+    - personas.yaml: Runtime storage (grows as agents are created/used)
+    - examples/: Pre-built templates loaded on init for immediate availability
     """
     
-    def __init__(self, library_path: str = "persona_library/personas/personas.yaml"):
+    def __init__(self, library_path: str = "persona_library/personas/personas.yaml", 
+                 load_examples: bool = True):
         """
         Initialize persona library
         
         Args:
             library_path: Path to personas YAML file
+            load_examples: Whether to load pre-built example templates
         """
         self.library_path = library_path
+        self.examples_dir = os.path.join(os.path.dirname(library_path), "examples")
         self.personas: Dict[str, AgentDNA] = {}
         
         # Ensure directory exists
@@ -32,6 +39,10 @@ class PersonaLibrary:
         
         # Load existing personas
         self.load()
+        
+        # Load pre-built examples for immediate availability
+        if load_examples:
+            self.load_examples()
     
     def load(self):
         """Load personas from file"""
@@ -54,6 +65,30 @@ class PersonaLibrary:
         except Exception as e:
             logger.error(f"Error loading persona library: {e}")
             self.personas = {}
+    
+    def load_examples(self):
+        """Load pre-built example personas from examples directory"""
+        if not os.path.exists(self.examples_dir):
+            logger.debug(f"No examples directory at {self.examples_dir}")
+            return
+        
+        loaded_count = 0
+        for filepath in Path(self.examples_dir).glob("*.yaml"):
+            try:
+                with open(filepath, 'r') as f:
+                    data = yaml.safe_load(f)
+                
+                if data:
+                    dna = AgentDNA.from_dict(data)
+                    # Only add if not already in library (don't overwrite runtime personas)
+                    if dna.persona_id not in self.personas:
+                        self.personas[dna.persona_id] = dna
+                        loaded_count += 1
+            except Exception as e:
+                logger.warning(f"Failed to load example {filepath.name}: {e}")
+        
+        if loaded_count > 0:
+            logger.info(f"Loaded {loaded_count} example personas from {self.examples_dir}")
     
     def save(self, dna: AgentDNA):
         """

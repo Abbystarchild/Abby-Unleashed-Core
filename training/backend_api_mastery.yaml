@@ -1,0 +1,2524 @@
+# Backend API Development Mastery Guide
+# Professional Best Practices - Verifiable & Testable
+# Last Updated: 2026-02-02
+
+metadata:
+  domain: Backend API Development
+  level: Mastery
+  verification_approach: Code review, automated testing, security audits
+
+# =============================================================================
+# SECTION 1: REST API DESIGN
+# =============================================================================
+rest_api_design:
+  
+  http_methods:
+    best_practices:
+      - name: "Use correct HTTP methods for operations"
+        good_example: |
+          GET /users/123        # Retrieve user (idempotent, safe)
+          POST /users           # Create user (not idempotent)
+          PUT /users/123        # Full update (idempotent)
+          PATCH /users/123      # Partial update (idempotent)
+          DELETE /users/123     # Remove user (idempotent)
+        bad_example: |
+          POST /getUser         # Using POST for retrieval
+          GET /deleteUser/123   # Using GET for deletion (DANGEROUS!)
+          POST /users/123/update # Verb in URL
+        why: "HTTP methods have semantic meaning. GET should be safe (no side effects), PUT/DELETE should be idempotent. Misuse breaks caching, causes security issues, and confuses clients."
+      
+      - name: "Idempotency for PUT and DELETE"
+        good_example: |
+          # PUT replaces entire resource - calling twice = same result
+          PUT /orders/123
+          {"status": "shipped", "items": [...]}
+          
+          # Client can safely retry on network failure
+        bad_example: |
+          # PUT that increments a counter - NOT idempotent
+          PUT /orders/123/increment-views
+        why: "Idempotency allows safe retries on network failures. Critical for distributed systems reliability."
+      
+      - name: "POST for non-idempotent operations"
+        good_example: |
+          POST /payments
+          {"amount": 100, "idempotency_key": "uuid-123"}
+          
+          # Server checks idempotency_key to prevent double-charging
+        bad_example: |
+          POST /payments
+          {"amount": 100}
+          # No idempotency protection - network retry = double charge
+        why: "POST creates resources. Without idempotency keys, retries cause duplicates. Stripe, PayPal all use idempotency keys."
+
+    anti_patterns:
+      - pattern: "Using GET for state-changing operations"
+        problem: "Browsers prefetch links, crawlers follow links, proxies cache GETs. Your data gets modified unexpectedly."
+        solution: "Always use POST/PUT/PATCH/DELETE for mutations. GET must be safe and idempotent."
+      
+      - pattern: "Tunneling everything through POST"
+        problem: "Loses HTTP semantics, breaks caching, harder to debug, violates REST principles."
+        solution: "Use appropriate HTTP methods. Reserve POST for resource creation and non-idempotent actions."
+
+  status_codes:
+    best_practices:
+      - name: "Use precise status codes"
+        good_example: |
+          200 OK              # Success with body
+          201 Created         # Resource created (include Location header)
+          204 No Content      # Success, no body (DELETE)
+          400 Bad Request     # Client sent invalid data
+          401 Unauthorized    # Authentication required/failed
+          403 Forbidden       # Authenticated but not authorized
+          404 Not Found       # Resource doesn't exist
+          409 Conflict        # State conflict (duplicate email)
+          422 Unprocessable   # Valid JSON but semantic errors
+          429 Too Many Reqs   # Rate limited
+          500 Internal Error  # Server fault (log it!)
+          503 Service Unavail # Temporary unavailability
+        bad_example: |
+          200 OK {"error": "User not found"}  # WRONG!
+          200 OK {"success": false}           # WRONG!
+          500 for validation errors           # WRONG!
+        why: "Status codes enable proper client behavior, caching, monitoring. Using 200 for errors breaks HTTP clients, load balancers, and monitoring tools."
+      
+      - name: "201 Created with Location header"
+        good_example: |
+          HTTP/1.1 201 Created
+          Location: /api/v1/users/456
+          Content-Type: application/json
+          
+          {"id": 456, "name": "John", ...}
+        bad_example: |
+          HTTP/1.1 200 OK
+          {"id": 456, "created": true}
+        why: "201 + Location follows HTTP spec, enables clients to discover resource URL, important for HATEOAS."
+      
+      - name: "Distinguish 401 vs 403"
+        good_example: |
+          # No token provided or token invalid/expired
+          401 Unauthorized
+          WWW-Authenticate: Bearer realm="api"
+          
+          # Valid token but user lacks permission
+          403 Forbidden
+          {"error": "Admin role required"}
+        bad_example: |
+          # Using 401 for everything auth-related
+          401 {"error": "You don't have admin rights"}
+        why: "401 means 'prove who you are', 403 means 'I know who you are but you can't do this'. Clients handle these differently (401 = re-auth, 403 = don't retry)."
+
+  url_structure:
+    best_practices:
+      - name: "Resource-oriented URLs with nouns"
+        good_example: |
+          /users
+          /users/123
+          /users/123/orders
+          /users/123/orders/456
+          /orders/456/items
+        bad_example: |
+          /getUsers
+          /createUser
+          /user/123/getOrders
+          /api/getUserById?id=123
+        why: "URLs identify resources, not actions. HTTP methods indicate action. Clean URLs are more cacheable, discoverable, and intuitive."
+      
+      - name: "Plural nouns for collections"
+        good_example: |
+          GET /users          # Collection
+          GET /users/123      # Single item
+          POST /users         # Create in collection
+        bad_example: |
+          GET /user           # Inconsistent
+          GET /user/123
+          POST /user/create
+        why: "Consistency makes API predictable. Plural always works (/users/123 reads naturally as 'user 123 from users')."
+      
+      - name: "Nest for clear relationships (max 2-3 levels)"
+        good_example: |
+          /users/123/orders           # User's orders
+          /orders/456/items           # Order's items
+          
+          # For deeper nesting, flatten:
+          /order-items?order_id=456
+        bad_example: |
+          /users/123/orders/456/items/789/reviews/012
+          # Too deep - hard to maintain, unclear ownership
+        why: "Deep nesting creates complex URLs, coupling, and maintenance burden. After 2-3 levels, use query parameters or separate endpoints."
+      
+      - name: "Use kebab-case for multi-word resources"
+        good_example: |
+          /user-profiles
+          /order-items
+          /shipping-addresses
+        bad_example: |
+          /userProfiles      # camelCase
+          /user_profiles     # snake_case
+          /UserProfiles      # PascalCase
+        why: "URLs are case-insensitive in spec but case-sensitive in practice. Kebab-case is URL-friendly, readable, and conventional."
+
+  versioning:
+    best_practices:
+      - name: "URL path versioning (most common)"
+        good_example: |
+          /api/v1/users
+          /api/v2/users
+          
+          # Clear, visible, easy to route
+          # Load balancers can route different versions to different services
+        bad_example: |
+          /api/users?version=1  # Hidden in query params
+        why: "Path versioning is explicit, cacheable, easy to document, simple to route. Most adopted pattern (Stripe, GitHub, Twitter)."
+      
+      - name: "Header versioning (for advanced use)"
+        good_example: |
+          GET /users
+          Accept: application/vnd.myapi.v2+json
+          
+          # Or custom header:
+          GET /users
+          API-Version: 2
+        bad_example: |
+          # Mixing versioning strategies inconsistently
+          /api/v1/users
+          Accept: application/vnd.myapi.v2+json  # Conflicting!
+        why: "Header versioning keeps URLs clean, allows content negotiation. Use when you need fine-grained version control or media type variations."
+      
+      - name: "Version only breaking changes"
+        good_example: |
+          # v1: Original
+          {"name": "John Doe"}
+          
+          # v2: Breaking change (split name)
+          {"first_name": "John", "last_name": "Doe"}
+          
+          # Adding optional fields? No new version needed!
+          {"name": "John", "email": "john@example.com"}  # Backward compatible
+        bad_example: |
+          # New version for every change
+          v1, v2, v3, v4, v5...  # Version explosion
+        why: "Version inflation confuses clients and increases maintenance. Only version for breaking changes (removed fields, type changes, semantic changes)."
+
+    anti_patterns:
+      - pattern: "No versioning strategy"
+        problem: "First breaking change breaks all clients with no migration path."
+        solution: "Start with v1 from day one. Even if you never need v2, the pattern is established."
+      
+      - pattern: "Deprecating versions too quickly"
+        problem: "Clients can't keep up, breaks trust, causes outages."
+        solution: "Provide 6-12 month deprecation windows. Communicate via headers (Deprecation, Sunset), docs, and email."
+
+  hateoas:
+    best_practices:
+      - name: "Include navigational links in responses"
+        good_example: |
+          {
+            "id": 123,
+            "name": "John Doe",
+            "email": "john@example.com",
+            "_links": {
+              "self": {"href": "/api/v1/users/123"},
+              "orders": {"href": "/api/v1/users/123/orders"},
+              "update": {"href": "/api/v1/users/123", "method": "PATCH"},
+              "delete": {"href": "/api/v1/users/123", "method": "DELETE"}
+            }
+          }
+        bad_example: |
+          {
+            "id": 123,
+            "name": "John Doe"
+          }
+          # Client must hardcode: /users/ + id + /orders
+        why: "HATEOAS allows API evolution without breaking clients. Clients discover actions dynamically. Reduces coupling."
+      
+      - name: "Use standard link relation types"
+        good_example: |
+          "_links": {
+            "self": {"href": "..."},
+            "next": {"href": "..."},       # Pagination
+            "prev": {"href": "..."},       # Pagination
+            "first": {"href": "..."},      # Pagination
+            "last": {"href": "..."},       # Pagination
+            "collection": {"href": "..."}  # Parent collection
+          }
+        bad_example: |
+          "_links": {
+            "thisResource": "...",
+            "goToNext": "...",
+            "backToPrevious": "..."
+          }
+        why: "IANA maintains standard link relations. Using them makes your API interoperable with generic hypermedia clients."
+
+  pagination:
+    best_practices:
+      - name: "Cursor-based pagination for large/changing datasets"
+        good_example: |
+          # Request
+          GET /posts?limit=20&cursor=eyJpZCI6MTAwfQ==
+          
+          # Response
+          {
+            "data": [...],
+            "pagination": {
+              "next_cursor": "eyJpZCI6MTIwfQ==",
+              "has_more": true
+            },
+            "_links": {
+              "next": {"href": "/posts?limit=20&cursor=eyJpZCI6MTIwfQ=="}
+            }
+          }
+          
+          # Cursor is opaque (base64 encoded {"id": 120})
+        bad_example: |
+          # Offset pagination on frequently changing data
+          GET /posts?page=5&per_page=20
+          # New post inserted = user sees duplicate on page 6
+        why: "Cursor pagination is stable (no duplicates/skips when data changes), performs better (no OFFSET scan), scales to billions of rows."
+      
+      - name: "Offset pagination for stable, small datasets"
+        good_example: |
+          GET /categories?page=2&per_page=20
+          
+          {
+            "data": [...],
+            "pagination": {
+              "page": 2,
+              "per_page": 20,
+              "total_items": 45,
+              "total_pages": 3
+            }
+          }
+          
+          # Good for: admin dashboards, reference data, reports
+        bad_example: |
+          GET /events?page=10000  # OFFSET 200000 = slow!
+        why: "Offset is intuitive and allows jumping to specific pages. Use only when total count is needed and dataset is small/stable."
+      
+      - name: "Include pagination metadata"
+        good_example: |
+          {
+            "data": [...],
+            "meta": {
+              "total_count": 1000,    # If feasible
+              "returned_count": 20,
+              "has_more": true
+            },
+            "_links": {
+              "self": {"href": "/users?cursor=abc"},
+              "next": {"href": "/users?cursor=def"},
+              "prev": {"href": "/users?cursor=xyz"}
+            }
+          }
+        bad_example: |
+          {
+            "users": [...]
+            # No indication if there's more data
+          }
+        why: "Clients need to know when to stop paginating, show 'load more' buttons, or display total counts."
+
+    anti_patterns:
+      - pattern: "No default limit"
+        problem: "GET /users returns 10 million users, crashes client, exhausts server memory."
+        solution: "Always have default limit (20-100) and maximum limit (1000). Document both."
+      
+      - pattern: "Exposing internal IDs in cursors"
+        problem: "Clients can manipulate cursors, guess IDs, or break when ID format changes."
+        solution: "Encode cursors (base64), make them opaque. Validate on decode."
+
+# =============================================================================
+# SECTION 2: AUTHENTICATION & AUTHORIZATION
+# =============================================================================
+authentication_authorization:
+
+  jwt_best_practices:
+    best_practices:
+      - name: "Short-lived access tokens + refresh tokens"
+        good_example: |
+          # Access token: 15 minutes
+          {
+            "sub": "user_123",
+            "exp": 1706900000,  # 15 min from now
+            "iat": 1706899100,
+            "type": "access"
+          }
+          
+          # Refresh token: 7 days, stored in httpOnly cookie
+          {
+            "sub": "user_123",
+            "exp": 1707504000,  # 7 days
+            "jti": "unique-token-id",  # For revocation
+            "type": "refresh"
+          }
+        bad_example: |
+          # Single long-lived token
+          {
+            "sub": "user_123",
+            "exp": 1738435200  # 1 year!
+          }
+        why: "Short access tokens limit damage if stolen. Refresh tokens allow revocation. 15min access + 7day refresh is industry standard."
+      
+      - name: "Include only necessary claims"
+        good_example: |
+          {
+            "sub": "user_123",           # Subject (user ID)
+            "exp": 1706900000,           # Expiration
+            "iat": 1706899100,           # Issued at
+            "roles": ["user", "admin"],  # Authorization
+            "tenant_id": "org_456"       # Multi-tenancy
+          }
+        bad_example: |
+          {
+            "user": {
+              "id": 123,
+              "email": "user@example.com",
+              "ssn": "123-45-6789",        # PII in token!
+              "credit_card": "4111...",    # Sensitive data!
+              "full_profile": {...}        # Bloated token
+            }
+          }
+        why: "JWTs are not encrypted by default (just signed). Anyone can decode and read claims. Keep tokens small for performance."
+      
+      - name: "Use strong signing algorithms"
+        good_example: |
+          # RS256 (RSA + SHA-256) - Asymmetric, recommended
+          # Allows public key verification without exposing private key
+          
+          import jwt
+          
+          # Sign with private key
+          token = jwt.encode(payload, private_key, algorithm="RS256")
+          
+          # Verify with public key (can be distributed)
+          decoded = jwt.decode(token, public_key, algorithms=["RS256"])
+        bad_example: |
+          # HS256 with weak secret
+          jwt.encode(payload, "secret123", algorithm="HS256")
+          
+          # Or worse - no verification!
+          jwt.decode(token, options={"verify_signature": False})
+          
+          # Or accepting 'none' algorithm
+          jwt.decode(token, algorithms=["HS256", "none"])  # CVE!
+        why: "RS256 allows asymmetric verification (microservices can verify without signing key). Always validate algorithm to prevent 'none' attack."
+      
+      - name: "Implement token refresh flow correctly"
+        good_example: |
+          # 1. Client detects 401 or token expiring soon
+          # 2. Client calls refresh endpoint with refresh token
+          
+          POST /auth/refresh
+          Cookie: refresh_token=<httpOnly cookie>
+          
+          # 3. Server validates refresh token
+          # 4. Server issues new access token (and optionally rotates refresh token)
+          
+          {
+            "access_token": "new.access.token",
+            "expires_in": 900
+          }
+          
+          # 5. If refresh token is also expired/invalid:
+          401 Unauthorized
+          {"error": "refresh_token_expired", "action": "re_authenticate"}
+        bad_example: |
+          # Sending refresh token in request body over non-HTTPS
+          POST /auth/refresh
+          {"refresh_token": "..."}  # Exposed in logs, history
+          
+          # Never expiring refresh tokens
+          # No refresh token rotation
+        why: "Refresh tokens are high-value targets. Use httpOnly cookies, rotate on use, track token families for revocation."
+
+    anti_patterns:
+      - pattern: "Storing JWTs in localStorage"
+        problem: "Vulnerable to XSS attacks. Any script can read and exfiltrate tokens."
+        solution: "Store access token in memory (JS variable), refresh token in httpOnly cookie with Secure, SameSite=Strict."
+      
+      - pattern: "Not validating token claims"
+        problem: "Accepting expired tokens, wrong audience, wrong issuer leads to security bypass."
+        solution: |
+          Always validate: exp, iat, iss, aud, and custom claims.
+          decoded = jwt.decode(
+            token,
+            key,
+            algorithms=["RS256"],
+            audience="my-api",
+            issuer="auth.mycompany.com"
+          )
+
+  oauth2_flows:
+    best_practices:
+      - name: "Authorization Code + PKCE for web/mobile apps"
+        good_example: |
+          # 1. Generate code_verifier (43-128 chars, URL-safe)
+          code_verifier = base64url(random(32))
+          
+          # 2. Generate code_challenge
+          code_challenge = base64url(sha256(code_verifier))
+          
+          # 3. Authorization request
+          GET /authorize?
+            response_type=code&
+            client_id=app123&
+            redirect_uri=https://app.com/callback&
+            code_challenge=E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM&
+            code_challenge_method=S256&
+            state=xyz789&
+            scope=read%20write
+          
+          # 4. Exchange code for token (include code_verifier)
+          POST /token
+          {
+            "grant_type": "authorization_code",
+            "code": "auth_code_from_redirect",
+            "redirect_uri": "https://app.com/callback",
+            "client_id": "app123",
+            "code_verifier": "the_original_verifier"
+          }
+        bad_example: |
+          # Implicit flow (deprecated)
+          GET /authorize?response_type=token&...
+          # Token in URL fragment - leaked in history, logs, referrer
+          
+          # Auth code without PKCE
+          # Vulnerable to code interception
+        why: "PKCE prevents authorization code interception attacks. Required for public clients (SPAs, mobile). OAuth 2.1 mandates PKCE for all clients."
+      
+      - name: "Client Credentials for server-to-server"
+        good_example: |
+          # Machine-to-machine, no user context
+          POST /token
+          Authorization: Basic base64(client_id:client_secret)
+          Content-Type: application/x-www-form-urlencoded
+          
+          grant_type=client_credentials&scope=api:read
+          
+          # Response
+          {
+            "access_token": "...",
+            "token_type": "Bearer",
+            "expires_in": 3600
+          }
+        bad_example: |
+          # Using user-based flows for service accounts
+          # Storing client_secret in frontend code
+        why: "Client credentials is simple and appropriate when there's no user. Secret must stay on server side only."
+      
+      - name: "Validate redirect_uri strictly"
+        good_example: |
+          # Register exact redirect URIs
+          allowed_redirects = [
+            "https://app.example.com/callback",
+            "https://app.example.com/oauth/callback"
+          ]
+          
+          # Exact match only
+          if redirect_uri not in allowed_redirects:
+              raise InvalidRedirectError()
+        bad_example: |
+          # Pattern matching
+          if redirect_uri.startswith("https://app.example.com"):
+              # Allows https://app.example.com.evil.com/callback!
+          
+          # Allowing localhost in production
+          # Allowing HTTP redirects
+        why: "Open redirect vulnerabilities allow token theft. Always use exact matching for redirect URIs."
+
+  api_key_management:
+    best_practices:
+      - name: "Prefix API keys for identification"
+        good_example: |
+          # Key format: prefix_environment_random
+          pk_live_a1b2c3d4e5f6g7h8i9j0...  # Production public
+          sk_live_z9y8x7w6v5u4t3s2r1q0...  # Production secret
+          sk_test_m1n2o3p4q5r6s7t8u9v0...  # Test secret
+          
+          # Benefits:
+          # - Immediately identify key type in logs
+          # - Prevent test keys in production
+          # - Easy to grep/search
+        bad_example: |
+          apikey123456789
+          # Can't tell environment, type, or purpose
+        why: "Prefixed keys enable quick identification, prevent environment mixups, simplify debugging. Used by Stripe, SendGrid, etc."
+      
+      - name: "Hash API keys, don't store plaintext"
+        good_example: |
+          import hashlib
+          import secrets
+          
+          # Generate key (show once to user)
+          api_key = f"sk_live_{secrets.token_urlsafe(32)}"
+          
+          # Store hash in database
+          key_hash = hashlib.sha256(api_key.encode()).hexdigest()
+          
+          # Store: key_hash, prefix (for lookup), metadata
+          # The full key is NEVER stored
+          
+          # Lookup: hash incoming key, compare hashes
+        bad_example: |
+          # Storing plaintext
+          INSERT INTO api_keys (key, user_id) VALUES ('sk_live_abc123', 1);
+          
+          # If database is breached, all keys are compromised
+        why: "Database breaches happen. Hashed keys can't be reversed. Only store last 4 chars for user identification."
+      
+      - name: "Implement key rotation"
+        good_example: |
+          # Allow multiple active keys per user
+          # Support overlap period during rotation
+          
+          POST /api-keys
+          {"name": "Production Server v2"}
+          
+          # Response shows key ONCE
+          {"key": "sk_live_new...", "id": "key_456", "created_at": "..."}
+          
+          # Old key still works during transition
+          # User deletes old key when ready
+          DELETE /api-keys/key_123
+        bad_example: |
+          # Single key, no rotation mechanism
+          # Key change = immediate downtime
+        why: "Key rotation is essential for security hygiene. Compromised key? Rotate. Employee leaves? Rotate. Regular rotation limits exposure window."
+
+  rbac_vs_abac:
+    best_practices:
+      - name: "RBAC for simple hierarchical permissions"
+        good_example: |
+          # Role-Based Access Control
+          roles = {
+            "admin": ["users:read", "users:write", "users:delete", 
+                      "orders:read", "orders:write", "settings:*"],
+            "manager": ["users:read", "orders:read", "orders:write"],
+            "user": ["orders:read"]
+          }
+          
+          def check_permission(user, permission):
+              user_permissions = roles.get(user.role, [])
+              return (permission in user_permissions or 
+                      f"{permission.split(':')[0]}:*" in user_permissions)
+        bad_example: |
+          # Hardcoded role checks everywhere
+          if user.role == "admin" or user.role == "superadmin" or user.role == "manager":
+              # Unmaintainable, easy to miss cases
+        why: "RBAC is simple, auditable, and sufficient for most applications. Easy to understand: 'Admins can do X, Users can do Y'."
+      
+      - name: "ABAC for complex, contextual rules"
+        good_example: |
+          # Attribute-Based Access Control
+          # "Users can only edit their own documents during business hours"
+          
+          policy = {
+            "effect": "allow",
+            "action": "document:edit",
+            "conditions": {
+              "resource.owner_id": {"equals": "subject.user_id"},
+              "environment.time": {"between": ["09:00", "17:00"]},
+              "resource.status": {"not_equals": "archived"},
+              "subject.department": {"equals": "resource.department"}
+            }
+          }
+          
+          def evaluate_policy(subject, action, resource, environment):
+              # Evaluate all conditions
+              for condition_key, rule in policy["conditions"].items():
+                  # ... evaluate each condition
+              return all_conditions_met
+        bad_example: |
+          # ABAC for simple cases (over-engineering)
+          # When simple RBAC would suffice
+        why: "ABAC handles complex rules: time-based, location-based, relationship-based. Use when RBAC can't express your access rules."
+      
+      - name: "Combine RBAC + ABAC (hybrid)"
+        good_example: |
+          def authorize(user, action, resource):
+              # Step 1: RBAC - Does role permit this action type?
+              if not has_role_permission(user.role, action):
+                  return False
+              
+              # Step 2: ABAC - Additional contextual checks
+              if action == "document:edit":
+                  # Resource-level checks
+                  if resource.owner_id != user.id and "admin" not in user.roles:
+                      return False
+                  if resource.status == "locked":
+                      return False
+              
+              return True
+        bad_example: |
+          # Only RBAC with role explosion
+          roles = ["admin", "manager", "user", "user_can_edit_own", 
+                   "user_can_edit_department", "user_readonly_archived", ...]
+        why: "Hybrid approach: RBAC for coarse-grained (what), ABAC for fine-grained (when, where, whose). Avoids role explosion."
+
+# =============================================================================
+# SECTION 3: DATABASE INTEGRATION
+# =============================================================================
+database_integration:
+
+  connection_pooling:
+    best_practices:
+      - name: "Configure pool size based on workload"
+        good_example: |
+          from sqlalchemy import create_engine
+          
+          # Formula: connections = (core_count * 2) + effective_spindle_count
+          # For SSD: effective_spindle_count ≈ 1
+          # Example: 4 cores = (4 * 2) + 1 = 9 connections per instance
+          
+          engine = create_engine(
+              DATABASE_URL,
+              pool_size=10,           # Base connections
+              max_overflow=20,        # Burst capacity
+              pool_timeout=30,        # Wait time for connection
+              pool_recycle=1800,      # Recycle connections after 30min
+              pool_pre_ping=True      # Verify connection before use
+          )
+        bad_example: |
+          # No pooling - new connection per request
+          def get_user(user_id):
+              conn = psycopg2.connect(DATABASE_URL)  # Expensive!
+              # ... query
+              conn.close()
+          
+          # Or: pool_size=100 (too many connections)
+          # PostgreSQL default max_connections=100
+        why: "Connection creation is expensive (TCP handshake, auth, SSL). Pooling reuses connections. Too many connections overwhelm database."
+      
+      - name: "Handle connection lifecycle properly"
+        good_example: |
+          from contextlib import contextmanager
+          
+          @contextmanager
+          def get_db_session():
+              session = SessionLocal()
+              try:
+                  yield session
+                  session.commit()
+              except Exception:
+                  session.rollback()
+                  raise
+              finally:
+                  session.close()  # Returns to pool
+          
+          # Usage
+          with get_db_session() as db:
+              user = db.query(User).filter_by(id=user_id).first()
+        bad_example: |
+          # Forgetting to close/return connection
+          def get_user(user_id):
+              session = SessionLocal()
+              user = session.query(User).first()
+              return user  # Session never closed! Connection leak!
+          
+          # Eventually: pool exhausted, app hangs
+        why: "Leaked connections exhaust the pool. Always use context managers or try/finally to ensure connections return to pool."
+
+  orm_vs_raw_sql:
+    best_practices:
+      - name: "Use ORM for CRUD operations"
+        good_example: |
+          from sqlalchemy.orm import Session
+          
+          # Clear, type-safe, handles escaping
+          def create_user(db: Session, name: str, email: str) -> User:
+              user = User(name=name, email=email)
+              db.add(user)
+              db.commit()
+              db.refresh(user)
+              return user
+          
+          def get_user_orders(db: Session, user_id: int) -> list[Order]:
+              return db.query(Order).filter(Order.user_id == user_id).all()
+        bad_example: |
+          # Raw SQL for simple CRUD
+          cursor.execute(f"SELECT * FROM users WHERE id = {user_id}")  # SQL INJECTION!
+        why: "ORM provides type safety, escaping, migrations, relationship handling. Use for 80% of operations."
+      
+      - name: "Use raw SQL for complex queries"
+        good_example: |
+          from sqlalchemy import text
+          
+          # Complex aggregation with window functions
+          query = text("""
+              SELECT 
+                  u.id,
+                  u.name,
+                  COUNT(o.id) as order_count,
+                  SUM(o.total) as total_spent,
+                  RANK() OVER (ORDER BY SUM(o.total) DESC) as spending_rank
+              FROM users u
+              LEFT JOIN orders o ON u.id = o.user_id
+              WHERE o.created_at >= :start_date
+              GROUP BY u.id, u.name
+              HAVING COUNT(o.id) >= :min_orders
+              ORDER BY total_spent DESC
+              LIMIT :limit
+          """)
+          
+          result = db.execute(
+              query, 
+              {"start_date": start_date, "min_orders": 5, "limit": 100}
+          )
+        bad_example: |
+          # Forcing ORM for complex queries
+          # Results in N+1 queries or unreadable code
+          
+          # Or: string concatenation for raw SQL (SQL injection!)
+          query = "SELECT * FROM users WHERE name = '" + name + "'"
+        why: "Raw SQL is better for: complex joins, aggregations, CTEs, window functions. Always use parameterized queries."
+      
+      - name: "Profile both approaches"
+        good_example: |
+          import logging
+          
+          # Enable SQL logging
+          logging.getLogger('sqlalchemy.engine').setLevel(logging.INFO)
+          
+          # Or use EXPLAIN ANALYZE
+          result = db.execute(text("EXPLAIN ANALYZE " + your_query))
+          for row in result:
+              print(row)
+          
+          # Compare:
+          # - ORM: SELECT * FROM orders WHERE user_id = 1 (executed 100 times)
+          # - Raw: SELECT * FROM orders WHERE user_id IN (1,2,3...100) (1 query)
+        bad_example: |
+          # Never profiling, assuming ORM is always fast
+          # Or: premature optimization without measurement
+        why: "Measure before optimizing. ORM can generate inefficient queries. Profile to find bottlenecks."
+
+  n_plus_one:
+    best_practices:
+      - name: "Eager loading with joinedload"
+        good_example: |
+          from sqlalchemy.orm import joinedload
+          
+          # ONE query with JOIN
+          users = db.query(User).options(
+              joinedload(User.orders)
+          ).all()
+          
+          # Generated SQL:
+          # SELECT users.*, orders.* 
+          # FROM users 
+          # LEFT OUTER JOIN orders ON users.id = orders.user_id
+          
+          for user in users:
+              print(user.orders)  # No additional query!
+        bad_example: |
+          # N+1 Problem
+          users = db.query(User).all()  # 1 query
+          
+          for user in users:
+              print(user.orders)  # N queries! One per user!
+          
+          # Total: 1 + N queries
+        why: "N+1 is the most common ORM performance issue. Eager loading reduces N+1 queries to 1-2 queries."
+      
+      - name: "Use selectinload for large collections"
+        good_example: |
+          from sqlalchemy.orm import selectinload
+          
+          # Separate SELECT with IN clause (better for large collections)
+          users = db.query(User).options(
+              selectinload(User.orders)
+          ).all()
+          
+          # Generated SQL:
+          # SELECT * FROM users
+          # SELECT * FROM orders WHERE user_id IN (1, 2, 3, ...)
+          
+          # Why? Avoids cartesian product with large joins
+        bad_example: |
+          # joinedload with huge collections
+          # 1000 users * 1000 orders = 1M rows transferred
+        why: "selectinload avoids cartesian explosion. Use joinedload for to-one, selectinload for to-many relationships."
+      
+      - name: "Detect N+1 in tests"
+        good_example: |
+          import pytest
+          from sqlalchemy import event
+          
+          @pytest.fixture
+          def query_counter(db_engine):
+              queries = []
+              
+              def receive_after_execute(conn, clauseelement, multiparams, params, result):
+                  queries.append(str(clauseelement))
+              
+              event.listen(db_engine, "after_execute", receive_after_execute)
+              yield queries
+              event.remove(db_engine, "after_execute", receive_after_execute)
+          
+          def test_get_users_no_n_plus_one(client, query_counter):
+              response = client.get("/users")
+              
+              # Assert reasonable query count
+              assert len(query_counter) <= 3, f"Too many queries: {query_counter}"
+        bad_example: |
+          # No N+1 detection - issues found in production
+        why: "N+1 often sneaks in during development. Automated detection catches issues before production."
+
+  transaction_management:
+    best_practices:
+      - name: "Use appropriate isolation levels"
+        good_example: |
+          from sqlalchemy import create_engine
+          from sqlalchemy.orm import sessionmaker
+          
+          # Default: READ COMMITTED (good for most cases)
+          engine = create_engine(DATABASE_URL, isolation_level="READ_COMMITTED")
+          
+          # For specific transactions needing higher isolation:
+          with db.begin():
+              db.execute(text("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE"))
+              # Critical financial operations here
+              # Prevents phantom reads, ensures consistency
+        bad_example: |
+          # SERIALIZABLE everywhere (performance killer)
+          engine = create_engine(DATABASE_URL, isolation_level="SERIALIZABLE")
+          
+          # Or: READ UNCOMMITTED (dirty reads, data corruption)
+        why: "Isolation levels trade consistency for performance. Use READ COMMITTED normally, higher levels only for critical sections."
+      
+      - name: "Keep transactions short"
+        good_example: |
+          def process_order(order_id):
+              # Do expensive work OUTSIDE transaction
+              shipping_rate = calculate_shipping(order)  # External API call
+              tax = calculate_tax(order)                  # Complex calculation
+              
+              # Short transaction for database writes only
+              with db.begin():
+                  order = db.query(Order).filter_by(id=order_id).with_for_update().first()
+                  order.shipping = shipping_rate
+                  order.tax = tax
+                  order.status = "processed"
+              # Transaction committed, lock released
+        bad_example: |
+          def process_order(order_id):
+              with db.begin():  # Transaction starts
+                  order = db.query(Order).first()
+                  
+                  # External API call inside transaction!
+                  shipping_rate = requests.get(shipping_api)  # 2 seconds
+                  
+                  # More processing...
+                  time.sleep(5)  # Transaction held for 5+ seconds!
+                  
+                  order.shipping = shipping_rate
+              # Other requests blocked waiting for this lock
+        why: "Long transactions hold locks, block other operations, increase deadlock risk. Keep transactions under 100ms."
+      
+      - name: "Handle deadlocks with retry"
+        good_example: |
+          from tenacity import retry, stop_after_attempt, retry_if_exception_type
+          from sqlalchemy.exc import OperationalError
+          
+          @retry(
+              stop=stop_after_attempt(3),
+              retry=retry_if_exception_type(OperationalError),
+              reraise=True
+          )
+          def transfer_funds(from_account, to_account, amount):
+              with db.begin():
+                  # Consistent ordering prevents most deadlocks
+                  accounts = sorted([from_account, to_account])
+                  
+                  acc1 = db.query(Account).filter_by(id=accounts[0]).with_for_update().first()
+                  acc2 = db.query(Account).filter_by(id=accounts[1]).with_for_update().first()
+                  
+                  if from_account == accounts[0]:
+                      acc1.balance -= amount
+                      acc2.balance += amount
+                  else:
+                      acc2.balance -= amount
+                      acc1.balance += amount
+        bad_example: |
+          def transfer_funds(from_account, to_account, amount):
+              # Random locking order = deadlock risk
+              acc1 = db.query(Account).filter_by(id=from_account).with_for_update().first()
+              acc2 = db.query(Account).filter_by(id=to_account).with_for_update().first()
+              # No retry on deadlock
+        why: "Deadlocks happen in concurrent systems. Consistent lock ordering prevents most. Retry handles the rest."
+
+# =============================================================================
+# SECTION 4: RATE LIMITING
+# =============================================================================
+rate_limiting:
+
+  algorithms:
+    best_practices:
+      - name: "Token bucket for bursty traffic"
+        good_example: |
+          import time
+          from dataclasses import dataclass
+          
+          @dataclass
+          class TokenBucket:
+              capacity: int           # Max tokens
+              refill_rate: float      # Tokens per second
+              tokens: float = None
+              last_refill: float = None
+              
+              def __post_init__(self):
+                  self.tokens = self.capacity
+                  self.last_refill = time.time()
+              
+              def consume(self, tokens: int = 1) -> bool:
+                  now = time.time()
+                  # Refill based on time elapsed
+                  elapsed = now - self.last_refill
+                  self.tokens = min(self.capacity, self.tokens + elapsed * self.refill_rate)
+                  self.last_refill = now
+                  
+                  if self.tokens >= tokens:
+                      self.tokens -= tokens
+                      return True
+                  return False
+          
+          # 100 requests/minute with burst of 20
+          bucket = TokenBucket(capacity=20, refill_rate=100/60)
+        bad_example: |
+          # Fixed window counter only
+          # Problem: 100 req at 0:59, 100 req at 1:00 = 200 req in 2 seconds
+        why: "Token bucket allows bursts while maintaining average rate. Handles real traffic patterns better than fixed windows."
+      
+      - name: "Sliding window for smooth limiting"
+        good_example: |
+          import time
+          import redis
+          
+          def sliding_window_rate_limit(redis_client, key: str, limit: int, window_seconds: int) -> bool:
+              now = time.time()
+              window_start = now - window_seconds
+              pipe = redis_client.pipeline()
+              
+              # Remove old entries
+              pipe.zremrangebyscore(key, 0, window_start)
+              # Count current window
+              pipe.zcard(key)
+              # Add current request
+              pipe.zadd(key, {str(now): now})
+              # Set expiry
+              pipe.expire(key, window_seconds)
+              
+              results = pipe.execute()
+              current_count = results[1]
+              
+              return current_count < limit
+          
+          # Usage: 100 requests per 60 seconds, sliding
+          allowed = sliding_window_rate_limit(redis, f"ratelimit:{user_id}", 100, 60)
+        bad_example: |
+          # Fixed window only
+          def fixed_window(key, limit):
+              count = redis.incr(key)
+              if count == 1:
+                  redis.expire(key, 60)
+              return count <= limit
+          # Allows 2x limit at window boundary
+        why: "Sliding window prevents boundary bursts. Provides consistent, predictable rate limiting."
+      
+      - name: "Sliding window counter (memory efficient)"
+        good_example: |
+          def sliding_window_counter(redis_client, key: str, limit: int, window_seconds: int) -> bool:
+              now = time.time()
+              current_window = int(now // window_seconds)
+              previous_window = current_window - 1
+              
+              current_key = f"{key}:{current_window}"
+              previous_key = f"{key}:{previous_window}"
+              
+              # Get counts
+              pipe = redis_client.pipeline()
+              pipe.get(current_key)
+              pipe.get(previous_key)
+              current_count, previous_count = pipe.execute()
+              
+              current_count = int(current_count or 0)
+              previous_count = int(previous_count or 0)
+              
+              # Calculate weighted count
+              elapsed_in_current = now % window_seconds
+              weight = elapsed_in_current / window_seconds
+              
+              # Weighted sum: previous * (1 - weight) + current
+              estimated_count = previous_count * (1 - weight) + current_count
+              
+              if estimated_count >= limit:
+                  return False
+              
+              # Increment current window
+              pipe = redis_client.pipeline()
+              pipe.incr(current_key)
+              pipe.expire(current_key, window_seconds * 2)
+              pipe.execute()
+              
+              return True
+        bad_example: |
+          # Storing every request timestamp (memory explosion)
+          # For 1M users * 100 req/min = 100M entries
+        why: "Sliding window counter approximates sliding window with O(1) memory per user. Good balance of accuracy and efficiency."
+
+  headers:
+    best_practices:
+      - name: "Include standard rate limit headers"
+        good_example: |
+          from flask import Response
+          
+          def add_rate_limit_headers(response: Response, limit: int, remaining: int, reset_time: int):
+              response.headers["X-RateLimit-Limit"] = str(limit)
+              response.headers["X-RateLimit-Remaining"] = str(remaining)
+              response.headers["X-RateLimit-Reset"] = str(reset_time)  # Unix timestamp
+              
+              # Optional: Include retry-after when limited
+              if remaining == 0:
+                  response.headers["Retry-After"] = str(reset_time - int(time.time()))
+              
+              return response
+          
+          # Response when rate limited:
+          # HTTP/1.1 429 Too Many Requests
+          # X-RateLimit-Limit: 100
+          # X-RateLimit-Remaining: 0
+          # X-RateLimit-Reset: 1706900000
+          # Retry-After: 45
+        bad_example: |
+          # No headers - client has no idea about limits
+          return {"error": "Rate limited"}, 429
+          
+          # Or: inconsistent header names
+          # X-Rate-Limit vs X-RateLimit vs RateLimit
+        why: "Headers let clients implement backoff, show limits to users, and avoid unnecessary retries. Use consistent naming."
+      
+      - name: "Implement rate limit response body"
+        good_example: |
+          {
+            "error": {
+              "type": "rate_limit_exceeded",
+              "message": "Rate limit exceeded. Please retry after 45 seconds.",
+              "retry_after": 45,
+              "limit": 100,
+              "window": "60 seconds",
+              "documentation_url": "https://api.example.com/docs/rate-limits"
+            }
+          }
+        bad_example: |
+          {"error": "Too many requests"}
+          # No actionable information
+        why: "Detailed error helps developers debug and implement proper retry logic."
+
+  distributed_rate_limiting:
+    best_practices:
+      - name: "Use Redis for distributed rate limiting"
+        good_example: |
+          import redis
+          from functools import wraps
+          from flask import request, jsonify
+          
+          redis_client = redis.Redis(host='localhost', port=6379, decode_responses=True)
+          
+          def rate_limit(limit: int, window: int):
+              def decorator(f):
+                  @wraps(f)
+                  def wrapped(*args, **kwargs):
+                      # Key by user ID or IP
+                      key = f"ratelimit:{request.remote_addr}:{f.__name__}"
+                      
+                      # Atomic increment with expiry
+                      pipe = redis_client.pipeline()
+                      pipe.incr(key)
+                      pipe.expire(key, window)
+                      count, _ = pipe.execute()
+                      
+                      if count > limit:
+                          return jsonify({"error": "Rate limit exceeded"}), 429
+                      
+                      response = f(*args, **kwargs)
+                      # Add headers to response
+                      return response
+                  return wrapped
+              return decorator
+          
+          @app.route("/api/resource")
+          @rate_limit(limit=100, window=60)
+          def get_resource():
+              return {"data": "..."}
+        bad_example: |
+          # In-memory rate limiting in distributed system
+          request_counts = {}  # Only works for single instance!
+          
+          # Load balancer distributes across 4 servers
+          # Each server has its own counter
+          # Effective limit = 4x intended limit
+        why: "Redis provides atomic operations and shared state across instances. Essential for horizontal scaling."
+      
+      - name: "Handle Redis failures gracefully"
+        good_example: |
+          def rate_limit_with_fallback(key: str, limit: int) -> bool:
+              try:
+                  return check_redis_rate_limit(key, limit)
+              except redis.RedisError as e:
+                  # Log the error
+                  logger.warning(f"Redis rate limit failed: {e}")
+                  
+                  # Fallback options:
+                  # 1. Allow request (fail open) - better UX, risk of abuse
+                  return True
+                  
+                  # 2. Deny request (fail closed) - safer, worse UX
+                  # return False
+                  
+                  # 3. Use local in-memory fallback (limited protection)
+                  # return local_rate_limit(key, limit)
+        bad_example: |
+          def rate_limit(key, limit):
+              return redis_client.incr(key) <= limit
+              # Redis down = 500 error on every request
+        why: "Redis failures shouldn't break your entire API. Decide fail-open vs fail-closed based on risk tolerance."
+
+# =============================================================================
+# SECTION 5: CACHING
+# =============================================================================
+caching:
+
+  http_caching:
+    best_practices:
+      - name: "Use Cache-Control headers appropriately"
+        good_example: |
+          from flask import make_response
+          
+          @app.route("/api/products/<int:product_id>")
+          def get_product(product_id):
+              product = get_product_from_db(product_id)
+              response = make_response(jsonify(product))
+              
+              # Public: Can be cached by CDNs, proxies
+              # max-age: Cache for 5 minutes
+              # stale-while-revalidate: Serve stale for 60s while fetching fresh
+              response.headers["Cache-Control"] = "public, max-age=300, stale-while-revalidate=60"
+              
+              return response
+          
+          @app.route("/api/users/me")
+          def get_current_user():
+              response = make_response(jsonify(current_user))
+              
+              # Private: Only browser cache, not CDN
+              # no-store for sensitive data
+              response.headers["Cache-Control"] = "private, no-store"
+              
+              return response
+          
+          @app.route("/api/config")
+          def get_config():
+              response = make_response(jsonify(config))
+              
+              # Immutable: Never changes (versioned resources)
+              response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+              
+              return response
+        bad_example: |
+          # No cache headers (browser uses heuristics)
+          return jsonify(data)
+          
+          # Or: no-cache on everything (defeats caching)
+          response.headers["Cache-Control"] = "no-cache, no-store"
+        why: "Proper caching reduces server load by 60-90%. Different resources need different strategies."
+      
+      - name: "Implement ETag for validation"
+        good_example: |
+          import hashlib
+          from flask import request, make_response
+          
+          @app.route("/api/articles/<int:article_id>")
+          def get_article(article_id):
+              article = get_article_from_db(article_id)
+              
+              # Generate ETag from content
+              content = json.dumps(article, sort_keys=True)
+              etag = hashlib.md5(content.encode()).hexdigest()
+              
+              # Check If-None-Match header
+              if request.headers.get("If-None-Match") == etag:
+                  return "", 304  # Not Modified
+              
+              response = make_response(content)
+              response.headers["ETag"] = etag
+              response.headers["Cache-Control"] = "private, max-age=0, must-revalidate"
+              
+              return response
+        bad_example: |
+          # ETag changes on every request
+          etag = str(uuid.uuid4())  # Wrong! Random ETag defeats purpose
+          
+          # Or: ETag includes timestamp that always changes
+          etag = f"{article.id}-{datetime.now()}"
+        why: "ETags enable conditional requests. Client sends If-None-Match, server returns 304 if unchanged. Saves bandwidth."
+      
+      - name: "Use Last-Modified for time-based validation"
+        good_example: |
+          from datetime import datetime
+          from email.utils import format_datetime, parsedate_to_datetime
+          
+          @app.route("/api/posts/<int:post_id>")
+          def get_post(post_id):
+              post = get_post_from_db(post_id)
+              last_modified = post.updated_at
+              
+              # Check If-Modified-Since
+              ims = request.headers.get("If-Modified-Since")
+              if ims:
+                  ims_date = parsedate_to_datetime(ims)
+                  if last_modified <= ims_date:
+                      return "", 304
+              
+              response = make_response(jsonify(post))
+              response.headers["Last-Modified"] = format_datetime(last_modified)
+              
+              return response
+        bad_example: |
+          # Using current time as Last-Modified
+          response.headers["Last-Modified"] = format_datetime(datetime.now())
+        why: "Last-Modified is simpler than ETag for time-based resources. Use when you have reliable update timestamps."
+
+  application_caching:
+    best_practices:
+      - name: "Cache expensive computations"
+        good_example: |
+          import redis
+          import json
+          from functools import wraps
+          
+          redis_client = redis.Redis()
+          
+          def cache(ttl_seconds: int = 300):
+              def decorator(f):
+                  @wraps(f)
+                  def wrapped(*args, **kwargs):
+                      # Create cache key from function name and arguments
+                      key = f"cache:{f.__name__}:{hash(str(args) + str(kwargs))}"
+                      
+                      # Try cache first
+                      cached = redis_client.get(key)
+                      if cached:
+                          return json.loads(cached)
+                      
+                      # Compute and cache
+                      result = f(*args, **kwargs)
+                      redis_client.setex(key, ttl_seconds, json.dumps(result))
+                      
+                      return result
+                  return wrapped
+              return decorator
+          
+          @cache(ttl_seconds=3600)
+          def get_user_analytics(user_id: int) -> dict:
+              # Expensive aggregation query
+              return compute_analytics(user_id)
+        bad_example: |
+          # Caching without TTL (stale forever)
+          redis_client.set(key, value)  # Never expires!
+          
+          # Caching mutable objects
+          cached_user = cache.get(key)
+          cached_user["name"] = "Modified"  # Corrupts cache!
+        why: "Application-level caching reduces database load for expensive queries. Always set TTL to prevent stale data."
+      
+      - name: "Cache-aside pattern"
+        good_example: |
+          class UserRepository:
+              def __init__(self, db, cache):
+                  self.db = db
+                  self.cache = cache
+                  self.CACHE_TTL = 3600
+              
+              def get_user(self, user_id: int) -> User:
+                  # 1. Check cache
+                  cache_key = f"user:{user_id}"
+                  cached = self.cache.get(cache_key)
+                  if cached:
+                      return User.from_json(cached)
+                  
+                  # 2. Load from database
+                  user = self.db.query(User).get(user_id)
+                  if not user:
+                      return None
+                  
+                  # 3. Populate cache
+                  self.cache.setex(cache_key, self.CACHE_TTL, user.to_json())
+                  
+                  return user
+              
+              def update_user(self, user_id: int, data: dict) -> User:
+                  # Update database
+                  user = self.db.query(User).get(user_id)
+                  for key, value in data.items():
+                      setattr(user, key, value)
+                  self.db.commit()
+                  
+                  # Invalidate cache
+                  self.cache.delete(f"user:{user_id}")
+                  
+                  return user
+        bad_example: |
+          # Write-through without considering failures
+          def update_user(user_id, data):
+              update_database(user_id, data)
+              update_cache(user_id, data)  # If this fails, cache is stale
+          
+          # Or: Not invalidating on update
+          def update_user(user_id, data):
+              update_database(user_id, data)
+              # Forgot to invalidate cache!
+        why: "Cache-aside is simple and resilient. Application controls cache population. Invalidate on writes to prevent staleness."
+
+  cache_invalidation:
+    best_practices:
+      - name: "Time-based expiration (TTL)"
+        good_example: |
+          # Short TTL for frequently changing data
+          redis_client.setex("stock_price:AAPL", 60, "150.00")  # 1 minute
+          
+          # Longer TTL for stable data
+          redis_client.setex("user:profile:123", 3600, profile_json)  # 1 hour
+          
+          # Very long TTL for immutable data (with version in key)
+          redis_client.setex("config:v1.2.3", 86400 * 30, config_json)  # 30 days
+        bad_example: |
+          # Same TTL for everything
+          redis_client.setex(key, 3600, value)  # Stock prices stale for 1 hour!
+          
+          # No TTL (manual invalidation only - dangerous)
+          redis_client.set(key, value)
+        why: "TTL provides automatic invalidation. Match TTL to data freshness requirements."
+      
+      - name: "Event-based invalidation"
+        good_example: |
+          from typing import List
+          
+          class CacheInvalidator:
+              def __init__(self, cache):
+                  self.cache = cache
+              
+              def invalidate_user(self, user_id: int):
+                  """Invalidate all caches related to a user"""
+                  keys_to_delete = [
+                      f"user:{user_id}",
+                      f"user:profile:{user_id}",
+                      f"user:orders:{user_id}",
+                  ]
+                  self.cache.delete(*keys_to_delete)
+              
+              def invalidate_pattern(self, pattern: str):
+                  """Invalidate by pattern (use sparingly)"""
+                  keys = self.cache.keys(pattern)
+                  if keys:
+                      self.cache.delete(*keys)
+          
+          # On user update event
+          @event_handler("user.updated")
+          def handle_user_updated(event):
+              invalidator.invalidate_user(event.user_id)
+        bad_example: |
+          # Forgetting to invalidate related caches
+          def update_user(user_id, data):
+              db.update(user_id, data)
+              cache.delete(f"user:{user_id}")
+              # Forgot user:profile:{user_id}, user:orders:{user_id}, etc.
+        why: "Event-based invalidation ensures consistency. Group related cache keys for coordinated invalidation."
+      
+      - name: "Cache versioning for safe deployments"
+        good_example: |
+          import os
+          
+          # Version from deployment/git hash
+          CACHE_VERSION = os.environ.get("DEPLOY_VERSION", "v1")
+          
+          def cache_key(key: str) -> str:
+              return f"{CACHE_VERSION}:{key}"
+          
+          # On deploy, old cache keys orphaned, new keys populated fresh
+          # Old: v1:user:123
+          # New: v2:user:123
+          
+          # Set TTL on old keys so they eventually expire
+        bad_example: |
+          # Schema change breaks deserialization
+          # Old cache: {"name": "John"}
+          # New code expects: {"first_name": "John", "last_name": "Doe"}
+          # Result: KeyError or corrupt data
+        why: "Cache versioning prevents deserialization errors after schema changes. Safe deployments without manual cache flush."
+
+# =============================================================================
+# SECTION 6: ERROR HANDLING
+# =============================================================================
+error_handling:
+
+  rfc7807_problem_details:
+    best_practices:
+      - name: "Implement RFC 7807 Problem Details"
+        good_example: |
+          from flask import jsonify, make_response
+          from dataclasses import dataclass, asdict
+          from typing import Optional, Dict, Any
+          
+          @dataclass
+          class ProblemDetail:
+              type: str                        # URI reference identifying problem type
+              title: str                       # Short human-readable summary
+              status: int                      # HTTP status code
+              detail: Optional[str] = None     # Human-readable explanation
+              instance: Optional[str] = None   # URI reference to specific occurrence
+              extensions: Optional[Dict[str, Any]] = None  # Additional members
+              
+              def to_response(self):
+                  data = {k: v for k, v in asdict(self).items() 
+                          if v is not None and k != 'extensions'}
+                  if self.extensions:
+                      data.update(self.extensions)
+                  
+                  response = make_response(jsonify(data), self.status)
+                  response.headers["Content-Type"] = "application/problem+json"
+                  return response
+          
+          # Usage examples:
+          
+          # Validation error
+          ProblemDetail(
+              type="https://api.example.com/problems/validation-error",
+              title="Validation Error",
+              status=422,
+              detail="The request body contains invalid data.",
+              instance=f"/api/users/{request_id}",
+              extensions={
+                  "invalid_fields": [
+                      {"field": "email", "reason": "Invalid email format"},
+                      {"field": "age", "reason": "Must be positive integer"}
+                  ]
+              }
+          ).to_response()
+          
+          # Not found
+          ProblemDetail(
+              type="https://api.example.com/problems/resource-not-found",
+              title="Resource Not Found",
+              status=404,
+              detail=f"User with ID {user_id} was not found.",
+              instance=f"/api/users/{user_id}"
+          ).to_response()
+          
+          # Rate limit
+          ProblemDetail(
+              type="https://api.example.com/problems/rate-limit-exceeded",
+              title="Rate Limit Exceeded",
+              status=429,
+              detail="You have exceeded the rate limit. Please retry later.",
+              extensions={
+                  "retry_after": 60,
+                  "limit": 100,
+                  "window": "60 seconds"
+              }
+          ).to_response()
+        bad_example: |
+          # Inconsistent error formats
+          return {"error": "Not found"}, 404
+          return {"message": "Validation failed", "errors": [...]}, 400
+          return {"status": "error", "reason": "..."}, 500
+          
+          # No content type
+          # No type URI for documentation
+          # No instance for debugging
+        why: "RFC 7807 provides standardized error format. Clients parse errors consistently. Type URIs link to documentation."
+      
+      - name: "Document error types"
+        good_example: |
+          # At https://api.example.com/problems/validation-error:
+          """
+          # Validation Error
+          
+          The request body or parameters contain invalid data.
+          
+          ## Possible Causes
+          - Required field missing
+          - Field value out of range
+          - Invalid format (email, date, etc.)
+          
+          ## Resolution
+          Check the `invalid_fields` array for specific field errors.
+          Correct the values and retry the request.
+          
+          ## Example Response
+          ```json
+          {
+            "type": "https://api.example.com/problems/validation-error",
+            "title": "Validation Error",
+            "status": 422,
+            "detail": "The request body contains invalid data.",
+            "invalid_fields": [
+              {"field": "email", "reason": "Invalid email format"}
+            ]
+          }
+          ```
+          """
+        bad_example: |
+          # type: "validation_error"  # Not a URI, can't look up docs
+          # type: "about:blank"       # Default, provides no value
+        why: "Type URIs become self-documenting. Developers can follow the link to understand and resolve errors."
+
+  error_response_structure:
+    best_practices:
+      - name: "Include actionable error information"
+        good_example: |
+          {
+            "type": "https://api.example.com/problems/insufficient-funds",
+            "title": "Insufficient Funds",
+            "status": 400,
+            "detail": "Account balance ($50.00) is less than transfer amount ($100.00).",
+            "instance": "/api/transfers/txn_abc123",
+            "balance": 50.00,
+            "required": 100.00,
+            "account_id": "acc_xyz789",
+            "documentation_url": "https://docs.example.com/transfers#insufficient-funds",
+            "support_url": "https://support.example.com/tickets/new"
+          }
+        bad_example: |
+          {"error": "Bad request"}  # What's bad about it?
+          {"error": "Transfer failed"}  # Why?
+          {"code": 1234}  # Meaningless without lookup
+        why: "Detailed errors reduce support tickets, speed up debugging, and improve developer experience."
+      
+      - name: "Consistent error structure across API"
+        good_example: |
+          from flask import Flask, jsonify
+          from werkzeug.exceptions import HTTPException
+          
+          app = Flask(__name__)
+          
+          @app.errorhandler(HTTPException)
+          def handle_http_exception(e):
+              return ProblemDetail(
+                  type=f"https://api.example.com/problems/{e.name.lower().replace(' ', '-')}",
+                  title=e.name,
+                  status=e.code,
+                  detail=e.description
+              ).to_response()
+          
+          @app.errorhandler(Exception)
+          def handle_exception(e):
+              # Log the actual error
+              app.logger.exception("Unhandled exception")
+              
+              # Return generic error to client (don't leak internals)
+              return ProblemDetail(
+                  type="https://api.example.com/problems/internal-error",
+                  title="Internal Server Error",
+                  status=500,
+                  detail="An unexpected error occurred. Please try again later.",
+                  instance=f"/errors/{generate_error_id()}"
+              ).to_response()
+        bad_example: |
+          # Different formats from different endpoints
+          # Some return {"error": ...}
+          # Some return {"message": ...}
+          # Some return plain text
+          # Some leak stack traces
+        why: "Consistency enables generic client error handling. Global handlers ensure no error escapes unformatted."
+
+  logging_best_practices:
+    best_practices:
+      - name: "Structured logging with context"
+        good_example: |
+          import logging
+          import json
+          import uuid
+          from flask import g, request
+          
+          class JSONFormatter(logging.Formatter):
+              def format(self, record):
+                  log_data = {
+                      "timestamp": self.formatTime(record),
+                      "level": record.levelname,
+                      "message": record.getMessage(),
+                      "logger": record.name,
+                      "request_id": getattr(g, 'request_id', None),
+                      "user_id": getattr(g, 'user_id', None),
+                      "path": getattr(g, 'path', None),
+                      "method": getattr(g, 'method', None),
+                  }
+                  
+                  if record.exc_info:
+                      log_data["exception"] = self.formatException(record.exc_info)
+                  
+                  # Add extra fields
+                  for key, value in record.__dict__.items():
+                      if key not in ['msg', 'args', 'exc_info', 'exc_text', 
+                                      'stack_info', 'lineno', 'funcName', 
+                                      'created', 'msecs', 'relativeCreated',
+                                      'levelno', 'pathname', 'filename', 
+                                      'module', 'name', 'levelname', 'message']:
+                          log_data[key] = value
+                  
+                  return json.dumps(log_data)
+          
+          # Usage
+          logger.info("User created", extra={
+              "user_id": user.id,
+              "email": user.email,
+              "action": "user.created"
+          })
+          
+          # Output:
+          # {"timestamp": "2026-02-02 10:30:00", "level": "INFO", 
+          #  "message": "User created", "request_id": "req_abc123",
+          #  "user_id": 456, "email": "user@example.com", "action": "user.created"}
+        bad_example: |
+          # Unstructured logging
+          logging.info(f"User {user.id} created with email {user.email}")
+          
+          # Hard to parse, search, or aggregate
+          # No correlation between related logs
+        why: "Structured logs enable searching, filtering, and aggregation. Request IDs correlate logs across services."
+      
+      - name: "Log levels appropriately"
+        good_example: |
+          # DEBUG: Detailed diagnostic info (disabled in production)
+          logger.debug(f"Cache lookup for key {key}", extra={"key": key})
+          
+          # INFO: Normal operations worth recording
+          logger.info("Order processed", extra={
+              "order_id": order.id,
+              "total": order.total,
+              "action": "order.processed"
+          })
+          
+          # WARNING: Unexpected but handled situations
+          logger.warning("Rate limit approaching", extra={
+              "user_id": user.id,
+              "current_count": 90,
+              "limit": 100
+          })
+          
+          # ERROR: Failures that need attention
+          logger.error("Payment processing failed", extra={
+              "order_id": order.id,
+              "error_code": "card_declined",
+              "action": "payment.failed"
+          }, exc_info=True)
+          
+          # CRITICAL: System-level failures
+          logger.critical("Database connection pool exhausted", extra={
+              "pool_size": 10,
+              "active_connections": 10
+          })
+        bad_example: |
+          # Everything at INFO
+          logger.info("Starting process")
+          logger.info("Error occurred: connection failed")  # Should be ERROR
+          logger.info("Debug: variable x = 5")  # Should be DEBUG
+          
+          # Logging sensitive data
+          logger.info(f"Login attempt: {email}, password: {password}")  # NEVER!
+        why: "Proper log levels enable filtering. DEBUG in dev, INFO+ in production. Alerting on ERROR/CRITICAL."
+      
+      - name: "Correlation IDs across services"
+        good_example: |
+          from flask import Flask, g, request
+          import uuid
+          
+          app = Flask(__name__)
+          
+          @app.before_request
+          def setup_request_context():
+              # Use incoming correlation ID or generate new one
+              g.correlation_id = request.headers.get("X-Correlation-ID", str(uuid.uuid4()))
+              g.request_id = str(uuid.uuid4())
+          
+          @app.after_request
+          def add_correlation_header(response):
+              response.headers["X-Correlation-ID"] = g.correlation_id
+              response.headers["X-Request-ID"] = g.request_id
+              return response
+          
+          # When calling other services
+          def call_payment_service(order):
+              response = requests.post(
+                  "https://payments.internal/charge",
+                  json={"order_id": order.id},
+                  headers={
+                      "X-Correlation-ID": g.correlation_id,  # Propagate!
+                      "X-Request-ID": str(uuid.uuid4())      # New request ID
+                  }
+              )
+              return response
+        bad_example: |
+          # No correlation ID
+          # User reports error, you have no way to trace request through services
+          # Logs scattered across services with no connection
+        why: "Correlation IDs link requests across microservices. Essential for debugging distributed systems."
+
+# =============================================================================
+# CODE EXAMPLES: FLASK IMPLEMENTATION
+# =============================================================================
+code_examples:
+  
+  complete_flask_api:
+    description: "Production-ready Flask API with all best practices"
+    code: |
+      """
+      Production-Ready Flask API
+      Demonstrates: REST, Auth, Rate Limiting, Caching, Error Handling
+      """
+      
+      from flask import Flask, request, jsonify, g, make_response
+      from flask_sqlalchemy import SQLAlchemy
+      from flask_limiter import Limiter
+      from flask_limiter.util import get_remote_address
+      from functools import wraps
+      from dataclasses import dataclass, asdict
+      from typing import Optional, Dict, Any, List
+      from datetime import datetime, timedelta
+      import jwt
+      import hashlib
+      import redis
+      import logging
+      import json
+      import uuid
+      import os
+      
+      # ===================
+      # Configuration
+      # ===================
+      
+      app = Flask(__name__)
+      app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'postgresql://localhost/myapi')
+      app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+          'pool_size': 10,
+          'max_overflow': 20,
+          'pool_timeout': 30,
+          'pool_recycle': 1800,
+          'pool_pre_ping': True
+      }
+      app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY')
+      app.config['JWT_EXPIRY_MINUTES'] = 15
+      
+      db = SQLAlchemy(app)
+      redis_client = redis.Redis(host='localhost', port=6379, decode_responses=True)
+      
+      # Rate limiter with Redis backend
+      limiter = Limiter(
+          key_func=get_remote_address,
+          app=app,
+          storage_uri="redis://localhost:6379",
+          default_limits=["100 per minute"]
+      )
+      
+      # Structured logging
+      class JSONFormatter(logging.Formatter):
+          def format(self, record):
+              log_data = {
+                  "timestamp": self.formatTime(record),
+                  "level": record.levelname,
+                  "message": record.getMessage(),
+                  "request_id": getattr(g, 'request_id', None),
+                  "correlation_id": getattr(g, 'correlation_id', None),
+              }
+              if record.exc_info:
+                  log_data["exception"] = self.formatException(record.exc_info)
+              return json.dumps(log_data)
+      
+      handler = logging.StreamHandler()
+      handler.setFormatter(JSONFormatter())
+      app.logger.addHandler(handler)
+      app.logger.setLevel(logging.INFO)
+      
+      # ===================
+      # Models
+      # ===================
+      
+      class User(db.Model):
+          __tablename__ = 'users'
+          
+          id = db.Column(db.Integer, primary_key=True)
+          email = db.Column(db.String(255), unique=True, nullable=False)
+          password_hash = db.Column(db.String(255), nullable=False)
+          name = db.Column(db.String(255))
+          role = db.Column(db.String(50), default='user')
+          created_at = db.Column(db.DateTime, default=datetime.utcnow)
+          updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+          
+          orders = db.relationship('Order', backref='user', lazy='dynamic')
+          
+          def to_dict(self):
+              return {
+                  "id": self.id,
+                  "email": self.email,
+                  "name": self.name,
+                  "role": self.role,
+                  "created_at": self.created_at.isoformat(),
+                  "_links": {
+                      "self": {"href": f"/api/v1/users/{self.id}"},
+                      "orders": {"href": f"/api/v1/users/{self.id}/orders"}
+                  }
+              }
+      
+      class Order(db.Model):
+          __tablename__ = 'orders'
+          
+          id = db.Column(db.Integer, primary_key=True)
+          user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+          total = db.Column(db.Numeric(10, 2), nullable=False)
+          status = db.Column(db.String(50), default='pending')
+          created_at = db.Column(db.DateTime, default=datetime.utcnow)
+      
+      # ===================
+      # Error Handling (RFC 7807)
+      # ===================
+      
+      @dataclass
+      class ProblemDetail:
+          type: str
+          title: str
+          status: int
+          detail: Optional[str] = None
+          instance: Optional[str] = None
+          extensions: Optional[Dict[str, Any]] = None
+          
+          def to_response(self):
+              data = {k: v for k, v in asdict(self).items() 
+                      if v is not None and k != 'extensions'}
+              if self.extensions:
+                  data.update(self.extensions)
+              
+              response = make_response(jsonify(data), self.status)
+              response.headers["Content-Type"] = "application/problem+json"
+              return response
+      
+      @app.errorhandler(400)
+      def bad_request(e):
+          return ProblemDetail(
+              type="https://api.example.com/problems/bad-request",
+              title="Bad Request",
+              status=400,
+              detail=str(e.description) if hasattr(e, 'description') else "Invalid request"
+          ).to_response()
+      
+      @app.errorhandler(401)
+      def unauthorized(e):
+          return ProblemDetail(
+              type="https://api.example.com/problems/unauthorized",
+              title="Unauthorized",
+              status=401,
+              detail="Authentication required"
+          ).to_response()
+      
+      @app.errorhandler(403)
+      def forbidden(e):
+          return ProblemDetail(
+              type="https://api.example.com/problems/forbidden",
+              title="Forbidden",
+              status=403,
+              detail="You don't have permission to access this resource"
+          ).to_response()
+      
+      @app.errorhandler(404)
+      def not_found(e):
+          return ProblemDetail(
+              type="https://api.example.com/problems/not-found",
+              title="Not Found",
+              status=404,
+              detail="The requested resource was not found"
+          ).to_response()
+      
+      @app.errorhandler(429)
+      def rate_limited(e):
+          return ProblemDetail(
+              type="https://api.example.com/problems/rate-limit-exceeded",
+              title="Rate Limit Exceeded",
+              status=429,
+              detail="Too many requests. Please slow down.",
+              extensions={"retry_after": 60}
+          ).to_response()
+      
+      @app.errorhandler(500)
+      def internal_error(e):
+          app.logger.exception("Internal server error")
+          return ProblemDetail(
+              type="https://api.example.com/problems/internal-error",
+              title="Internal Server Error",
+              status=500,
+              detail="An unexpected error occurred",
+              instance=f"/errors/{g.request_id}"
+          ).to_response()
+      
+      # ===================
+      # Middleware
+      # ===================
+      
+      @app.before_request
+      def setup_request_context():
+          g.request_id = str(uuid.uuid4())
+          g.correlation_id = request.headers.get("X-Correlation-ID", g.request_id)
+      
+      @app.after_request
+      def add_response_headers(response):
+          response.headers["X-Request-ID"] = g.request_id
+          response.headers["X-Correlation-ID"] = g.correlation_id
+          return response
+      
+      # ===================
+      # Authentication
+      # ===================
+      
+      def create_access_token(user: User) -> str:
+          payload = {
+              "sub": str(user.id),
+              "email": user.email,
+              "role": user.role,
+              "type": "access",
+              "iat": datetime.utcnow(),
+              "exp": datetime.utcnow() + timedelta(minutes=app.config['JWT_EXPIRY_MINUTES'])
+          }
+          return jwt.encode(payload, app.config['SECRET_KEY'], algorithm="HS256")
+      
+      def create_refresh_token(user: User) -> str:
+          payload = {
+              "sub": str(user.id),
+              "type": "refresh",
+              "jti": str(uuid.uuid4()),
+              "iat": datetime.utcnow(),
+              "exp": datetime.utcnow() + timedelta(days=7)
+          }
+          return jwt.encode(payload, app.config['SECRET_KEY'], algorithm="HS256")
+      
+      def require_auth(f):
+          @wraps(f)
+          def decorated(*args, **kwargs):
+              auth_header = request.headers.get("Authorization")
+              if not auth_header or not auth_header.startswith("Bearer "):
+                  return ProblemDetail(
+                      type="https://api.example.com/problems/unauthorized",
+                      title="Unauthorized",
+                      status=401,
+                      detail="Bearer token required"
+                  ).to_response()
+              
+              token = auth_header.split(" ")[1]
+              try:
+                  payload = jwt.decode(
+                      token, 
+                      app.config['SECRET_KEY'], 
+                      algorithms=["HS256"]
+                  )
+                  if payload.get("type") != "access":
+                      raise jwt.InvalidTokenError("Invalid token type")
+                  
+                  g.current_user = User.query.get(int(payload["sub"]))
+                  if not g.current_user:
+                      raise jwt.InvalidTokenError("User not found")
+                      
+              except jwt.ExpiredSignatureError:
+                  return ProblemDetail(
+                      type="https://api.example.com/problems/token-expired",
+                      title="Token Expired",
+                      status=401,
+                      detail="Access token has expired",
+                      extensions={"action": "refresh_token"}
+                  ).to_response()
+              except jwt.InvalidTokenError as e:
+                  return ProblemDetail(
+                      type="https://api.example.com/problems/invalid-token",
+                      title="Invalid Token",
+                      status=401,
+                      detail=str(e)
+                  ).to_response()
+              
+              return f(*args, **kwargs)
+          return decorated
+      
+      def require_role(*roles):
+          def decorator(f):
+              @wraps(f)
+              @require_auth
+              def decorated(*args, **kwargs):
+                  if g.current_user.role not in roles:
+                      return ProblemDetail(
+                          type="https://api.example.com/problems/forbidden",
+                          title="Forbidden",
+                          status=403,
+                          detail=f"Required role: {', '.join(roles)}"
+                      ).to_response()
+                  return f(*args, **kwargs)
+              return decorated
+          return decorator
+      
+      # ===================
+      # Caching
+      # ===================
+      
+      def cache(ttl_seconds: int = 300, key_prefix: str = ""):
+          def decorator(f):
+              @wraps(f)
+              def decorated(*args, **kwargs):
+                  cache_key = f"{key_prefix}:{f.__name__}:{hash(str(args) + str(sorted(kwargs.items())))}"
+                  
+                  cached = redis_client.get(cache_key)
+                  if cached:
+                      return json.loads(cached)
+                  
+                  result = f(*args, **kwargs)
+                  redis_client.setex(cache_key, ttl_seconds, json.dumps(result))
+                  
+                  return result
+              return decorated
+          return decorator
+      
+      # ===================
+      # API Endpoints
+      # ===================
+      
+      # Health check
+      @app.route("/health")
+      def health():
+          return {"status": "healthy", "timestamp": datetime.utcnow().isoformat()}
+      
+      # Auth endpoints
+      @app.route("/api/v1/auth/login", methods=["POST"])
+      @limiter.limit("5 per minute")
+      def login():
+          data = request.get_json()
+          
+          if not data or not data.get("email") or not data.get("password"):
+              return ProblemDetail(
+                  type="https://api.example.com/problems/validation-error",
+                  title="Validation Error",
+                  status=422,
+                  detail="Email and password required",
+                  extensions={"invalid_fields": ["email", "password"]}
+              ).to_response()
+          
+          user = User.query.filter_by(email=data["email"]).first()
+          
+          # Constant-time comparison to prevent timing attacks
+          if not user or not check_password(data["password"], user.password_hash):
+              return ProblemDetail(
+                  type="https://api.example.com/problems/invalid-credentials",
+                  title="Invalid Credentials",
+                  status=401,
+                  detail="Invalid email or password"
+              ).to_response()
+          
+          access_token = create_access_token(user)
+          refresh_token = create_refresh_token(user)
+          
+          response = make_response(jsonify({
+              "access_token": access_token,
+              "token_type": "Bearer",
+              "expires_in": app.config['JWT_EXPIRY_MINUTES'] * 60
+          }))
+          
+          # Set refresh token as httpOnly cookie
+          response.set_cookie(
+              "refresh_token",
+              refresh_token,
+              httponly=True,
+              secure=True,
+              samesite="Strict",
+              max_age=7 * 24 * 60 * 60
+          )
+          
+          app.logger.info("User logged in", extra={"user_id": user.id, "action": "auth.login"})
+          
+          return response
+      
+      @app.route("/api/v1/auth/refresh", methods=["POST"])
+      @limiter.limit("10 per minute")
+      def refresh():
+          refresh_token = request.cookies.get("refresh_token")
+          
+          if not refresh_token:
+              return ProblemDetail(
+                  type="https://api.example.com/problems/unauthorized",
+                  title="Unauthorized",
+                  status=401,
+                  detail="Refresh token required"
+              ).to_response()
+          
+          try:
+              payload = jwt.decode(refresh_token, app.config['SECRET_KEY'], algorithms=["HS256"])
+              
+              if payload.get("type") != "refresh":
+                  raise jwt.InvalidTokenError("Invalid token type")
+              
+              user = User.query.get(int(payload["sub"]))
+              if not user:
+                  raise jwt.InvalidTokenError("User not found")
+              
+              access_token = create_access_token(user)
+              
+              return jsonify({
+                  "access_token": access_token,
+                  "token_type": "Bearer",
+                  "expires_in": app.config['JWT_EXPIRY_MINUTES'] * 60
+              })
+              
+          except jwt.ExpiredSignatureError:
+              return ProblemDetail(
+                  type="https://api.example.com/problems/token-expired",
+                  title="Refresh Token Expired",
+                  status=401,
+                  detail="Please log in again",
+                  extensions={"action": "re_authenticate"}
+              ).to_response()
+          except jwt.InvalidTokenError as e:
+              return ProblemDetail(
+                  type="https://api.example.com/problems/invalid-token",
+                  title="Invalid Token",
+                  status=401,
+                  detail=str(e)
+              ).to_response()
+      
+      # User endpoints
+      @app.route("/api/v1/users", methods=["GET"])
+      @require_role("admin")
+      @limiter.limit("100 per minute")
+      def list_users():
+          # Cursor-based pagination
+          cursor = request.args.get("cursor")
+          limit = min(int(request.args.get("limit", 20)), 100)
+          
+          query = User.query.order_by(User.id)
+          
+          if cursor:
+              try:
+                  cursor_id = int(cursor)
+                  query = query.filter(User.id > cursor_id)
+              except ValueError:
+                  return ProblemDetail(
+                      type="https://api.example.com/problems/invalid-cursor",
+                      title="Invalid Cursor",
+                      status=400,
+                      detail="Cursor must be a valid identifier"
+                  ).to_response()
+          
+          users = query.limit(limit + 1).all()
+          has_more = len(users) > limit
+          users = users[:limit]
+          
+          next_cursor = str(users[-1].id) if users and has_more else None
+          
+          response_data = {
+              "data": [u.to_dict() for u in users],
+              "pagination": {
+                  "has_more": has_more,
+                  "next_cursor": next_cursor
+              },
+              "_links": {
+                  "self": {"href": f"/api/v1/users?limit={limit}" + (f"&cursor={cursor}" if cursor else "")}
+              }
+          }
+          
+          if next_cursor:
+              response_data["_links"]["next"] = {"href": f"/api/v1/users?limit={limit}&cursor={next_cursor}"}
+          
+          return jsonify(response_data)
+      
+      @app.route("/api/v1/users/<int:user_id>", methods=["GET"])
+      @require_auth
+      def get_user(user_id):
+          # Check if user can access this resource
+          if g.current_user.id != user_id and g.current_user.role != "admin":
+              return ProblemDetail(
+                  type="https://api.example.com/problems/forbidden",
+                  title="Forbidden",
+                  status=403,
+                  detail="You can only access your own profile"
+              ).to_response()
+          
+          # Try cache first
+          cache_key = f"user:{user_id}"
+          cached = redis_client.get(cache_key)
+          
+          if cached:
+              user_data = json.loads(cached)
+          else:
+              user = User.query.get(user_id)
+              if not user:
+                  return ProblemDetail(
+                      type="https://api.example.com/problems/not-found",
+                      title="User Not Found",
+                      status=404,
+                      detail=f"User with ID {user_id} was not found"
+                  ).to_response()
+              
+              user_data = user.to_dict()
+              redis_client.setex(cache_key, 3600, json.dumps(user_data))
+          
+          response = make_response(jsonify(user_data))
+          response.headers["Cache-Control"] = "private, max-age=60"
+          
+          return response
+      
+      @app.route("/api/v1/users", methods=["POST"])
+      @limiter.limit("10 per hour")
+      def create_user():
+          data = request.get_json()
+          
+          # Validation
+          errors = []
+          if not data.get("email"):
+              errors.append({"field": "email", "reason": "Email is required"})
+          if not data.get("password"):
+              errors.append({"field": "password", "reason": "Password is required"})
+          if data.get("password") and len(data["password"]) < 8:
+              errors.append({"field": "password", "reason": "Password must be at least 8 characters"})
+          
+          if errors:
+              return ProblemDetail(
+                  type="https://api.example.com/problems/validation-error",
+                  title="Validation Error",
+                  status=422,
+                  detail="The request contains invalid data",
+                  extensions={"invalid_fields": errors}
+              ).to_response()
+          
+          # Check for existing user
+          if User.query.filter_by(email=data["email"]).first():
+              return ProblemDetail(
+                  type="https://api.example.com/problems/conflict",
+                  title="Conflict",
+                  status=409,
+                  detail="A user with this email already exists"
+              ).to_response()
+          
+          # Create user
+          user = User(
+              email=data["email"],
+              password_hash=hash_password(data["password"]),
+              name=data.get("name")
+          )
+          db.session.add(user)
+          db.session.commit()
+          
+          app.logger.info("User created", extra={"user_id": user.id, "action": "user.created"})
+          
+          response = make_response(jsonify(user.to_dict()), 201)
+          response.headers["Location"] = f"/api/v1/users/{user.id}"
+          
+          return response
+      
+      @app.route("/api/v1/users/<int:user_id>", methods=["PATCH"])
+      @require_auth
+      def update_user(user_id):
+          if g.current_user.id != user_id and g.current_user.role != "admin":
+              return ProblemDetail(
+                  type="https://api.example.com/problems/forbidden",
+                  title="Forbidden",
+                  status=403,
+                  detail="You can only update your own profile"
+              ).to_response()
+          
+          user = User.query.get(user_id)
+          if not user:
+              return ProblemDetail(
+                  type="https://api.example.com/problems/not-found",
+                  title="User Not Found",
+                  status=404,
+                  detail=f"User with ID {user_id} was not found"
+              ).to_response()
+          
+          data = request.get_json()
+          
+          # Partial update - only update provided fields
+          if "name" in data:
+              user.name = data["name"]
+          if "email" in data:
+              if User.query.filter(User.email == data["email"], User.id != user_id).first():
+                  return ProblemDetail(
+                      type="https://api.example.com/problems/conflict",
+                      title="Conflict",
+                      status=409,
+                      detail="Email already in use"
+                  ).to_response()
+              user.email = data["email"]
+          
+          db.session.commit()
+          
+          # Invalidate cache
+          redis_client.delete(f"user:{user_id}")
+          
+          app.logger.info("User updated", extra={"user_id": user.id, "action": "user.updated"})
+          
+          return jsonify(user.to_dict())
+      
+      @app.route("/api/v1/users/<int:user_id>", methods=["DELETE"])
+      @require_role("admin")
+      def delete_user(user_id):
+          user = User.query.get(user_id)
+          if not user:
+              return ProblemDetail(
+                  type="https://api.example.com/problems/not-found",
+                  title="User Not Found",
+                  status=404,
+                  detail=f"User with ID {user_id} was not found"
+              ).to_response()
+          
+          db.session.delete(user)
+          db.session.commit()
+          
+          # Invalidate cache
+          redis_client.delete(f"user:{user_id}")
+          
+          app.logger.info("User deleted", extra={"user_id": user_id, "action": "user.deleted"})
+          
+          return "", 204
+      
+      # Helper functions
+      def hash_password(password: str) -> str:
+          import bcrypt
+          return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+      
+      def check_password(password: str, password_hash: str) -> bool:
+          import bcrypt
+          return bcrypt.checkpw(password.encode(), password_hash.encode())
+      
+      if __name__ == "__main__":
+          app.run(debug=False, host="0.0.0.0", port=5000)
+
+# =============================================================================
+# CHECKLISTS
+# =============================================================================
+checklists:
+
+  api_design_review:
+    name: "API Design Review Checklist"
+    items:
+      - "[ ] URLs use nouns, not verbs"
+      - "[ ] URLs use plural nouns for collections"
+      - "[ ] HTTP methods match operations (GET=read, POST=create, PUT/PATCH=update, DELETE=remove)"
+      - "[ ] Appropriate status codes (not 200 for errors)"
+      - "[ ] 201 Created includes Location header"
+      - "[ ] Pagination implemented for list endpoints"
+      - "[ ] Consistent response structure across endpoints"
+      - "[ ] HATEOAS links included where appropriate"
+      - "[ ] API version in URL or header"
+      - "[ ] Content-Type headers set correctly"
+
+  authentication_review:
+    name: "Authentication Security Checklist"
+    items:
+      - "[ ] Passwords hashed with bcrypt/argon2 (NOT MD5/SHA1)"
+      - "[ ] JWT expiry is short (15-60 minutes)"
+      - "[ ] Refresh tokens stored in httpOnly cookies"
+      - "[ ] JWT algorithm explicitly specified (not 'none')"
+      - "[ ] Token validation checks: exp, iat, iss, aud"
+      - "[ ] Sensitive data NOT stored in JWT payload"
+      - "[ ] Rate limiting on auth endpoints"
+      - "[ ] HTTPS enforced for all auth endpoints"
+      - "[ ] CORS configured correctly"
+      - "[ ] CSRF protection for cookie-based auth"
+
+  database_review:
+    name: "Database Integration Checklist"
+    items:
+      - "[ ] Connection pooling configured"
+      - "[ ] Pool size appropriate for workload"
+      - "[ ] Connections properly released (context managers)"
+      - "[ ] SQL injection prevented (parameterized queries)"
+      - "[ ] N+1 queries prevented (eager loading)"
+      - "[ ] Transactions kept short"
+      - "[ ] Deadlock handling implemented"
+      - "[ ] Indexes on frequently queried columns"
+      - "[ ] Query performance profiled"
+      - "[ ] Database credentials not in code"
+
+  error_handling_review:
+    name: "Error Handling Checklist"
+    items:
+      - "[ ] All errors return appropriate status code"
+      - "[ ] Error response follows consistent structure (RFC 7807)"
+      - "[ ] Content-Type: application/problem+json for errors"
+      - "[ ] No stack traces in production responses"
+      - "[ ] All exceptions caught and handled"
+      - "[ ] Errors logged with correlation ID"
+      - "[ ] Sensitive data not leaked in error messages"
+      - "[ ] Client receives actionable error details"
+      - "[ ] Error types documented"
+      - "[ ] Global error handler in place"
+
+  caching_review:
+    name: "Caching Implementation Checklist"
+    items:
+      - "[ ] Cache-Control headers set appropriately"
+      - "[ ] Public vs private caching considered"
+      - "[ ] ETag or Last-Modified for conditional requests"
+      - "[ ] Cache TTLs match data freshness requirements"
+      - "[ ] Cache invalidation on data changes"
+      - "[ ] Cache key includes all relevant parameters"
+      - "[ ] Redis/cache failures handled gracefully"
+      - "[ ] No sensitive data in public caches"
+      - "[ ] Cache versioning for deployments"
+      - "[ ] Cache hit/miss metrics tracked"
+
+  rate_limiting_review:
+    name: "Rate Limiting Checklist"
+    items:
+      - "[ ] Rate limits documented in API docs"
+      - "[ ] X-RateLimit-* headers included"
+      - "[ ] Retry-After header on 429 responses"
+      - "[ ] Rate limits appropriate for endpoint sensitivity"
+      - "[ ] Distributed rate limiting for multi-instance"
+      - "[ ] Rate limit by user/API key, not just IP"
+      - "[ ] Stricter limits on auth endpoints"
+      - "[ ] Rate limit failures handled gracefully"
+      - "[ ] Different tiers for different API consumers"
+      - "[ ] Rate limit bypass for internal services"
+
+  security_review:
+    name: "API Security Checklist"
+    items:
+      - "[ ] HTTPS only (no HTTP)"
+      - "[ ] HSTS header enabled"
+      - "[ ] Input validation on all endpoints"
+      - "[ ] Output encoding to prevent XSS"
+      - "[ ] SQL injection prevention"
+      - "[ ] Authentication required for sensitive endpoints"
+      - "[ ] Authorization checks (not just authentication)"
+      - "[ ] Secrets not in code or version control"
+      - "[ ] Dependency vulnerabilities scanned"
+      - "[ ] Security headers (X-Content-Type-Options, etc.)"
+      - "[ ] Request size limits configured"
+      - "[ ] File upload restrictions (if applicable)"
+
+  logging_review:
+    name: "Logging & Monitoring Checklist"
+    items:
+      - "[ ] Structured logging (JSON format)"
+      - "[ ] Log levels used appropriately"
+      - "[ ] Request IDs in all logs"
+      - "[ ] Correlation IDs for distributed tracing"
+      - "[ ] No sensitive data in logs (passwords, tokens)"
+      - "[ ] Errors logged with stack traces (server-side)"
+      - "[ ] Request/response timing logged"
+      - "[ ] Health check endpoint available"
+      - "[ ] Metrics exposed (Prometheus/StatsD)"
+      - "[ ] Alerting on error rates"
+
+  deployment_review:
+    name: "Production Deployment Checklist"
+    items:
+      - "[ ] Debug mode disabled"
+      - "[ ] Environment variables for configuration"
+      - "[ ] Database migrations applied"
+      - "[ ] Health check passing"
+      - "[ ] SSL certificates valid"
+      - "[ ] Load balancer configured"
+      - "[ ] Graceful shutdown implemented"
+      - "[ ] Rollback plan documented"
+      - "[ ] Monitoring dashboards ready"
+      - "[ ] On-call rotation assigned"

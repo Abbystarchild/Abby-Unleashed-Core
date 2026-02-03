@@ -1,0 +1,2120 @@
+# =============================================================================
+# POSTGRESQL DATABASE ADMINISTRATION - MASTERY LEVEL KNOWLEDGE
+# =============================================================================
+# Source: PostgreSQL 15+ Official Documentation, PostgreSQL Wiki, pganalyze, 
+#         Patroni Docs, PgBouncer Docs, industry DBA best practices
+# Last Updated: 2026
+# =============================================================================
+
+domain: postgresql_database_administration
+technologies:
+  - PostgreSQL 15+
+  - pg_stat_statements
+  - Patroni
+  - PgBouncer
+  - pg_dump/pg_restore
+  - WAL-G/pgBackRest
+
+# =============================================================================
+# SECTION 1: QUERY OPTIMIZATION
+# =============================================================================
+
+query_optimization:
+
+  # ---------------------------------------------------------------------------
+  # 1.1 EXPLAIN ANALYZE MASTERY
+  # ---------------------------------------------------------------------------
+
+  explain_analyze:
+
+    - name: "Understanding EXPLAIN ANALYZE Output"
+      description: "Interpret query plans to identify performance bottlenecks"
+      good_example: |
+        -- ✅ Full analysis with timing and buffers
+        EXPLAIN (ANALYZE, BUFFERS, FORMAT TEXT)
+        SELECT u.name, COUNT(o.id) as order_count
+        FROM users u
+        LEFT JOIN orders o ON o.user_id = u.id
+        WHERE u.created_at > '2025-01-01'
+        GROUP BY u.id, u.name
+        ORDER BY order_count DESC
+        LIMIT 100;
+        
+        -- Output interpretation:
+        -- Seq Scan: Full table scan (usually bad for large tables)
+        -- Index Scan: Using index (good)
+        -- Index Only Scan: Best - data from index only
+        -- Bitmap Heap Scan: Good for medium selectivity
+        -- actual time=X..Y: Startup time..Total time in ms
+        -- rows=N: Actual rows returned
+        -- Buffers: shared hit=N (cache hits), read=N (disk reads)
+      bad_example: |
+        -- ❌ Plain EXPLAIN without ANALYZE
+        EXPLAIN SELECT * FROM large_table WHERE status = 'active';
+        -- Only shows estimates, not actual execution metrics
+        
+        -- ❌ Missing BUFFERS option
+        EXPLAIN ANALYZE SELECT * FROM orders;
+        -- Misses critical I/O information
+      why: "ANALYZE executes the query to show actual vs estimated rows. BUFFERS shows I/O patterns. FORMAT TEXT is most readable for human analysis."
+
+    - name: "Key Metrics to Watch"
+      description: "Critical values that indicate query problems"
+      metrics:
+        - name: "Rows Removed by Filter"
+          concern: "High value indicates missing or unused index"
+          example: |
+            -- Bad: Filtering 999,000 rows to return 1,000
+            ->  Seq Scan on orders  (actual rows=1000)
+                  Filter: (status = 'pending')
+                  Rows Removed by Filter: 999000
+
+        - name: "Planning Time vs Execution Time"
+          concern: "High planning time may indicate statistics issues"
+          example: |
+            Planning Time: 850.234 ms  -- ❌ Too high, run ANALYZE
+            Execution Time: 12.456 ms
+
+        - name: "Actual vs Estimated Rows"
+          concern: "Large discrepancy indicates stale statistics"
+          example: |
+            -- Estimated 100 rows, got 50,000 - bad estimate
+            ->  Index Scan (cost=0.42..8.44 rows=100) (actual rows=50000)
+            -- Solution: ANALYZE table_name;
+
+        - name: "Sort Method: external merge Disk"
+          concern: "Sorting spilled to disk - increase work_mem"
+          example: |
+            Sort Method: external merge  Disk: 102400kB  -- ❌ Disk sort
+            -- vs
+            Sort Method: quicksort  Memory: 25kB  -- ✅ In-memory
+
+    - name: "Query Plan Node Types"
+      description: "Understanding different scan and join types"
+      sql_examples: |
+        -- Sequential Scan (avoid for large tables with WHERE)
+        Seq Scan on users  (cost=0.00..1250.00 rows=50000)
+        
+        -- Index Scan (good, fetches heap pages)
+        Index Scan using users_email_idx on users  (cost=0.42..8.44 rows=1)
+        
+        -- Index Only Scan (best, no heap access needed)
+        Index Only Scan using users_covering_idx on users  (cost=0.42..4.44 rows=1)
+        
+        -- Bitmap Index Scan + Bitmap Heap Scan (good for OR conditions, ranges)
+        Bitmap Heap Scan on orders
+          ->  BitmapOr
+                ->  Bitmap Index Scan on orders_status_idx
+                ->  Bitmap Index Scan on orders_date_idx
+        
+        -- Nested Loop (efficient for small outer + indexed inner)
+        Nested Loop (cost=0.42..24.65 rows=10)
+        
+        -- Hash Join (efficient for larger tables, no index needed)
+        Hash Join (cost=1250.00..2500.00 rows=10000)
+        
+        -- Merge Join (efficient when both sides pre-sorted)
+        Merge Join (cost=0.84..500.00 rows=10000)
+
+  # ---------------------------------------------------------------------------
+  # 1.2 QUERY TUNING TECHNIQUES
+  # ---------------------------------------------------------------------------
+
+  query_tuning:
+
+    - name: "Avoid SELECT *"
+      description: "Select only needed columns to reduce I/O and enable index-only scans"
+      good_example: |
+        -- ✅ Select specific columns
+        SELECT id, name, email, status
+        FROM users
+        WHERE status = 'active';
+        
+        -- ✅ Enables index-only scan with covering index
+        CREATE INDEX idx_users_status_covering 
+        ON users (status) INCLUDE (id, name, email);
+      bad_example: |
+        -- ❌ Selects all columns including BLOBs, unused data
+        SELECT * FROM users WHERE status = 'active';
+        -- Prevents index-only scans, wastes memory and bandwidth
+      why: "Fetching unnecessary columns increases I/O, memory usage, and prevents index-only scans."
+
+    - name: "Optimize WHERE Clause Order"
+      description: "PostgreSQL optimizes automatically, but write for readability and maintenance"
+      good_example: |
+        -- ✅ Most selective conditions use indexes
+        SELECT * FROM orders
+        WHERE user_id = 12345           -- Uses index (high selectivity)
+          AND status = 'pending'        -- Can use composite index
+          AND created_at > '2025-01-01';
+        
+        -- ✅ Use EXISTS for existence checks
+        SELECT * FROM users u
+        WHERE EXISTS (
+          SELECT 1 FROM orders o 
+          WHERE o.user_id = u.id AND o.status = 'pending'
+        );
+      bad_example: |
+        -- ❌ Functions on indexed columns prevent index use
+        SELECT * FROM users 
+        WHERE LOWER(email) = 'john@example.com';
+        -- Solution: Create expression index
+        
+        -- ❌ Using NOT IN with nullable columns
+        SELECT * FROM users 
+        WHERE id NOT IN (SELECT user_id FROM banned_users);
+        -- If user_id can be NULL, returns no rows!
+      why: "SARGable (Search ARGument ABLE) conditions allow index usage. Functions, type casts, and NOT IN with NULLs prevent optimization."
+
+    - name: "Pagination Best Practices"
+      description: "Efficient pagination for large result sets"
+      good_example: |
+        -- ✅ Keyset pagination (cursor-based) - O(1) performance
+        SELECT id, name, created_at
+        FROM orders
+        WHERE (created_at, id) < ('2025-06-15 10:30:00', 12345)
+        ORDER BY created_at DESC, id DESC
+        LIMIT 20;
+        
+        -- ✅ With covering index
+        CREATE INDEX idx_orders_pagination 
+        ON orders (created_at DESC, id DESC) 
+        INCLUDE (name);
+      bad_example: |
+        -- ❌ OFFSET pagination - gets slower as offset increases
+        SELECT * FROM orders 
+        ORDER BY created_at DESC 
+        LIMIT 20 OFFSET 100000;
+        -- Must scan and discard 100,000 rows every time!
+      why: "OFFSET requires scanning all skipped rows. Keyset pagination uses index to jump directly to the starting point."
+
+    - name: "JOIN Optimization"
+      description: "Write efficient JOINs that leverage indexes"
+      good_example: |
+        -- ✅ Ensure foreign key columns are indexed
+        CREATE INDEX idx_orders_user_id ON orders (user_id);
+        
+        SELECT u.name, o.total
+        FROM users u
+        INNER JOIN orders o ON o.user_id = u.id  -- Indexed column
+        WHERE u.status = 'active';
+        
+        -- ✅ Use LATERAL for correlated subqueries efficiently
+        SELECT u.name, recent_orders.total
+        FROM users u
+        CROSS JOIN LATERAL (
+          SELECT SUM(total) as total
+          FROM orders o
+          WHERE o.user_id = u.id
+            AND o.created_at > CURRENT_DATE - INTERVAL '30 days'
+          LIMIT 1
+        ) recent_orders;
+      bad_example: |
+        -- ❌ Joining on non-indexed columns
+        SELECT * FROM orders o
+        JOIN products p ON LOWER(o.product_name) = LOWER(p.name);
+        
+        -- ❌ Unnecessary DISTINCT from bad join logic
+        SELECT DISTINCT u.* 
+        FROM users u
+        JOIN orders o ON o.user_id = u.id;
+        -- Usually indicates a logic error or missing WHERE
+      why: "Index-backed JOINs use Nested Loop efficiently. Expression joins force Seq Scans or Hash Joins."
+
+    - name: "CTE vs Subquery Performance"
+      description: "Choose between CTEs and subqueries based on use case"
+      good_example: |
+        -- ✅ CTEs for readability and reuse (PostgreSQL 12+ inlines when beneficial)
+        WITH active_users AS (
+          SELECT id, name FROM users WHERE status = 'active'
+        )
+        SELECT au.name, COUNT(o.id)
+        FROM active_users au
+        JOIN orders o ON o.user_id = au.id
+        GROUP BY au.id, au.name;
+        
+        -- ✅ MATERIALIZED CTE when you need optimization fence
+        WITH MATERIALIZED expensive_calc AS (
+          SELECT user_id, SUM(amount) as total
+          FROM transactions
+          GROUP BY user_id
+        )
+        SELECT * FROM expensive_calc WHERE total > 1000;
+      bad_example: |
+        -- ❌ Assuming CTE is always materialized (pre-PG12 behavior)
+        WITH user_ids AS (
+          SELECT id FROM users WHERE status = 'active'
+        )
+        SELECT * FROM orders WHERE user_id IN (SELECT id FROM user_ids);
+        -- May not be optimal; check EXPLAIN output
+      why: "PostgreSQL 12+ inlines CTEs when beneficial. Use MATERIALIZED/NOT MATERIALIZED hints to control optimization."
+
+# =============================================================================
+# SECTION 2: INDEXING STRATEGIES
+# =============================================================================
+
+indexing_strategies:
+
+  # ---------------------------------------------------------------------------
+  # 2.1 INDEX TYPES
+  # ---------------------------------------------------------------------------
+
+  index_types:
+
+    - name: "B-tree Index (Default)"
+      description: "Best for equality and range queries on sortable data"
+      good_example: |
+        -- ✅ Equality lookups
+        CREATE INDEX idx_users_email ON users (email);
+        SELECT * FROM users WHERE email = 'john@example.com';
+        
+        -- ✅ Range queries
+        CREATE INDEX idx_orders_date ON orders (created_at);
+        SELECT * FROM orders WHERE created_at BETWEEN '2025-01-01' AND '2025-12-31';
+        
+        -- ✅ Sorting and ORDER BY
+        CREATE INDEX idx_products_price ON products (price DESC);
+        SELECT * FROM products ORDER BY price DESC LIMIT 10;
+        
+        -- ✅ UNIQUE constraint (uses B-tree)
+        CREATE UNIQUE INDEX idx_users_email_unique ON users (email);
+      bad_example: |
+        -- ❌ B-tree on array/JSONB containment queries
+        CREATE INDEX idx_tags ON posts (tags);  -- tags is JSONB
+        SELECT * FROM posts WHERE tags @> '["postgresql"]';
+        -- B-tree cannot accelerate @> operator
+      use_cases:
+        - "Equality (=) and range (<, >, BETWEEN) queries"
+        - "ORDER BY optimization"
+        - "UNIQUE constraints"
+        - "Most common index type - default choice"
+      operators_supported:
+        - "<, <=, =, >=, >"
+        - "BETWEEN"
+        - "IN"
+        - "IS NULL, IS NOT NULL"
+        - "LIKE 'prefix%' (left-anchored only)"
+
+    - name: "GIN Index (Generalized Inverted Index)"
+      description: "Best for multi-valued columns: arrays, JSONB, full-text search"
+      good_example: |
+        -- ✅ JSONB containment queries
+        CREATE INDEX idx_users_metadata_gin ON users USING GIN (metadata);
+        SELECT * FROM users WHERE metadata @> '{"role": "admin"}';
+        
+        -- ✅ Array containment
+        CREATE INDEX idx_posts_tags_gin ON posts USING GIN (tags);
+        SELECT * FROM posts WHERE tags @> ARRAY['postgresql', 'performance'];
+        
+        -- ✅ Full-text search
+        CREATE INDEX idx_articles_fts ON articles 
+        USING GIN (to_tsvector('english', title || ' ' || body));
+        
+        SELECT * FROM articles 
+        WHERE to_tsvector('english', title || ' ' || body) @@ to_tsquery('postgresql & tuning');
+        
+        -- ✅ JSONB path queries (PostgreSQL 12+)
+        CREATE INDEX idx_data_jsonpath ON events USING GIN (data jsonb_path_ops);
+        SELECT * FROM events WHERE data @> '{"status": "completed"}';
+      bad_example: |
+        -- ❌ GIN on simple scalar columns
+        CREATE INDEX idx_users_name_gin ON users USING GIN (name);
+        -- GIN adds overhead without benefit for scalar equality
+        
+        -- ❌ Using GIN without understanding operator classes
+        CREATE INDEX idx_data ON data USING GIN (jsonb_col);
+        SELECT * FROM data WHERE jsonb_col ? 'key';  -- May not use index
+      why: "GIN creates inverted index mapping values to rows. Excellent for 'contains' queries but slower to update than B-tree."
+      operator_classes:
+        - "jsonb_ops: @>, ?, ?&, ?| (default, larger)"
+        - "jsonb_path_ops: @> only (smaller, faster for containment)"
+        - "array_ops: @>, &&, <@"
+        - "tsvector_ops: @@ (full-text search)"
+
+    - name: "GiST Index (Generalized Search Tree)"
+      description: "Best for geometric data, ranges, and nearest-neighbor searches"
+      good_example: |
+        -- ✅ PostGIS geometric queries
+        CREATE INDEX idx_locations_geom ON locations USING GiST (geom);
+        SELECT * FROM locations 
+        WHERE ST_DWithin(geom, ST_MakePoint(-73.9857, 40.7484)::geography, 1000);
+        
+        -- ✅ Range types (tsrange, int4range, etc.)
+        CREATE INDEX idx_bookings_period ON bookings USING GiST (booking_period);
+        SELECT * FROM bookings 
+        WHERE booking_period && '[2025-06-01, 2025-06-07)'::daterange;
+        
+        -- ✅ Exclusion constraints (prevent overlapping ranges)
+        CREATE TABLE reservations (
+          id SERIAL PRIMARY KEY,
+          room_id INT,
+          time_range tsrange,
+          EXCLUDE USING GiST (room_id WITH =, time_range WITH &&)
+        );
+        
+        -- ✅ Full-text search (alternative to GIN, better for frequent updates)
+        CREATE INDEX idx_docs_fts_gist ON documents USING GiST (fts_vector);
+      use_cases:
+        - "PostGIS geometric/geographic data"
+        - "Range type overlap/containment"
+        - "Nearest-neighbor (KNN) searches"
+        - "Exclusion constraints"
+        - "Full-text on frequently updated tables"
+      operators_supported:
+        - "<<, >>, &<, &> (geometric)"
+        - "&&, @>, <@ (ranges)"
+        - "@@ (full-text)"
+        - "<-> (KNN distance)"
+
+    - name: "BRIN Index (Block Range Index)"
+      description: "Compact index for naturally ordered large tables"
+      good_example: |
+        -- ✅ Time-series data with natural ordering
+        CREATE INDEX idx_events_time_brin ON events USING BRIN (created_at)
+        WITH (pages_per_range = 128);
+        
+        SELECT * FROM events 
+        WHERE created_at BETWEEN '2025-06-01' AND '2025-06-02';
+        
+        -- ✅ Log tables ordered by insertion
+        CREATE INDEX idx_logs_id_brin ON application_logs USING BRIN (id);
+        
+        -- ✅ Check correlation (should be close to 1.0 or -1.0)
+        SELECT attname, correlation 
+        FROM pg_stats 
+        WHERE tablename = 'events' AND attname = 'created_at';
+        -- correlation = 0.95 → BRIN is excellent
+        -- correlation = 0.10 → BRIN is poor, use B-tree
+      bad_example: |
+        -- ❌ BRIN on randomly ordered data
+        CREATE INDEX idx_users_uuid_brin ON users USING BRIN (uuid);
+        -- UUIDs are random, no physical correlation
+        
+        -- ❌ BRIN on small tables
+        CREATE INDEX idx_config_brin ON config USING BRIN (key);
+        -- B-tree is better for small tables
+      why: "BRIN stores min/max per block range. Tiny index size (1000x smaller than B-tree) but requires physical column correlation."
+
+    - name: "Hash Index"
+      description: "Optimized for equality-only lookups (PostgreSQL 10+)"
+      good_example: |
+        -- ✅ High-cardinality equality lookups only
+        CREATE INDEX idx_sessions_token_hash ON sessions USING HASH (session_token);
+        SELECT * FROM sessions WHERE session_token = 'abc123xyz';
+        
+        -- ✅ Large text columns where equality is the only operation
+        CREATE INDEX idx_urls_hash ON links USING HASH (url);
+      bad_example: |
+        -- ❌ Hash for range queries (won't work)
+        CREATE INDEX idx_users_age_hash ON users USING HASH (age);
+        SELECT * FROM users WHERE age > 18;  -- Cannot use hash index
+        
+        -- ❌ Hash for ORDER BY (won't work)
+        SELECT * FROM users ORDER BY email;  -- Needs B-tree
+      why: "Hash is slightly faster than B-tree for equality but cannot support ranges, sorting, or inequality. Became crash-safe in PostgreSQL 10."
+
+  # ---------------------------------------------------------------------------
+  # 2.2 ADVANCED INDEX TECHNIQUES
+  # ---------------------------------------------------------------------------
+
+  advanced_indexes:
+
+    - name: "Partial Index"
+      description: "Index only rows matching a condition - smaller, faster"
+      good_example: |
+        -- ✅ Index only active records
+        CREATE INDEX idx_users_active_email ON users (email)
+        WHERE status = 'active';
+        -- Much smaller than full index if most users are inactive
+        
+        -- ✅ Index only non-null values
+        CREATE INDEX idx_orders_tracking ON orders (tracking_number)
+        WHERE tracking_number IS NOT NULL;
+        
+        -- ✅ Recent data only
+        CREATE INDEX idx_orders_recent ON orders (created_at, status)
+        WHERE created_at > '2025-01-01';
+        
+        -- ✅ Queue table pattern
+        CREATE INDEX idx_jobs_pending ON job_queue (priority, created_at)
+        WHERE status = 'pending';
+        -- Only indexes unprocessed jobs
+      bad_example: |
+        -- ❌ Partial index with condition not in queries
+        CREATE INDEX idx_users_email ON users (email)
+        WHERE created_at > '2025-01-01';
+        
+        -- Query won't use index if WHERE doesn't match:
+        SELECT * FROM users WHERE email = 'test@example.com';
+        -- Missing: AND created_at > '2025-01-01'
+      why: "Partial indexes are smaller, faster to update, and more cache-efficient. Query WHERE must imply index WHERE clause."
+
+    - name: "Expression Index (Functional Index)"
+      description: "Index on computed expressions"
+      good_example: |
+        -- ✅ Case-insensitive email lookup
+        CREATE INDEX idx_users_email_lower ON users (LOWER(email));
+        SELECT * FROM users WHERE LOWER(email) = 'john@example.com';
+        
+        -- ✅ Date extraction from timestamp
+        CREATE INDEX idx_orders_year_month ON orders (
+          EXTRACT(YEAR FROM created_at),
+          EXTRACT(MONTH FROM created_at)
+        );
+        SELECT * FROM orders 
+        WHERE EXTRACT(YEAR FROM created_at) = 2025 
+          AND EXTRACT(MONTH FROM created_at) = 6;
+        
+        -- ✅ JSONB field extraction
+        CREATE INDEX idx_users_jsonb_email ON users ((metadata->>'email'));
+        SELECT * FROM users WHERE metadata->>'email' = 'john@example.com';
+        
+        -- ✅ Text pattern matching
+        CREATE INDEX idx_users_name_pattern ON users (name text_pattern_ops);
+        SELECT * FROM users WHERE name LIKE 'John%';
+      bad_example: |
+        -- ❌ Query expression doesn't match index expression
+        CREATE INDEX idx_users_email_lower ON users (LOWER(email));
+        SELECT * FROM users WHERE email = 'John@Example.com';  -- Won't use index
+        
+        -- ❌ Expensive function in index
+        CREATE INDEX idx_expensive ON data (slow_function(column));
+        -- Index maintenance will be slow
+      why: "Expression must match EXACTLY in query. Use IMMUTABLE functions only."
+
+    - name: "Covering Index (INCLUDE)"
+      description: "Include non-key columns for index-only scans"
+      good_example: |
+        -- ✅ Covering index for common query pattern
+        CREATE INDEX idx_orders_user_covering ON orders (user_id)
+        INCLUDE (status, total, created_at);
+        
+        -- Query can be satisfied entirely from index
+        SELECT status, total, created_at
+        FROM orders
+        WHERE user_id = 12345;
+        -- Plan: Index Only Scan
+        
+        -- ✅ Covering unique index
+        CREATE UNIQUE INDEX idx_products_sku ON products (sku)
+        INCLUDE (name, price);
+      bad_example: |
+        -- ❌ Including too many columns
+        CREATE INDEX idx_orders_covering ON orders (user_id)
+        INCLUDE (col1, col2, col3, col4, col5, col6, col7, col8);
+        -- Index becomes large, maintenance overhead increases
+        
+        -- ❌ Including in key when not needed for ordering
+        CREATE INDEX idx_orders ON orders (user_id, status, total, created_at);
+        -- If you only filter by user_id, INCLUDE is better for the rest
+      why: "INCLUDE columns are stored in index but not in the B-tree structure. Enables index-only scans without bloating the tree."
+
+    - name: "Composite Index Strategy"
+      description: "Multi-column indexes with proper column ordering"
+      good_example: |
+        -- ✅ Equality columns first, then range columns
+        CREATE INDEX idx_orders_composite ON orders (user_id, status, created_at);
+        
+        -- Uses full index:
+        SELECT * FROM orders 
+        WHERE user_id = 123 AND status = 'pending' AND created_at > '2025-01-01';
+        
+        -- Uses first two columns:
+        SELECT * FROM orders WHERE user_id = 123 AND status = 'pending';
+        
+        -- Uses first column only:
+        SELECT * FROM orders WHERE user_id = 123;
+        
+        -- ✅ Order for multi-column sorting
+        CREATE INDEX idx_products_sort ON products (category_id, price DESC, name);
+        SELECT * FROM products WHERE category_id = 5 ORDER BY price DESC, name;
+      bad_example: |
+        -- ❌ Range column before equality
+        CREATE INDEX idx_orders_bad ON orders (created_at, user_id, status);
+        -- Query can't efficiently use user_id, status after range scan
+        SELECT * FROM orders 
+        WHERE created_at > '2025-01-01' AND user_id = 123 AND status = 'pending';
+        
+        -- ❌ Low-selectivity column first
+        CREATE INDEX idx_users_bad ON users (status, email);
+        -- status has few distinct values; email lookup scans many entries
+      why: "B-tree reads left to right. After a range condition, remaining columns can't be used efficiently for filtering."
+
+  # ---------------------------------------------------------------------------
+  # 2.3 INDEX MAINTENANCE
+  # ---------------------------------------------------------------------------
+
+  index_maintenance:
+
+    - name: "Finding Unused Indexes"
+      description: "Identify indexes that waste space and slow down writes"
+      sql_examples: |
+        -- Find unused indexes (since last stats reset)
+        SELECT 
+          schemaname || '.' || relname AS table,
+          indexrelname AS index,
+          pg_size_pretty(pg_relation_size(i.indexrelid)) AS index_size,
+          idx_scan AS index_scans
+        FROM pg_stat_user_indexes i
+        JOIN pg_index USING (indexrelid)
+        WHERE idx_scan = 0
+          AND indisunique IS FALSE  -- Keep unique constraints
+        ORDER BY pg_relation_size(i.indexrelid) DESC;
+        
+        -- Check when stats were last reset
+        SELECT stats_reset FROM pg_stat_database WHERE datname = current_database();
+        
+        -- Reset stats for fresh measurement
+        SELECT pg_stat_reset();
+
+    - name: "Finding Duplicate Indexes"
+      description: "Remove redundant indexes"
+      sql_examples: |
+        -- Find duplicate indexes (same columns, same order)
+        SELECT 
+          a.indrelid::regclass AS table_name,
+          a.indexrelid::regclass AS index1,
+          b.indexrelid::regclass AS index2,
+          pg_size_pretty(pg_relation_size(a.indexrelid)) AS size1,
+          pg_size_pretty(pg_relation_size(b.indexrelid)) AS size2
+        FROM pg_index a
+        JOIN pg_index b ON (
+          a.indrelid = b.indrelid 
+          AND a.indexrelid < b.indexrelid
+          AND a.indkey = b.indkey
+        )
+        WHERE NOT a.indisunique AND NOT b.indisunique;
+        
+        -- Find redundant indexes (subset of another index)
+        -- Index (a) is redundant if index (a, b) exists
+        WITH index_cols AS (
+          SELECT 
+            indexrelid,
+            indrelid,
+            array_agg(attnum ORDER BY ord) AS columns
+          FROM pg_index
+          CROSS JOIN LATERAL unnest(indkey) WITH ORDINALITY AS u(attnum, ord)
+          GROUP BY indexrelid, indrelid
+        )
+        SELECT 
+          a.indrelid::regclass AS table_name,
+          a.indexrelid::regclass AS redundant_index,
+          b.indexrelid::regclass AS covering_index
+        FROM index_cols a
+        JOIN index_cols b ON (
+          a.indrelid = b.indrelid
+          AND a.indexrelid <> b.indexrelid
+          AND a.columns = b.columns[1:array_length(a.columns, 1)]
+        );
+
+    - name: "Index Bloat Detection and Cleanup"
+      description: "Detect and fix bloated indexes"
+      sql_examples: |
+        -- Check index bloat estimate
+        SELECT
+          schemaname || '.' || tablename AS table,
+          indexname AS index,
+          pg_size_pretty(pg_relation_size(indexrelid)) AS index_size,
+          ROUND(100 * pg_relation_size(indexrelid) / 
+            NULLIF(pg_relation_size(tablename::regclass), 0)) AS index_ratio
+        FROM pg_stat_user_indexes
+        JOIN pg_index USING (indexrelid)
+        ORDER BY pg_relation_size(indexrelid) DESC
+        LIMIT 20;
+        
+        -- Rebuild bloated index (locking)
+        REINDEX INDEX CONCURRENTLY idx_orders_user_id;
+        
+        -- Rebuild all indexes on a table concurrently
+        REINDEX TABLE CONCURRENTLY orders;
+        
+        -- Alternative: Create new index, then swap (minimal locking)
+        CREATE INDEX CONCURRENTLY idx_orders_user_id_new ON orders (user_id);
+        DROP INDEX idx_orders_user_id;
+        ALTER INDEX idx_orders_user_id_new RENAME TO idx_orders_user_id;
+
+# =============================================================================
+# SECTION 3: PERFORMANCE TUNING
+# =============================================================================
+
+performance_tuning:
+
+  # ---------------------------------------------------------------------------
+  # 3.1 POSTGRESQL.CONF CRITICAL SETTINGS
+  # ---------------------------------------------------------------------------
+
+  postgresql_conf:
+
+    - name: "Memory Configuration"
+      description: "Critical memory settings for performance"
+      settings:
+        - parameter: "shared_buffers"
+          description: "PostgreSQL's main memory cache"
+          recommendation: "25% of total RAM (max ~8GB on most systems)"
+          example: "shared_buffers = '4GB'"
+          why: "OS cache handles the rest. Beyond 8GB, diminishing returns."
+          
+        - parameter: "effective_cache_size"
+          description: "Planner's estimate of available cache (PostgreSQL + OS)"
+          recommendation: "50-75% of total RAM"
+          example: "effective_cache_size = '12GB'"
+          why: "Influences planner decisions about index vs sequential scans."
+          
+        - parameter: "work_mem"
+          description: "Memory per operation (sort, hash) per connection"
+          recommendation: "Start with 16-64MB, tune based on query needs"
+          example: "work_mem = '64MB'"
+          caution: |
+            Total usage = work_mem × connections × operations per query
+            100 connections × 64MB × 3 ops = 19.2GB potential usage!
+          tuning: |
+            -- Check if sorts are spilling to disk
+            EXPLAIN ANALYZE SELECT ... ORDER BY ...;
+            -- Look for: Sort Method: external merge Disk
+            -- Increase work_mem if disk sorting is frequent
+            
+        - parameter: "maintenance_work_mem"
+          description: "Memory for maintenance operations (VACUUM, CREATE INDEX)"
+          recommendation: "1GB or more for large databases"
+          example: "maintenance_work_mem = '1GB'"
+          why: "Larger values speed up VACUUM and index creation."
+
+        - parameter: "effective_io_concurrency"
+          description: "Concurrent disk I/O operations PostgreSQL can expect"
+          recommendation: "200 for SSD, 2 for HDD"
+          example: "effective_io_concurrency = 200"
+
+    - name: "WAL Configuration"
+      description: "Write-Ahead Log settings for durability and performance"
+      settings:
+        - parameter: "wal_buffers"
+          description: "Shared memory for WAL data"
+          recommendation: "64MB (or ~3% of shared_buffers)"
+          example: "wal_buffers = '64MB'"
+          
+        - parameter: "checkpoint_completion_target"
+          description: "Target time to complete checkpoint (fraction of checkpoint_timeout)"
+          recommendation: "0.9"
+          example: "checkpoint_completion_target = 0.9"
+          why: "Spreads checkpoint I/O over time, reducing I/O spikes."
+          
+        - parameter: "max_wal_size"
+          description: "Maximum WAL size before automatic checkpoint"
+          recommendation: "2GB to 8GB for write-heavy workloads"
+          example: "max_wal_size = '4GB'"
+          
+        - parameter: "min_wal_size"
+          description: "Minimum WAL size to retain"
+          recommendation: "1GB to 2GB"
+          example: "min_wal_size = '1GB'"
+
+    - name: "Connection and Parallelism Settings"
+      description: "Connection limits and parallel query configuration"
+      settings:
+        - parameter: "max_connections"
+          description: "Maximum concurrent connections"
+          recommendation: "Match expected connections + overhead (use connection pooler!)"
+          example: "max_connections = 200"
+          important: "Each connection uses ~5-10MB RAM. Use PgBouncer for many clients."
+          
+        - parameter: "max_parallel_workers_per_gather"
+          description: "Max workers for parallel query operations"
+          recommendation: "2-4"
+          example: "max_parallel_workers_per_gather = 4"
+          
+        - parameter: "max_parallel_workers"
+          description: "Total parallel workers available system-wide"
+          recommendation: "Match CPU cores"
+          example: "max_parallel_workers = 8"
+          
+        - parameter: "max_parallel_maintenance_workers"
+          description: "Workers for parallel CREATE INDEX, VACUUM"
+          recommendation: "2-4"
+          example: "max_parallel_maintenance_workers = 4"
+
+    - name: "Query Planner Settings"
+      description: "Settings that affect query planning"
+      settings:
+        - parameter: "random_page_cost"
+          description: "Planner's cost estimate for random page access"
+          recommendation: "1.1 for SSD (default 4.0 is for HDD)"
+          example: "random_page_cost = 1.1"
+          why: "Lower value encourages index usage, appropriate for SSDs."
+          
+        - parameter: "default_statistics_target"
+          description: "Default sampling for ANALYZE"
+          recommendation: "100-500 for complex data distributions"
+          example: "default_statistics_target = 200"
+          why: "Higher values improve planner estimates but increase ANALYZE time."
+
+  # ---------------------------------------------------------------------------
+  # 3.2 VACUUM AND AUTOVACUUM
+  # ---------------------------------------------------------------------------
+
+  vacuum_autovacuum:
+
+    - name: "Understanding VACUUM"
+      description: "Why VACUUM is critical in PostgreSQL"
+      concepts:
+        - concept: "MVCC and Dead Tuples"
+          explanation: |
+            PostgreSQL uses Multi-Version Concurrency Control (MVCC).
+            UPDATE and DELETE don't remove old row versions immediately.
+            Dead tuples accumulate, causing table bloat.
+            VACUUM marks dead tuple space as reusable.
+            
+        - concept: "Transaction ID Wraparound"
+          explanation: |
+            Transaction IDs are 32-bit (4 billion).
+            To prevent wraparound, VACUUM freezes old transactions.
+            If wraparound approaches, PostgreSQL forces VACUUM (stops writes!).
+            
+      monitoring: |
+        -- Check for tables needing VACUUM
+        SELECT 
+          schemaname, relname,
+          n_dead_tup AS dead_tuples,
+          n_live_tup AS live_tuples,
+          ROUND(100.0 * n_dead_tup / NULLIF(n_live_tup + n_dead_tup, 0), 2) AS dead_pct,
+          last_vacuum,
+          last_autovacuum
+        FROM pg_stat_user_tables
+        WHERE n_dead_tup > 1000
+        ORDER BY n_dead_tup DESC;
+        
+        -- Check for transaction ID wraparound risk
+        SELECT 
+          datname,
+          age(datfrozenxid) AS xid_age,
+          ROUND(100.0 * age(datfrozenxid) / 2000000000, 2) AS pct_to_wraparound
+        FROM pg_database
+        ORDER BY age(datfrozenxid) DESC;
+
+    - name: "Autovacuum Configuration"
+      description: "Tuning autovacuum for your workload"
+      settings:
+        - parameter: "autovacuum"
+          description: "Enable/disable autovacuum"
+          recommendation: "ALWAYS on (default). Never disable in production!"
+          example: "autovacuum = on"
+          
+        - parameter: "autovacuum_max_workers"
+          description: "Maximum concurrent autovacuum workers"
+          recommendation: "3-5 depending on table count"
+          example: "autovacuum_max_workers = 5"
+          
+        - parameter: "autovacuum_naptime"
+          description: "Time between autovacuum runs"
+          recommendation: "30s-60s for busy databases"
+          example: "autovacuum_naptime = '30s'"
+          
+        - parameter: "autovacuum_vacuum_threshold"
+          description: "Minimum dead tuples before vacuum"
+          recommendation: "50 (default)"
+          example: "autovacuum_vacuum_threshold = 50"
+          
+        - parameter: "autovacuum_vacuum_scale_factor"
+          description: "Fraction of table to trigger vacuum"
+          recommendation: "0.1 for large tables; 0.01 for very large"
+          example: "autovacuum_vacuum_scale_factor = 0.1"
+          formula: "vacuum_threshold + scale_factor × table_rows"
+          
+        - parameter: "autovacuum_vacuum_cost_limit"
+          description: "Cost limit per autovacuum round"
+          recommendation: "1000-2000 for faster vacuuming"
+          example: "autovacuum_vacuum_cost_limit = 1000"
+
+    - name: "Per-Table Autovacuum Tuning"
+      description: "Override autovacuum settings for specific tables"
+      sql_examples: |
+        -- High-churn tables need more aggressive vacuuming
+        ALTER TABLE high_churn_table SET (
+          autovacuum_vacuum_scale_factor = 0.01,    -- 1% instead of 10%
+          autovacuum_vacuum_threshold = 100,
+          autovacuum_analyze_scale_factor = 0.005
+        );
+        
+        -- Very large tables with few updates - less frequent
+        ALTER TABLE large_static_table SET (
+          autovacuum_vacuum_scale_factor = 0.2,
+          autovacuum_enabled = true  -- Never disable, just tune!
+        );
+        
+        -- Check table-specific settings
+        SELECT relname, reloptions
+        FROM pg_class
+        WHERE reloptions IS NOT NULL AND relkind = 'r';
+
+    - name: "Manual VACUUM Operations"
+      description: "When and how to run manual VACUUM"
+      sql_examples: |
+        -- Standard VACUUM (reclaims space for reuse, doesn't return to OS)
+        VACUUM orders;
+        
+        -- VACUUM VERBOSE (shows progress and statistics)
+        VACUUM VERBOSE orders;
+        
+        -- VACUUM ANALYZE (vacuum + update statistics)
+        VACUUM ANALYZE orders;
+        
+        -- VACUUM FULL (rewrites table, returns space to OS - LOCKS table!)
+        -- Only use for severe bloat, during maintenance windows
+        VACUUM FULL orders;
+        
+        -- Better alternative: pg_repack (no locks)
+        -- pg_repack -d mydb -t orders
+        
+        -- Parallel VACUUM (PostgreSQL 13+)
+        VACUUM (PARALLEL 4) orders;
+        
+        -- Freeze old transactions
+        VACUUM FREEZE orders;
+
+  # ---------------------------------------------------------------------------
+  # 3.3 STATISTICS AND ANALYZE
+  # ---------------------------------------------------------------------------
+
+  statistics:
+
+    - name: "Table Statistics"
+      description: "Keep statistics current for optimal query plans"
+      sql_examples: |
+        -- Analyze single table
+        ANALYZE orders;
+        
+        -- Analyze specific columns (faster)
+        ANALYZE orders (user_id, status, created_at);
+        
+        -- Analyze entire database
+        ANALYZE;
+        
+        -- Check statistics freshness
+        SELECT 
+          schemaname, relname,
+          last_analyze,
+          last_autoanalyze,
+          n_mod_since_analyze
+        FROM pg_stat_user_tables
+        ORDER BY n_mod_since_analyze DESC;
+        
+        -- Increase statistics sampling for specific columns
+        ALTER TABLE orders ALTER COLUMN user_id SET STATISTICS 1000;
+        ANALYZE orders (user_id);
+        
+        -- View column statistics
+        SELECT * FROM pg_stats WHERE tablename = 'orders' AND attname = 'status';
+
+    - name: "Extended Statistics"
+      description: "Multi-column correlation statistics (PostgreSQL 10+)"
+      sql_examples: |
+        -- Create extended statistics for correlated columns
+        CREATE STATISTICS orders_stats (dependencies, ndistinct, mcv)
+        ON user_id, status FROM orders;
+        
+        -- Analyze to populate
+        ANALYZE orders;
+        
+        -- View extended statistics
+        SELECT * FROM pg_statistic_ext WHERE stxname = 'orders_stats';
+        
+        -- Use case: Queries filtering on correlated columns
+        -- Without extended stats, planner may severely misestimate rows
+        SELECT * FROM orders WHERE user_id = 123 AND status = 'pending';
+
+# =============================================================================
+# SECTION 4: HIGH AVAILABILITY
+# =============================================================================
+
+high_availability:
+
+  # ---------------------------------------------------------------------------
+  # 4.1 STREAMING REPLICATION
+  # ---------------------------------------------------------------------------
+
+  streaming_replication:
+
+    - name: "Primary Server Configuration"
+      description: "Configure the primary server for streaming replication"
+      postgresql_conf: |
+        # postgresql.conf on primary
+        
+        # Enable WAL archiving
+        wal_level = replica  # or 'logical' for logical replication
+        max_wal_senders = 10  # Max number of replication connections
+        max_replication_slots = 10  # Prevent WAL removal before replica catches up
+        wal_keep_size = '1GB'  # Minimum WAL to retain (fallback if slots fail)
+        
+        # Synchronous replication (optional, for zero data loss)
+        synchronous_commit = on  # 'remote_write' or 'remote_apply' for stronger guarantees
+        synchronous_standby_names = 'replica1'  # Name of synchronous standby
+        
+        # Archive mode for PITR
+        archive_mode = on
+        archive_command = 'cp %p /var/lib/postgresql/archive/%f'
+        
+      pg_hba_conf: |
+        # pg_hba.conf - Allow replication connections
+        host replication replicator 10.0.0.0/8 scram-sha-256
+        host replication replicator standby_ip/32 scram-sha-256
+        
+      setup_steps: |
+        -- Create replication user
+        CREATE ROLE replicator WITH REPLICATION LOGIN PASSWORD 'secure_password';
+        
+        -- Create replication slot (prevents WAL removal)
+        SELECT pg_create_physical_replication_slot('replica1_slot');
+        
+        -- View replication slots
+        SELECT slot_name, slot_type, active, restart_lsn FROM pg_replication_slots;
+
+    - name: "Standby Server Configuration"
+      description: "Configure replica/standby servers"
+      setup_steps: |
+        # Initial base backup from primary
+        pg_basebackup -h primary_host -U replicator -D /var/lib/postgresql/data \
+          -Fp -Xs -P -R -S replica1_slot
+        
+        # -R creates standby.signal and configures primary_conninfo
+        # -S uses replication slot
+        
+      postgresql_conf: |
+        # postgresql.conf on standby (PostgreSQL 12+)
+        
+        # These are auto-configured by pg_basebackup -R
+        primary_conninfo = 'host=primary_host port=5432 user=replicator password=secure_password application_name=replica1'
+        primary_slot_name = 'replica1_slot'
+        
+        # Hot standby - allow read queries
+        hot_standby = on
+        
+        # Recovery settings
+        recovery_target_timeline = 'latest'  # Follow primary timeline changes
+        
+      verify_replication: |
+        -- On primary: Check replication status
+        SELECT 
+          client_addr,
+          state,
+          sent_lsn,
+          write_lsn,
+          flush_lsn,
+          replay_lsn,
+          pg_wal_lsn_diff(sent_lsn, replay_lsn) AS replication_lag_bytes
+        FROM pg_stat_replication;
+        
+        -- On standby: Check if in recovery
+        SELECT pg_is_in_recovery();
+        
+        -- On standby: Check replication delay
+        SELECT 
+          CASE WHEN pg_last_wal_receive_lsn() = pg_last_wal_replay_lsn()
+            THEN 0
+            ELSE EXTRACT(EPOCH FROM now() - pg_last_xact_replay_timestamp())
+          END AS replication_lag_seconds;
+
+    - name: "Failover Procedures"
+      description: "Manual failover process"
+      steps: |
+        -- 1. Verify primary is truly unavailable
+        
+        -- 2. On standby, promote to primary
+        SELECT pg_promote();
+        -- Or: pg_ctl promote -D /var/lib/postgresql/data
+        
+        -- 3. Verify standby is now primary
+        SELECT pg_is_in_recovery();  -- Should return false
+        
+        -- 4. Update application connection strings
+        
+        -- 5. (Optional) Reconfigure old primary as standby
+        --    Requires pg_rewind or fresh pg_basebackup
+
+  # ---------------------------------------------------------------------------
+  # 4.2 PATRONI CLUSTER MANAGEMENT
+  # ---------------------------------------------------------------------------
+
+  patroni:
+
+    - name: "Patroni Overview"
+      description: "Automated PostgreSQL HA cluster management"
+      benefits:
+        - "Automatic leader election using distributed consensus (etcd, Consul, ZooKeeper)"
+        - "Automatic failover with configurable policies"
+        - "REST API for cluster management"
+        - "Supports synchronous replication"
+        - "Built-in connection pooling integration"
+        
+    - name: "Patroni Configuration"
+      description: "Example patroni.yml configuration"
+      config_example: |
+        scope: my_cluster
+        name: node1
+        
+        restapi:
+          listen: 0.0.0.0:8008
+          connect_address: node1:8008
+        
+        etcd3:
+          hosts:
+            - etcd1:2379
+            - etcd2:2379
+            - etcd3:2379
+        
+        bootstrap:
+          dcs:
+            ttl: 30
+            loop_wait: 10
+            retry_timeout: 10
+            maximum_lag_on_failover: 1048576  # 1MB
+            synchronous_mode: true
+            postgresql:
+              use_pg_rewind: true
+              use_slots: true
+              parameters:
+                wal_level: replica
+                hot_standby: on
+                max_wal_senders: 10
+                max_replication_slots: 10
+                wal_keep_size: 1GB
+                
+          initdb:
+            - encoding: UTF8
+            - data-checksums
+            
+        postgresql:
+          listen: 0.0.0.0:5432
+          connect_address: node1:5432
+          data_dir: /var/lib/postgresql/data
+          pgpass: /tmp/pgpass
+          authentication:
+            superuser:
+              username: postgres
+              password: supersecret
+            replication:
+              username: replicator
+              password: replpassword
+          parameters:
+            shared_buffers: 4GB
+            effective_cache_size: 12GB
+            work_mem: 64MB
+            
+        tags:
+          nofailover: false
+          noloadbalance: false
+          clonefrom: false
+          nosync: false
+
+    - name: "Patroni Operations"
+      description: "Common patronictl commands"
+      commands: |
+        # View cluster status
+        patronictl -c /etc/patroni/patroni.yml list
+        
+        # Manual switchover (planned)
+        patronictl -c /etc/patroni/patroni.yml switchover --master node1 --candidate node2
+        
+        # Manual failover (unplanned, force)
+        patronictl -c /etc/patroni/patroni.yml failover
+        
+        # Reinitialize a failed node
+        patronictl -c /etc/patroni/patroni.yml reinit my_cluster node3
+        
+        # Edit dynamic configuration
+        patronictl -c /etc/patroni/patroni.yml edit-config
+        
+        # Restart PostgreSQL on a node
+        patronictl -c /etc/patroni/patroni.yml restart my_cluster node1
+        
+        # Pause automatic failover (for maintenance)
+        patronictl -c /etc/patroni/patroni.yml pause
+        patronictl -c /etc/patroni/patroni.yml resume
+
+  # ---------------------------------------------------------------------------
+  # 4.3 CONNECTION POOLING
+  # ---------------------------------------------------------------------------
+
+  connection_pooling:
+
+    - name: "PgBouncer Configuration"
+      description: "Lightweight connection pooler for PostgreSQL"
+      why_needed: |
+        - Each PostgreSQL connection uses 5-10MB RAM
+        - Connection creation is expensive (~50-100ms)
+        - Applications often don't reuse connections efficiently
+        - PgBouncer multiplexes many clients over few server connections
+        
+      config_example: |
+        # pgbouncer.ini
+        
+        [databases]
+        mydb = host=localhost port=5432 dbname=mydb
+        * = host=localhost port=5432
+        
+        [pgbouncer]
+        listen_addr = 0.0.0.0
+        listen_port = 6432
+        auth_type = scram-sha-256
+        auth_file = /etc/pgbouncer/userlist.txt
+        
+        # Pool mode
+        pool_mode = transaction  # or 'session' or 'statement'
+        
+        # Pool sizing
+        default_pool_size = 20
+        min_pool_size = 5
+        reserve_pool_size = 5
+        max_client_conn = 1000
+        max_db_connections = 50
+        
+        # Timeouts
+        server_lifetime = 3600
+        server_idle_timeout = 600
+        client_idle_timeout = 0
+        
+        # Logging
+        log_connections = 1
+        log_disconnections = 1
+        log_pooler_errors = 1
+        stats_period = 60
+        
+      pool_modes:
+        - mode: "session"
+          description: "Connection assigned for entire client session"
+          use_case: "Applications using session-level features (LISTEN/NOTIFY, prepared statements, temp tables)"
+          efficiency: "Low"
+          
+        - mode: "transaction"
+          description: "Connection assigned per transaction"
+          use_case: "Most web applications"
+          efficiency: "High"
+          limitations: "No session-level features, prepared statements need DEALLOCATE"
+          
+        - mode: "statement"
+          description: "Connection assigned per statement"
+          use_case: "Simple AUTOCOMMIT queries"
+          efficiency: "Highest"
+          limitations: "No multi-statement transactions"
+
+    - name: "PgBouncer Operations"
+      description: "Managing PgBouncer"
+      commands: |
+        # Connect to admin console
+        psql -h localhost -p 6432 -U pgbouncer pgbouncer
+        
+        # View pools status
+        SHOW POOLS;
+        
+        # View client connections
+        SHOW CLIENTS;
+        
+        # View server connections
+        SHOW SERVERS;
+        
+        # View statistics
+        SHOW STATS;
+        
+        # Reload configuration
+        RELOAD;
+        
+        # Pause/resume database (for maintenance)
+        PAUSE mydb;
+        RESUME mydb;
+        
+        # Graceful shutdown
+        SHUTDOWN;
+
+# =============================================================================
+# SECTION 5: BACKUP AND RECOVERY
+# =============================================================================
+
+backup_recovery:
+
+  # ---------------------------------------------------------------------------
+  # 5.1 LOGICAL BACKUPS (pg_dump)
+  # ---------------------------------------------------------------------------
+
+  pg_dump:
+
+    - name: "pg_dump Strategies"
+      description: "Logical backup of databases and objects"
+      basic_commands: |
+        # Full database backup (custom format - recommended)
+        pg_dump -Fc -f mydb_backup.dump mydb
+        
+        # Full database backup (plain SQL)
+        pg_dump -Fp -f mydb_backup.sql mydb
+        
+        # Full database backup (directory format - parallel capable)
+        pg_dump -Fd -j 4 -f mydb_backup_dir mydb
+        
+        # Schema only (no data)
+        pg_dump --schema-only -f schema.sql mydb
+        
+        # Data only (no schema)
+        pg_dump --data-only -Fc -f data.dump mydb
+        
+        # Specific tables
+        pg_dump -t orders -t users -Fc -f tables.dump mydb
+        
+        # Exclude tables
+        pg_dump --exclude-table='logs_*' -Fc -f mydb_no_logs.dump mydb
+        
+        # All databases (cluster)
+        pg_dumpall > cluster_backup.sql
+        
+        # Roles only (for cluster recovery)
+        pg_dumpall --roles-only > roles.sql
+        
+      good_example: |
+        # ✅ Production backup script
+        #!/bin/bash
+        DATE=$(date +%Y%m%d_%H%M%S)
+        BACKUP_DIR=/backups/postgres
+        
+        # Parallel directory format for faster backup and restore
+        pg_dump -Fd -j 4 \
+          -h localhost -U backup_user \
+          --no-owner --no-acl \
+          -f "${BACKUP_DIR}/mydb_${DATE}" \
+          mydb
+        
+        # Compress and archive
+        tar -czf "${BACKUP_DIR}/mydb_${DATE}.tar.gz" "${BACKUP_DIR}/mydb_${DATE}"
+        rm -rf "${BACKUP_DIR}/mydb_${DATE}"
+        
+        # Cleanup old backups (keep 7 days)
+        find ${BACKUP_DIR} -name "mydb_*.tar.gz" -mtime +7 -delete
+        
+      bad_example: |
+        # ❌ Plain text backup of large database
+        pg_dump mydb > backup.sql
+        # Slow, large file, can't restore in parallel
+        
+        # ❌ No error handling
+        pg_dump mydb -f backup.dump || echo "backup done"
+        # Should exit on failure
+
+    - name: "pg_restore Operations"
+      description: "Restoring from pg_dump backups"
+      commands: |
+        # Restore custom format backup
+        pg_restore -d mydb mydb_backup.dump
+        
+        # Create database and restore
+        createdb mydb_restored
+        pg_restore -d mydb_restored mydb_backup.dump
+        
+        # Parallel restore (directory format)
+        pg_restore -d mydb -j 4 mydb_backup_dir/
+        
+        # List contents of backup
+        pg_restore -l mydb_backup.dump
+        
+        # Restore specific tables
+        pg_restore -d mydb -t orders -t users mydb_backup.dump
+        
+        # Restore with clean (drop objects first)
+        pg_restore -d mydb --clean --if-exists mydb_backup.dump
+        
+        # Schema only restore
+        pg_restore -d mydb --schema-only mydb_backup.dump
+        
+        # Data only restore (schema must exist)
+        pg_restore -d mydb --data-only mydb_backup.dump
+        
+        # Don't restore ownership
+        pg_restore -d mydb --no-owner mydb_backup.dump
+
+  # ---------------------------------------------------------------------------
+  # 5.2 PHYSICAL BACKUPS AND WAL ARCHIVING
+  # ---------------------------------------------------------------------------
+
+  physical_backups:
+
+    - name: "WAL Archiving Setup"
+      description: "Continuous archiving for point-in-time recovery"
+      postgresql_conf: |
+        # Enable archiving
+        archive_mode = on
+        archive_command = 'test ! -f /archive/%f && cp %p /archive/%f'
+        archive_timeout = 300  # Force archive every 5 minutes even if WAL not full
+        
+        # For S3 archiving (using wal-g or pgbackrest)
+        # archive_command = 'wal-g wal-push %p'
+        
+      monitoring: |
+        -- Check archiving status
+        SELECT * FROM pg_stat_archiver;
+        
+        -- Check for archive failures
+        SELECT archived_count, failed_count, last_archived_wal, last_failed_wal
+        FROM pg_stat_archiver;
+        
+        -- List archived WAL files
+        ls -la /archive/
+
+    - name: "pg_basebackup"
+      description: "Built-in physical backup tool"
+      commands: |
+        # Basic backup
+        pg_basebackup -h primary -U replicator -D /backup/base \
+          -Fp -Xs -P
+        
+        # Compressed tar format
+        pg_basebackup -h primary -U replicator -D /backup \
+          -Ft -z -Xs -P
+        
+        # With replication slot
+        pg_basebackup -h primary -U replicator -D /backup/base \
+          -Fp -Xs -P -S backup_slot
+        
+        # Options:
+        # -Fp: Plain format (directory)
+        # -Ft: Tar format
+        # -Xs: Stream WAL during backup
+        # -Xf: Fetch WAL after backup
+        # -P: Show progress
+        # -z: Gzip compression
+        # -Z 9: Max compression level
+        # -c fast: Fast checkpoint (may impact primary performance)
+
+    - name: "pgBackRest"
+      description: "Advanced backup solution for PostgreSQL"
+      features:
+        - "Parallel backup and restore"
+        - "Local and remote backup repositories (S3, Azure, GCS)"
+        - "Full, differential, and incremental backups"
+        - "Backup encryption"
+        - "Backup verification"
+        
+      config_example: |
+        # /etc/pgbackrest/pgbackrest.conf
+        
+        [global]
+        repo1-path=/var/lib/pgbackrest
+        repo1-retention-full=2
+        repo1-retention-diff=7
+        process-max=4
+        log-level-console=info
+        log-level-file=detail
+        start-fast=y
+        
+        # For S3
+        repo1-type=s3
+        repo1-s3-bucket=my-backup-bucket
+        repo1-s3-region=us-east-1
+        repo1-s3-endpoint=s3.amazonaws.com
+        
+        [main]
+        pg1-path=/var/lib/postgresql/15/main
+        pg1-port=5432
+        
+      commands: |
+        # Create full backup
+        pgbackrest --stanza=main backup --type=full
+        
+        # Create differential backup
+        pgbackrest --stanza=main backup --type=diff
+        
+        # Create incremental backup
+        pgbackrest --stanza=main backup --type=incr
+        
+        # List backups
+        pgbackrest --stanza=main info
+        
+        # Restore latest backup
+        pgbackrest --stanza=main restore
+        
+        # Restore to point in time
+        pgbackrest --stanza=main restore \
+          --target-action=promote \
+          --type=time \
+          --target="2025-06-15 14:30:00"
+        
+        # Verify backup integrity
+        pgbackrest --stanza=main verify
+
+  # ---------------------------------------------------------------------------
+  # 5.3 POINT-IN-TIME RECOVERY (PITR)
+  # ---------------------------------------------------------------------------
+
+  pitr:
+
+    - name: "Point-in-Time Recovery Process"
+      description: "Recover database to a specific moment"
+      prerequisites: |
+        - Full base backup (pg_basebackup or pgBackRest)
+        - Continuous WAL archiving enabled
+        - All archived WAL files from backup to target time
+        
+      recovery_steps: |
+        # 1. Stop PostgreSQL
+        sudo systemctl stop postgresql
+        
+        # 2. Clear data directory
+        rm -rf /var/lib/postgresql/data/*
+        
+        # 3. Restore base backup
+        cp -r /backup/base/* /var/lib/postgresql/data/
+        # Or: tar -xzf /backup/base.tar.gz -C /var/lib/postgresql/data/
+        
+        # 4. Create recovery configuration (PostgreSQL 12+)
+        touch /var/lib/postgresql/data/recovery.signal
+        
+      postgresql_conf: |
+        # postgresql.conf for recovery
+        
+        # WAL archive location
+        restore_command = 'cp /archive/%f %p'
+        # Or for pgBackRest: restore_command = 'pgbackrest --stanza=main archive-get %f %p'
+        
+        # Recovery target (choose one)
+        recovery_target_time = '2025-06-15 14:30:00'
+        # recovery_target_xid = '12345678'
+        # recovery_target_lsn = '0/1234567'
+        # recovery_target_name = 'my_restore_point'  # From pg_create_restore_point()
+        
+        # Timeline handling
+        recovery_target_timeline = 'latest'
+        
+        # Action after reaching target
+        recovery_target_action = 'promote'  # or 'pause' or 'shutdown'
+        
+      post_recovery: |
+        # 5. Set correct ownership
+        chown -R postgres:postgres /var/lib/postgresql/data
+        
+        # 6. Start PostgreSQL
+        sudo systemctl start postgresql
+        
+        # 7. Verify recovery
+        SELECT pg_is_in_recovery();  -- Should be false after promote
+        
+        # 8. Check for data integrity
+        SELECT * FROM your_important_table WHERE ...;
+        
+        # 9. Create a fresh backup of recovered state
+        pg_basebackup -D /backup/post_recovery -Fp -Xs -P
+
+    - name: "Creating Restore Points"
+      description: "Named recovery targets for easy PITR"
+      sql_examples: |
+        -- Create a named restore point before major operation
+        SELECT pg_create_restore_point('before_migration_v42');
+        
+        -- Perform migration
+        ALTER TABLE users ADD COLUMN new_feature JSONB;
+        -- etc.
+        
+        -- If something goes wrong, recover to restore point:
+        -- recovery_target_name = 'before_migration_v42'
+
+# =============================================================================
+# SECTION 6: SCHEMA DESIGN
+# =============================================================================
+
+schema_design:
+
+  # ---------------------------------------------------------------------------
+  # 6.1 NORMALIZATION
+  # ---------------------------------------------------------------------------
+
+  normalization:
+
+    - name: "Normalization Forms"
+      description: "Database normalization best practices"
+      forms:
+        - form: "1NF (First Normal Form)"
+          rules:
+            - "Atomic values only (no arrays/lists in columns)"
+            - "Each row is unique (has primary key)"
+          good_example: |
+            -- ✅ Separate rows for each phone number
+            CREATE TABLE contacts (
+              id SERIAL PRIMARY KEY,
+              person_id INT REFERENCES persons(id),
+              phone_type VARCHAR(20),
+              phone_number VARCHAR(20)
+            );
+          bad_example: |
+            -- ❌ Comma-separated values
+            CREATE TABLE persons (
+              id SERIAL PRIMARY KEY,
+              name VARCHAR(100),
+              phone_numbers VARCHAR(200)  -- '555-1234,555-5678'
+            );
+            
+        - form: "2NF (Second Normal Form)"
+          rules:
+            - "Must be in 1NF"
+            - "All non-key columns depend on the entire primary key"
+          good_example: |
+            -- ✅ Separate tables for separate entities
+            CREATE TABLE orders (
+              id SERIAL PRIMARY KEY,
+              customer_id INT REFERENCES customers(id),
+              order_date DATE
+            );
+            
+            CREATE TABLE order_items (
+              order_id INT REFERENCES orders(id),
+              product_id INT REFERENCES products(id),
+              quantity INT,
+              price DECIMAL(10,2),
+              PRIMARY KEY (order_id, product_id)
+            );
+          bad_example: |
+            -- ❌ Product name repeated for every order item
+            CREATE TABLE order_items (
+              order_id INT,
+              product_id INT,
+              product_name VARCHAR(100),  -- Depends only on product_id!
+              quantity INT,
+              PRIMARY KEY (order_id, product_id)
+            );
+            
+        - form: "3NF (Third Normal Form)"
+          rules:
+            - "Must be in 2NF"
+            - "No transitive dependencies (non-key depends on non-key)"
+          good_example: |
+            -- ✅ City and state in separate locations table
+            CREATE TABLE addresses (
+              id SERIAL PRIMARY KEY,
+              street VARCHAR(200),
+              city_id INT REFERENCES cities(id)
+            );
+            
+            CREATE TABLE cities (
+              id SERIAL PRIMARY KEY,
+              name VARCHAR(100),
+              state VARCHAR(50)
+            );
+          bad_example: |
+            -- ❌ State depends on city (transitive dependency)
+            CREATE TABLE addresses (
+              id SERIAL PRIMARY KEY,
+              street VARCHAR(200),
+              city VARCHAR(100),
+              state VARCHAR(50)  -- Depends on city, not address
+            );
+
+    - name: "When to Denormalize"
+      description: "Strategic denormalization for performance"
+      considerations:
+        - reason: "Read-heavy workloads with complex joins"
+          solution: |
+            -- Materialized view for common queries
+            CREATE MATERIALIZED VIEW order_summary AS
+            SELECT 
+              o.id, o.order_date,
+              c.name AS customer_name, c.email,
+              SUM(oi.quantity * oi.price) AS total
+            FROM orders o
+            JOIN customers c ON c.id = o.customer_id
+            JOIN order_items oi ON oi.order_id = o.id
+            GROUP BY o.id, o.order_date, c.name, c.email;
+            
+            CREATE UNIQUE INDEX ON order_summary (id);
+            REFRESH MATERIALIZED VIEW CONCURRENTLY order_summary;
+            
+        - reason: "Aggregates that are expensive to compute"
+          solution: |
+            -- Cached counter with trigger maintenance
+            ALTER TABLE forums ADD COLUMN post_count INT DEFAULT 0;
+            
+            CREATE FUNCTION update_forum_post_count() RETURNS TRIGGER AS $$
+            BEGIN
+              IF TG_OP = 'INSERT' THEN
+                UPDATE forums SET post_count = post_count + 1 WHERE id = NEW.forum_id;
+              ELSIF TG_OP = 'DELETE' THEN
+                UPDATE forums SET post_count = post_count - 1 WHERE id = OLD.forum_id;
+              END IF;
+              RETURN NULL;
+            END;
+            $$ LANGUAGE plpgsql;
+            
+            CREATE TRIGGER posts_count_trigger
+            AFTER INSERT OR DELETE ON posts
+            FOR EACH ROW EXECUTE FUNCTION update_forum_post_count();
+
+  # ---------------------------------------------------------------------------
+  # 6.2 TABLE PARTITIONING
+  # ---------------------------------------------------------------------------
+
+  partitioning:
+
+    - name: "Range Partitioning"
+      description: "Partition by date/time ranges"
+      good_example: |
+        -- ✅ Create partitioned table
+        CREATE TABLE events (
+          id BIGSERIAL,
+          event_type VARCHAR(50),
+          payload JSONB,
+          created_at TIMESTAMPTZ NOT NULL,
+          PRIMARY KEY (id, created_at)  -- Must include partition key
+        ) PARTITION BY RANGE (created_at);
+        
+        -- Create partitions
+        CREATE TABLE events_2025_01 PARTITION OF events
+          FOR VALUES FROM ('2025-01-01') TO ('2025-02-01');
+        CREATE TABLE events_2025_02 PARTITION OF events
+          FOR VALUES FROM ('2025-02-01') TO ('2025-03-01');
+        -- ... etc.
+        
+        -- Create default partition for unmatched values
+        CREATE TABLE events_default PARTITION OF events DEFAULT;
+        
+        -- Automatic partition creation (pg_partman extension)
+        SELECT partman.create_parent(
+          p_parent_table => 'public.events',
+          p_control => 'created_at',
+          p_type => 'native',
+          p_interval => 'monthly',
+          p_premake => 3
+        );
+      bad_example: |
+        -- ❌ Queries without partition key scan all partitions
+        SELECT * FROM events WHERE id = 12345;  -- No partition pruning
+        
+        -- ❌ Too many partitions (overhead > benefit)
+        -- Creating daily partitions for 10 years = 3,650 partitions
+
+    - name: "List Partitioning"
+      description: "Partition by discrete values"
+      good_example: |
+        -- ✅ Partition by region
+        CREATE TABLE orders (
+          id BIGSERIAL,
+          customer_id INT,
+          region VARCHAR(20) NOT NULL,
+          total DECIMAL(10,2),
+          PRIMARY KEY (id, region)
+        ) PARTITION BY LIST (region);
+        
+        CREATE TABLE orders_americas PARTITION OF orders
+          FOR VALUES IN ('US', 'CA', 'MX', 'BR');
+        CREATE TABLE orders_europe PARTITION OF orders
+          FOR VALUES IN ('UK', 'DE', 'FR', 'ES', 'IT');
+        CREATE TABLE orders_asia PARTITION OF orders
+          FOR VALUES IN ('JP', 'CN', 'KR', 'IN');
+        CREATE TABLE orders_other PARTITION OF orders DEFAULT;
+
+    - name: "Hash Partitioning"
+      description: "Distribute rows evenly across partitions"
+      good_example: |
+        -- ✅ Even distribution for parallel processing
+        CREATE TABLE transactions (
+          id BIGSERIAL,
+          account_id INT NOT NULL,
+          amount DECIMAL(12,2),
+          PRIMARY KEY (id, account_id)
+        ) PARTITION BY HASH (account_id);
+        
+        CREATE TABLE transactions_0 PARTITION OF transactions
+          FOR VALUES WITH (MODULUS 4, REMAINDER 0);
+        CREATE TABLE transactions_1 PARTITION OF transactions
+          FOR VALUES WITH (MODULUS 4, REMAINDER 1);
+        CREATE TABLE transactions_2 PARTITION OF transactions
+          FOR VALUES WITH (MODULUS 4, REMAINDER 2);
+        CREATE TABLE transactions_3 PARTITION OF transactions
+          FOR VALUES WITH (MODULUS 4, REMAINDER 3);
+
+    - name: "Partition Maintenance"
+      description: "Managing partitions over time"
+      sql_examples: |
+        -- Detach old partition (for archival)
+        ALTER TABLE events DETACH PARTITION events_2024_01;
+        
+        -- Drop old partition
+        DROP TABLE events_2024_01;
+        
+        -- Attach existing table as partition
+        ALTER TABLE events ATTACH PARTITION events_2025_06
+          FOR VALUES FROM ('2025-06-01') TO ('2025-07-01');
+        
+        -- Check partition boundaries
+        SELECT 
+          parent.relname AS parent,
+          child.relname AS partition,
+          pg_get_expr(child.relpartbound, child.oid) AS bounds
+        FROM pg_inherits
+        JOIN pg_class parent ON pg_inherits.inhparent = parent.oid
+        JOIN pg_class child ON pg_inherits.inhrelid = child.oid
+        WHERE parent.relname = 'events';
+
+  # ---------------------------------------------------------------------------
+  # 6.3 CONSTRAINTS AND DATA INTEGRITY
+  # ---------------------------------------------------------------------------
+
+  constraints:
+
+    - name: "Primary Keys"
+      description: "Choosing appropriate primary keys"
+      good_example: |
+        -- ✅ Serial/Identity for internal use
+        CREATE TABLE users (
+          id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          email VARCHAR(255) NOT NULL
+        );
+        
+        -- ✅ UUID for distributed systems
+        CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+        CREATE TABLE distributed_records (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          data JSONB
+        );
+        
+        -- ✅ Natural key when appropriate
+        CREATE TABLE countries (
+          code CHAR(2) PRIMARY KEY,  -- ISO 3166-1 alpha-2
+          name VARCHAR(100) NOT NULL
+        );
+      bad_example: |
+        -- ❌ Composite natural key that may change
+        CREATE TABLE employees (
+          department VARCHAR(50),
+          employee_number INT,
+          PRIMARY KEY (department, employee_number)
+        );
+        -- What if employee changes department?
+
+    - name: "Foreign Keys"
+      description: "Referential integrity constraints"
+      good_example: |
+        -- ✅ Standard foreign key with appropriate action
+        CREATE TABLE orders (
+          id BIGSERIAL PRIMARY KEY,
+          user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+          created_at TIMESTAMPTZ DEFAULT now()
+        );
+        
+        -- ✅ Cascading delete for dependent data
+        CREATE TABLE order_items (
+          id BIGSERIAL PRIMARY KEY,
+          order_id BIGINT NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+          product_id BIGINT NOT NULL REFERENCES products(id) ON DELETE RESTRICT,
+          quantity INT NOT NULL CHECK (quantity > 0)
+        );
+        
+        -- ✅ Self-referential (hierarchical data)
+        CREATE TABLE categories (
+          id SERIAL PRIMARY KEY,
+          name VARCHAR(100) NOT NULL,
+          parent_id INT REFERENCES categories(id) ON DELETE SET NULL
+        );
+      important: |
+        -- Always index foreign key columns!
+        CREATE INDEX idx_orders_user_id ON orders (user_id);
+        CREATE INDEX idx_order_items_order_id ON order_items (order_id);
+
+    - name: "Check Constraints"
+      description: "Enforce business rules at database level"
+      good_example: |
+        -- ✅ Value range constraints
+        CREATE TABLE products (
+          id SERIAL PRIMARY KEY,
+          name VARCHAR(200) NOT NULL,
+          price DECIMAL(10,2) NOT NULL CHECK (price >= 0),
+          discount_pct SMALLINT CHECK (discount_pct BETWEEN 0 AND 100),
+          stock_quantity INT NOT NULL CHECK (stock_quantity >= 0)
+        );
+        
+        -- ✅ Enum-like constraint
+        CREATE TABLE orders (
+          id SERIAL PRIMARY KEY,
+          status VARCHAR(20) NOT NULL CHECK (status IN ('pending', 'processing', 'shipped', 'delivered', 'cancelled'))
+        );
+        
+        -- ✅ Cross-column constraint
+        CREATE TABLE date_ranges (
+          id SERIAL PRIMARY KEY,
+          start_date DATE NOT NULL,
+          end_date DATE NOT NULL,
+          CHECK (end_date > start_date)
+        );
+        
+        -- ✅ Named constraint for better error messages
+        ALTER TABLE orders ADD CONSTRAINT orders_status_valid 
+          CHECK (status IN ('pending', 'processing', 'shipped', 'delivered', 'cancelled'));
+
+    - name: "Exclusion Constraints"
+      description: "Prevent overlapping ranges"
+      good_example: |
+        -- ✅ Prevent double-booking
+        CREATE EXTENSION IF NOT EXISTS btree_gist;
+        
+        CREATE TABLE room_reservations (
+          id SERIAL PRIMARY KEY,
+          room_id INT NOT NULL,
+          reserved_during TSTZRANGE NOT NULL,
+          EXCLUDE USING GiST (room_id WITH =, reserved_during WITH &&)
+        );
+        
+        -- Insert valid reservation
+        INSERT INTO room_reservations (room_id, reserved_during)
+        VALUES (1, '[2025-06-15 09:00, 2025-06-15 10:00)');
+        
+        -- This will fail (overlapping)
+        INSERT INTO room_reservations (room_id, reserved_during)
+        VALUES (1, '[2025-06-15 09:30, 2025-06-15 11:00)');
+        -- ERROR: conflicting key value violates exclusion constraint
+
+# =============================================================================
+# SECTION 7: DBA CHECKLIST
+# =============================================================================
+
+dba_checklist:
+
+  daily_monitoring:
+    - task: "Check replication lag"
+      query: |
+        SELECT client_addr, state, 
+               pg_wal_lsn_diff(sent_lsn, replay_lsn) AS lag_bytes
+        FROM pg_stat_replication;
+        
+    - task: "Check for long-running queries"
+      query: |
+        SELECT pid, now() - pg_stat_activity.query_start AS duration, query, state
+        FROM pg_stat_activity
+        WHERE state != 'idle'
+          AND now() - pg_stat_activity.query_start > interval '5 minutes'
+        ORDER BY duration DESC;
+        
+    - task: "Check for blocked queries"
+      query: |
+        SELECT blocked.pid AS blocked_pid,
+               blocked.query AS blocked_query,
+               blocking.pid AS blocking_pid,
+               blocking.query AS blocking_query
+        FROM pg_stat_activity blocked
+        JOIN pg_stat_activity blocking ON blocking.pid = ANY(pg_blocking_pids(blocked.pid))
+        WHERE blocked.wait_event_type = 'Lock';
+        
+    - task: "Check disk space"
+      query: |
+        SELECT pg_size_pretty(pg_database_size(current_database())) AS db_size,
+               pg_size_pretty(sum(pg_total_relation_size(c.oid))) AS total_size
+        FROM pg_class c WHERE c.relkind = 'r';
+        
+    - task: "Verify backup completion"
+      action: "Check backup logs and verify latest backup timestamp"
+
+  weekly_maintenance:
+    - task: "Review slow query log"
+      config: |
+        log_min_duration_statement = 1000  # Log queries over 1 second
+        
+    - task: "Check for unused indexes"
+      query: |
+        SELECT indexrelid::regclass, idx_scan
+        FROM pg_stat_user_indexes
+        WHERE idx_scan = 0 AND NOT indisunique;
+        
+    - task: "Review table bloat"
+      query: |
+        SELECT schemaname, relname, 
+               n_dead_tup, n_live_tup,
+               round(100.0 * n_dead_tup / nullif(n_live_tup + n_dead_tup, 0), 2) AS dead_pct
+        FROM pg_stat_user_tables
+        WHERE n_dead_tup > 10000
+        ORDER BY n_dead_tup DESC LIMIT 20;
+        
+    - task: "Check connection pool health"
+      action: "Review PgBouncer stats: SHOW POOLS; SHOW STATS;"
+      
+    - task: "Test backup restoration"
+      action: "Restore latest backup to test environment and verify data integrity"
+
+  monthly_tasks:
+    - task: "Review and update table statistics"
+      query: |
+        -- For tables with stale statistics
+        SELECT schemaname, relname, 
+               last_analyze, last_autoanalyze,
+               n_mod_since_analyze
+        FROM pg_stat_user_tables
+        WHERE n_mod_since_analyze > 100000
+        ORDER BY n_mod_since_analyze DESC;
+        -- Then: ANALYZE table_name;
+        
+    - task: "Review parameter tuning"
+      action: "Compare current settings with workload using pg_stat_statements"
+      
+    - task: "Security audit"
+      queries:
+        - |
+          -- Check for superuser accounts
+          SELECT rolname FROM pg_roles WHERE rolsuper = true;
+        - |
+          -- Review role permissions
+          SELECT grantee, table_schema, table_name, privilege_type
+          FROM information_schema.role_table_grants
+          WHERE grantee NOT IN ('postgres', 'PUBLIC');
+        - |
+          -- Check password expiration
+          SELECT rolname, rolvaliduntil FROM pg_roles
+          WHERE rolvaliduntil IS NOT NULL AND rolvaliduntil < now() + interval '30 days';
+          
+    - task: "Capacity planning"
+      action: "Review growth trends and project future resource needs"
+
+  pre_deployment:
+    - task: "Create restore point"
+      query: "SELECT pg_create_restore_point('before_deployment_v123');"
+      
+    - task: "Verify backup is current"
+      action: "Confirm backup completed within acceptable RPO"
+      
+    - task: "Review migration SQL"
+      checklist:
+        - "All DDL statements tested in staging"
+        - "Indexes created CONCURRENTLY where possible"
+        - "Large data modifications batched"
+        - "Rollback scripts prepared"
+        
+    - task: "Estimate downtime/impact"
+      action: "Test migration in staging with production-like data volume"
+
+  incident_response:
+    - scenario: "Database not responding"
+      steps:
+        - "Check PostgreSQL process: pg_isready -h localhost"
+        - "Check logs: tail -f /var/log/postgresql/postgresql-15-main.log"
+        - "Check disk space: df -h"
+        - "Check connections: SELECT count(*) FROM pg_stat_activity;"
+        - "Kill blocking queries if needed: SELECT pg_terminate_backend(pid);"
+        
+    - scenario: "High CPU usage"
+      steps:
+        - "Identify expensive queries: SELECT pid, query, state FROM pg_stat_activity ORDER BY backend_xid;"
+        - "Check for runaway autovacuum: SELECT * FROM pg_stat_progress_vacuum;"
+        - "Review pg_stat_statements for resource-heavy queries"
+        
+    - scenario: "Replication lag increasing"
+      steps:
+        - "Check network connectivity to replica"
+        - "Verify replica disk I/O: iostat -x 1"
+        - "Check for long transactions on replica: SELECT * FROM pg_stat_activity WHERE backend_type = 'walreceiver';"
+        - "Consider increasing wal_keep_size temporarily"
+        
+    - scenario: "Out of disk space"
+      steps:
+        - "Identify largest tables: SELECT relname, pg_size_pretty(pg_total_relation_size(oid)) FROM pg_class ORDER BY pg_total_relation_size(oid) DESC LIMIT 10;"
+        - "Check for WAL accumulation: SELECT pg_size_pretty(sum(size)) FROM pg_ls_waldir();"
+        - "Remove old backups if safe"
+        - "Drop unused indexes"
+        - "VACUUM FULL on bloated tables (during maintenance window)"
+
+# =============================================================================
+# SECTION 8: MONITORING QUERIES
+# =============================================================================
+
+monitoring_queries:
+
+  essential_queries:
+  
+    - name: "Database Size and Growth"
+      query: |
+        SELECT 
+          datname,
+          pg_size_pretty(pg_database_size(datname)) AS size
+        FROM pg_database
+        ORDER BY pg_database_size(datname) DESC;
+
+    - name: "Table Sizes"
+      query: |
+        SELECT 
+          schemaname || '.' || relname AS table_name,
+          pg_size_pretty(pg_total_relation_size(relid)) AS total_size,
+          pg_size_pretty(pg_relation_size(relid)) AS table_size,
+          pg_size_pretty(pg_indexes_size(relid)) AS index_size,
+          n_live_tup AS row_count
+        FROM pg_stat_user_tables
+        ORDER BY pg_total_relation_size(relid) DESC
+        LIMIT 20;
+
+    - name: "Connection Statistics"
+      query: |
+        SELECT 
+          count(*) FILTER (WHERE state = 'active') AS active,
+          count(*) FILTER (WHERE state = 'idle') AS idle,
+          count(*) FILTER (WHERE state = 'idle in transaction') AS idle_in_transaction,
+          count(*) FILTER (WHERE wait_event IS NOT NULL) AS waiting,
+          count(*) AS total,
+          current_setting('max_connections')::int AS max_connections
+        FROM pg_stat_activity
+        WHERE backend_type = 'client backend';
+
+    - name: "Cache Hit Ratio"
+      query: |
+        SELECT 
+          sum(heap_blks_hit) / nullif(sum(heap_blks_hit) + sum(heap_blks_read), 0) AS table_hit_ratio,
+          sum(idx_blks_hit) / nullif(sum(idx_blks_hit) + sum(idx_blks_read), 0) AS index_hit_ratio
+        FROM pg_statio_user_tables;
+        -- Should be > 0.99 for good performance
+
+    - name: "Index Usage"
+      query: |
+        SELECT 
+          schemaname || '.' || relname AS table_name,
+          indexrelname AS index_name,
+          idx_scan AS scans,
+          idx_tup_read AS tuples_read,
+          idx_tup_fetch AS tuples_fetched,
+          pg_size_pretty(pg_relation_size(indexrelid)) AS index_size
+        FROM pg_stat_user_indexes
+        ORDER BY idx_scan DESC
+        LIMIT 20;
+
+    - name: "Slow Queries (requires pg_stat_statements)"
+      query: |
+        SELECT 
+          substring(query, 1, 80) AS short_query,
+          calls,
+          round(total_exec_time::numeric / 1000, 2) AS total_time_sec,
+          round(mean_exec_time::numeric, 2) AS mean_time_ms,
+          round((100 * total_exec_time / sum(total_exec_time) OVER ())::numeric, 2) AS pct
+        FROM pg_stat_statements
+        ORDER BY total_exec_time DESC
+        LIMIT 20;
+
+    - name: "Lock Monitoring"
+      query: |
+        SELECT 
+          l.locktype,
+          l.relation::regclass,
+          l.mode,
+          l.granted,
+          a.pid,
+          a.usename,
+          a.query,
+          age(now(), a.query_start) AS query_age
+        FROM pg_locks l
+        JOIN pg_stat_activity a ON l.pid = a.pid
+        WHERE NOT l.granted
+        ORDER BY a.query_start;
+
+    - name: "Transaction ID Age (Wraparound Risk)"
+      query: |
+        SELECT 
+          datname,
+          age(datfrozenxid) AS xid_age,
+          round(100.0 * age(datfrozenxid) / 2147483647, 2) AS pct_to_wraparound
+        FROM pg_database
+        WHERE datallowconn
+        ORDER BY age(datfrozenxid) DESC;
+        -- Warning if > 50%, critical if > 75%
+
+    - name: "Vacuum Progress"
+      query: |
+        SELECT 
+          p.relid::regclass AS table_name,
+          p.phase,
+          p.heap_blks_total,
+          p.heap_blks_scanned,
+          round(100.0 * p.heap_blks_scanned / nullif(p.heap_blks_total, 0), 2) AS pct_complete,
+          p.dead_tuple_bytes
+        FROM pg_stat_progress_vacuum p
+        JOIN pg_stat_activity a ON p.pid = a.pid;

@@ -1,0 +1,1203 @@
+# Jetpack Compose Mastery
+# Comprehensive UI development patterns for modern Android apps
+# Version: 1.0.0
+# Last Updated: 2026-02-02
+
+metadata:
+  skill_name: "Jetpack Compose Mastery"
+  category: "android_development"
+  purpose: "Master declarative UI development with Jetpack Compose"
+  relevance:
+    - "Android app development"
+    - "Modern UI patterns"
+    - "Material Design 3"
+    - "Animation and gestures"
+
+# ============================================================
+# SECTION 1: COMPOSE FUNDAMENTALS
+# ============================================================
+compose_fundamentals:
+
+  composable_basics:
+    stateless_composables: |
+      // Stateless composable - receives all data via parameters
+      @Composable
+      fun ProfileCard(
+          user: User,
+          onLikeClick: () -> Unit,
+          onPassClick: () -> Unit,
+          modifier: Modifier = Modifier
+      ) {
+          Card(modifier = modifier) {
+              Column {
+                  AsyncImage(
+                      model = user.photoUrl,
+                      contentDescription = "Profile photo of ${user.name}"
+                  )
+                  Text(text = "${user.name}, ${user.age}")
+                  Row {
+                      IconButton(onClick = onPassClick) {
+                          Icon(Icons.Default.Close, "Pass")
+                      }
+                      IconButton(onClick = onLikeClick) {
+                          Icon(Icons.Default.Favorite, "Like")
+                      }
+                  }
+              }
+          }
+      }
+    
+    stateful_composables: |
+      // Stateful composable - manages its own state
+      @Composable
+      fun ExpandableCard(
+          title: String,
+          content: String,
+          modifier: Modifier = Modifier
+      ) {
+          var isExpanded by remember { mutableStateOf(false) }
+          
+          Card(
+              modifier = modifier.clickable { isExpanded = !isExpanded }
+          ) {
+              Column(modifier = Modifier.padding(16.dp)) {
+                  Row(verticalAlignment = Alignment.CenterVertically) {
+                      Text(
+                          text = title,
+                          style = MaterialTheme.typography.titleMedium
+                      )
+                      Spacer(modifier = Modifier.weight(1f))
+                      Icon(
+                          imageVector = if (isExpanded) {
+                              Icons.Default.ExpandLess
+                          } else {
+                              Icons.Default.ExpandMore
+                          },
+                          contentDescription = if (isExpanded) "Collapse" else "Expand"
+                      )
+                  }
+                  AnimatedVisibility(visible = isExpanded) {
+                      Text(
+                          text = content,
+                          modifier = Modifier.padding(top = 8.dp)
+                      )
+                  }
+              }
+          }
+      }
+    
+    state_hoisting: |
+      // State hoisting pattern - lift state to caller for reusability
+      
+      // Stateless version (preferred)
+      @Composable
+      fun SearchBar(
+          query: String,
+          onQueryChange: (String) -> Unit,
+          onSearch: () -> Unit,
+          modifier: Modifier = Modifier
+      ) {
+          TextField(
+              value = query,
+              onValueChange = onQueryChange,
+              modifier = modifier,
+              placeholder = { Text("Search...") },
+              trailingIcon = {
+                  IconButton(onClick = onSearch) {
+                      Icon(Icons.Default.Search, "Search")
+                  }
+              }
+          )
+      }
+      
+      // Stateful wrapper (for convenience)
+      @Composable
+      fun SearchBar(
+          onSearch: (String) -> Unit,
+          modifier: Modifier = Modifier
+      ) {
+          var query by remember { mutableStateOf("") }
+          
+          SearchBar(
+              query = query,
+              onQueryChange = { query = it },
+              onSearch = { onSearch(query) },
+              modifier = modifier
+          )
+      }
+
+  state_management:
+    remember: |
+      // remember - survives recomposition
+      @Composable
+      fun Counter() {
+          var count by remember { mutableStateOf(0) }
+          
+          Button(onClick = { count++ }) {
+              Text("Count: $count")
+          }
+      }
+      
+      // remember with key - resets when key changes
+      @Composable
+      fun ProfileEditor(userId: String) {
+          // Resets when userId changes
+          var name by remember(userId) { mutableStateOf("") }
+          var bio by remember(userId) { mutableStateOf("") }
+      }
+    
+    remember_saveable: |
+      // rememberSaveable - survives configuration changes
+      @Composable
+      fun MessageInput() {
+          var message by rememberSaveable { mutableStateOf("") }
+          
+          TextField(
+              value = message,
+              onValueChange = { message = it },
+              placeholder = { Text("Type a message...") }
+          )
+      }
+      
+      // Custom saver for complex objects
+      @Composable
+      fun DatePicker() {
+          var selectedDate by rememberSaveable(
+              stateSaver = object : Saver<LocalDate?, Long> {
+                  override fun restore(value: Long): LocalDate? {
+                      return if (value == 0L) null else LocalDate.ofEpochDay(value)
+                  }
+                  override fun SaverScope.save(value: LocalDate?): Long {
+                      return value?.toEpochDay() ?: 0L
+                  }
+              }
+          ) { mutableStateOf<LocalDate?>(null) }
+      }
+    
+    derived_state: |
+      // derivedStateOf - compute value that only updates when dependencies change
+      @Composable
+      fun FilteredList(
+          items: List<Item>,
+          searchQuery: String
+      ) {
+          // Only recomputes when items or searchQuery actually changes
+          val filteredItems by remember(items, searchQuery) {
+              derivedStateOf {
+                  if (searchQuery.isEmpty()) items
+                  else items.filter { it.name.contains(searchQuery, ignoreCase = true) }
+              }
+          }
+          
+          LazyColumn {
+              items(filteredItems) { item ->
+                  ItemCard(item)
+              }
+          }
+      }
+    
+    snapshot_flow: |
+      // snapshotFlow - convert Compose state to Flow
+      @Composable
+      fun SearchWithDebounce(
+          onSearch: suspend (String) -> Unit
+      ) {
+          var query by remember { mutableStateOf("") }
+          
+          LaunchedEffect(Unit) {
+              snapshotFlow { query }
+                  .debounce(300)
+                  .filter { it.isNotEmpty() }
+                  .collect { onSearch(it) }
+          }
+          
+          TextField(
+              value = query,
+              onValueChange = { query = it }
+          )
+      }
+
+  side_effects:
+    launched_effect: |
+      // LaunchedEffect - run suspend function when keys change
+      @Composable
+      fun ProfileScreen(userId: String, viewModel: ProfileViewModel) {
+          // Loads when userId changes
+          LaunchedEffect(userId) {
+              viewModel.loadProfile(userId)
+          }
+          
+          // Runs once on first composition
+          LaunchedEffect(Unit) {
+              viewModel.trackScreenView()
+          }
+      }
+    
+    disposable_effect: |
+      // DisposableEffect - setup/cleanup lifecycle
+      @Composable
+      fun AnalyticsTracker(screenName: String) {
+          DisposableEffect(screenName) {
+              analytics.trackScreenEnter(screenName)
+              
+              onDispose {
+                  analytics.trackScreenExit(screenName)
+              }
+          }
+      }
+      
+      // Lifecycle-aware composable
+      @Composable
+      fun PresenceTracker(userId: String) {
+          val lifecycleOwner = LocalLifecycleOwner.current
+          
+          DisposableEffect(lifecycleOwner) {
+              val observer = LifecycleEventObserver { _, event ->
+                  when (event) {
+                      Lifecycle.Event.ON_RESUME -> presenceService.setOnline(userId)
+                      Lifecycle.Event.ON_PAUSE -> presenceService.setOffline(userId)
+                      else -> {}
+                  }
+              }
+              
+              lifecycleOwner.lifecycle.addObserver(observer)
+              
+              onDispose {
+                  lifecycleOwner.lifecycle.removeObserver(observer)
+              }
+          }
+      }
+    
+    side_effect: |
+      // SideEffect - called on every successful recomposition
+      @Composable
+      fun UserProfile(user: User) {
+          // Update non-Compose code
+          SideEffect {
+              analytics.setUserProperty("user_id", user.id)
+          }
+      }
+    
+    produce_state: |
+      // produceState - convert async data to Compose state
+      @Composable
+      fun AsyncImage(url: String) {
+          val image by produceState<ImageBitmap?>(null, url) {
+              value = withContext(Dispatchers.IO) {
+                  loadImage(url)
+              }
+          }
+          
+          image?.let { Image(bitmap = it, contentDescription = null) }
+              ?: CircularProgressIndicator()
+      }
+
+# ============================================================
+# SECTION 2: LAYOUTS
+# ============================================================
+layouts:
+
+  basic_layouts:
+    column_row_box: |
+      // Column - vertical arrangement
+      Column(
+          modifier = Modifier.fillMaxSize(),
+          verticalArrangement = Arrangement.SpaceBetween,
+          horizontalAlignment = Alignment.CenterHorizontally
+      ) {
+          Text("Top")
+          Text("Center")
+          Text("Bottom")
+      }
+      
+      // Row - horizontal arrangement
+      Row(
+          modifier = Modifier.fillMaxWidth(),
+          horizontalArrangement = Arrangement.SpaceEvenly,
+          verticalAlignment = Alignment.CenterVertically
+      ) {
+          Icon(Icons.Default.Close, "Pass")
+          Icon(Icons.Default.Star, "Super Like")
+          Icon(Icons.Default.Favorite, "Like")
+      }
+      
+      // Box - stack elements
+      Box(modifier = Modifier.fillMaxSize()) {
+          Image(
+              painter = painterResource(R.drawable.background),
+              contentDescription = null,
+              modifier = Modifier.fillMaxSize(),
+              contentScale = ContentScale.Crop
+          )
+          // Gradient overlay
+          Box(
+              modifier = Modifier
+                  .fillMaxSize()
+                  .background(
+                      Brush.verticalGradient(
+                          colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.7f)),
+                          startY = 300f
+                      )
+                  )
+          )
+          // Text at bottom
+          Column(
+              modifier = Modifier
+                  .align(Alignment.BottomStart)
+                  .padding(16.dp)
+          ) {
+              Text("Name, Age", color = Color.White)
+              Text("Location", color = Color.White.copy(alpha = 0.7f))
+          }
+      }
+    
+    constraint_layout: |
+      @Composable
+      fun ComplexCard() {
+          ConstraintLayout(
+              modifier = Modifier
+                  .fillMaxWidth()
+                  .padding(16.dp)
+          ) {
+              val (image, name, age, badge, distance) = createRefs()
+              
+              AsyncImage(
+                  model = user.photoUrl,
+                  contentDescription = null,
+                  modifier = Modifier
+                      .size(80.dp)
+                      .clip(CircleShape)
+                      .constrainAs(image) {
+                          start.linkTo(parent.start)
+                          top.linkTo(parent.top)
+                      }
+              )
+              
+              Text(
+                  text = user.name,
+                  modifier = Modifier.constrainAs(name) {
+                      start.linkTo(image.end, margin = 12.dp)
+                      top.linkTo(image.top)
+                  }
+              )
+              
+              Text(
+                  text = "${user.age} years old",
+                  modifier = Modifier.constrainAs(age) {
+                      start.linkTo(name.start)
+                      top.linkTo(name.bottom, margin = 4.dp)
+                  }
+              )
+              
+              if (user.isVerified) {
+                  Icon(
+                      imageVector = Icons.Default.Verified,
+                      contentDescription = "Verified",
+                      modifier = Modifier.constrainAs(badge) {
+                          start.linkTo(name.end, margin = 4.dp)
+                          centerVerticallyTo(name)
+                      }
+                  )
+              }
+              
+              Text(
+                  text = "${user.distance} miles away",
+                  modifier = Modifier.constrainAs(distance) {
+                      end.linkTo(parent.end)
+                      bottom.linkTo(parent.bottom)
+                  }
+              )
+          }
+      }
+
+  lazy_layouts:
+    lazy_column: |
+      @Composable
+      fun MatchesList(
+          matches: List<Match>,
+          onMatchClick: (Match) -> Unit
+      ) {
+          LazyColumn(
+              contentPadding = PaddingValues(16.dp),
+              verticalArrangement = Arrangement.spacedBy(12.dp)
+          ) {
+              items(
+                  items = matches,
+                  key = { it.id }  // Important for performance!
+              ) { match ->
+                  MatchCard(
+                      match = match,
+                      onClick = { onMatchClick(match) },
+                      modifier = Modifier.animateItem()  // Animate reordering
+                  )
+              }
+          }
+      }
+    
+    lazy_grid: |
+      @Composable
+      fun PhotoGrid(photos: List<Photo>) {
+          LazyVerticalGrid(
+              columns = GridCells.Fixed(3),
+              contentPadding = PaddingValues(4.dp),
+              horizontalArrangement = Arrangement.spacedBy(4.dp),
+              verticalArrangement = Arrangement.spacedBy(4.dp)
+          ) {
+              items(photos, key = { it.id }) { photo ->
+                  AsyncImage(
+                      model = photo.url,
+                      contentDescription = null,
+                      modifier = Modifier
+                          .aspectRatio(1f)
+                          .clip(RoundedCornerShape(8.dp)),
+                      contentScale = ContentScale.Crop
+                  )
+              }
+          }
+      }
+    
+    sticky_headers: |
+      @Composable
+      fun ConversationList(conversations: Map<String, List<Conversation>>) {
+          LazyColumn {
+              conversations.forEach { (date, convos) ->
+                  stickyHeader {
+                      Surface(
+                          modifier = Modifier.fillMaxWidth(),
+                          color = MaterialTheme.colorScheme.surfaceVariant
+                      ) {
+                          Text(
+                              text = date,
+                              modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                              style = MaterialTheme.typography.labelLarge
+                          )
+                      }
+                  }
+                  
+                  items(convos) { conversation ->
+                      ConversationItem(conversation)
+                  }
+              }
+          }
+      }
+    
+    paging: |
+      @Composable
+      fun DiscoverScreen(viewModel: DiscoverViewModel = hiltViewModel()) {
+          val profiles = viewModel.profiles.collectAsLazyPagingItems()
+          
+          when {
+              profiles.loadState.refresh is LoadState.Loading -> {
+                  LoadingScreen()
+              }
+              profiles.loadState.refresh is LoadState.Error -> {
+                  ErrorScreen(
+                      message = (profiles.loadState.refresh as LoadState.Error).error.message,
+                      onRetry = { profiles.retry() }
+                  )
+              }
+              else -> {
+                  LazyColumn {
+                      items(
+                          count = profiles.itemCount,
+                          key = profiles.itemKey { it.id }
+                      ) { index ->
+                          profiles[index]?.let { profile ->
+                              ProfileCard(profile)
+                          }
+                      }
+                      
+                      // Load more indicator
+                      if (profiles.loadState.append is LoadState.Loading) {
+                          item {
+                              Box(
+                                  modifier = Modifier
+                                      .fillMaxWidth()
+                                      .padding(16.dp),
+                                  contentAlignment = Alignment.Center
+                              ) {
+                                  CircularProgressIndicator()
+                              }
+                          }
+                      }
+                  }
+              }
+          }
+      }
+
+# ============================================================
+# SECTION 3: MATERIAL DESIGN 3
+# ============================================================
+material_design_3:
+
+  theming:
+    color_scheme: |
+      // Custom color scheme
+      private val SafeConnectDarkColorScheme = darkColorScheme(
+          primary = Color(0xFF7B1FA2),        // Purple
+          onPrimary = Color.White,
+          primaryContainer = Color(0xFF4A148C),
+          onPrimaryContainer = Color(0xFFE1BEE7),
+          secondary = Color(0xFFFFD700),      // Gold
+          onSecondary = Color.Black,
+          tertiary = Color(0xFFDC143C),       // Crimson
+          background = Color(0xFF121212),
+          surface = Color(0xFF1E1E1E),
+          surfaceVariant = Color(0xFF2D2D2D),
+          error = Color(0xFFCF6679),
+          onBackground = Color(0xFFE0E0E0),
+          onSurface = Color(0xFFE0E0E0)
+      )
+      
+      @Composable
+      fun SafeConnectTheme(
+          darkTheme: Boolean = isSystemInDarkTheme(),
+          dynamicColor: Boolean = true,
+          content: @Composable () -> Unit
+      ) {
+          val colorScheme = when {
+              dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
+                  val context = LocalContext.current
+                  if (darkTheme) dynamicDarkColorScheme(context)
+                  else dynamicLightColorScheme(context)
+              }
+              darkTheme -> SafeConnectDarkColorScheme
+              else -> SafeConnectLightColorScheme
+          }
+          
+          MaterialTheme(
+              colorScheme = colorScheme,
+              typography = SafeConnectTypography,
+              shapes = SafeConnectShapes,
+              content = content
+          )
+      }
+    
+    typography: |
+      val SafeConnectTypography = Typography(
+          displayLarge = TextStyle(
+              fontFamily = FontFamily(Font(R.font.inter_bold)),
+              fontSize = 57.sp,
+              lineHeight = 64.sp,
+              letterSpacing = (-0.25).sp
+          ),
+          headlineLarge = TextStyle(
+              fontFamily = FontFamily(Font(R.font.inter_semibold)),
+              fontSize = 32.sp,
+              lineHeight = 40.sp
+          ),
+          titleLarge = TextStyle(
+              fontFamily = FontFamily(Font(R.font.inter_medium)),
+              fontSize = 22.sp,
+              lineHeight = 28.sp
+          ),
+          bodyLarge = TextStyle(
+              fontFamily = FontFamily(Font(R.font.inter_regular)),
+              fontSize = 16.sp,
+              lineHeight = 24.sp,
+              letterSpacing = 0.5.sp
+          ),
+          labelLarge = TextStyle(
+              fontFamily = FontFamily(Font(R.font.inter_medium)),
+              fontSize = 14.sp,
+              lineHeight = 20.sp,
+              letterSpacing = 0.1.sp
+          )
+      )
+
+  components:
+    buttons: |
+      // Filled button (primary)
+      Button(
+          onClick = { /* action */ },
+          colors = ButtonDefaults.buttonColors(
+              containerColor = MaterialTheme.colorScheme.primary
+          )
+      ) {
+          Icon(Icons.Default.Favorite, contentDescription = null)
+          Spacer(Modifier.width(8.dp))
+          Text("Like")
+      }
+      
+      // Outlined button (secondary)
+      OutlinedButton(onClick = { /* action */ }) {
+          Text("Skip")
+      }
+      
+      // Text button (tertiary)
+      TextButton(onClick = { /* action */ }) {
+          Text("Cancel")
+      }
+      
+      // FAB
+      FloatingActionButton(
+          onClick = { /* action */ },
+          containerColor = MaterialTheme.colorScheme.primaryContainer
+      ) {
+          Icon(Icons.Default.Add, "Add")
+      }
+      
+      // Extended FAB
+      ExtendedFloatingActionButton(
+          onClick = { /* action */ },
+          icon = { Icon(Icons.Default.Edit, "Edit") },
+          text = { Text("Edit Profile") }
+      )
+    
+    cards: |
+      // Elevated card
+      ElevatedCard(
+          modifier = Modifier.fillMaxWidth(),
+          elevation = CardDefaults.elevatedCardElevation(defaultElevation = 4.dp)
+      ) {
+          // Content
+      }
+      
+      // Filled card
+      Card(
+          colors = CardDefaults.cardColors(
+              containerColor = MaterialTheme.colorScheme.surfaceVariant
+          )
+      ) {
+          // Content
+      }
+      
+      // Outlined card
+      OutlinedCard {
+          // Content
+      }
+    
+    chips: |
+      // Filter chip (selectable)
+      var selected by remember { mutableStateOf(false) }
+      
+      FilterChip(
+          selected = selected,
+          onClick = { selected = !selected },
+          label = { Text("Verified") },
+          leadingIcon = if (selected) {
+              { Icon(Icons.Default.Check, null, Modifier.size(18.dp)) }
+          } else null
+      )
+      
+      // Input chip (removable)
+      InputChip(
+          selected = false,
+          onClick = { /* show details */ },
+          label = { Text("Music") },
+          trailingIcon = {
+              IconButton(
+                  onClick = { /* remove */ },
+                  modifier = Modifier.size(18.dp)
+              ) {
+                  Icon(Icons.Default.Close, "Remove")
+              }
+          }
+      )
+      
+      // Suggestion chip
+      SuggestionChip(
+          onClick = { /* apply suggestion */ },
+          label = { Text("Add photo") },
+          icon = { Icon(Icons.Default.Add, null) }
+      )
+    
+    bottom_sheet: |
+      @OptIn(ExperimentalMaterial3Api::class)
+      @Composable
+      fun ProfileDetailSheet(
+          profile: Profile,
+          onDismiss: () -> Unit
+      ) {
+          val sheetState = rememberModalBottomSheetState()
+          
+          ModalBottomSheet(
+              onDismissRequest = onDismiss,
+              sheetState = sheetState
+          ) {
+              Column(
+                  modifier = Modifier
+                      .fillMaxWidth()
+                      .padding(16.dp)
+              ) {
+                  // Header
+                  Row(
+                      modifier = Modifier.fillMaxWidth(),
+                      horizontalArrangement = Arrangement.SpaceBetween
+                  ) {
+                      Text(
+                          text = profile.name,
+                          style = MaterialTheme.typography.headlineMedium
+                      )
+                      IconButton(onClick = onDismiss) {
+                          Icon(Icons.Default.Close, "Close")
+                      }
+                  }
+                  
+                  // Content
+                  HorizontalPager(
+                      state = rememberPagerState { profile.photos.size }
+                  ) { page ->
+                      AsyncImage(
+                          model = profile.photos[page],
+                          contentDescription = null,
+                          modifier = Modifier
+                              .fillMaxWidth()
+                              .aspectRatio(1f)
+                      )
+                  }
+                  
+                  // Bio
+                  Text(
+                      text = profile.bio,
+                      modifier = Modifier.padding(vertical = 16.dp)
+                  )
+                  
+                  // Action buttons
+                  Row(
+                      modifier = Modifier.fillMaxWidth(),
+                      horizontalArrangement = Arrangement.SpaceEvenly
+                  ) {
+                      OutlinedButton(onClick = { /* pass */ }) {
+                          Icon(Icons.Default.Close, null)
+                          Text("Pass")
+                      }
+                      Button(onClick = { /* like */ }) {
+                          Icon(Icons.Default.Favorite, null)
+                          Text("Like")
+                      }
+                  }
+                  
+                  Spacer(modifier = Modifier.height(32.dp))
+              }
+          }
+      }
+
+# ============================================================
+# SECTION 4: ANIMATIONS
+# ============================================================
+animations:
+
+  basic_animations:
+    animate_as_state: |
+      // Simple value animation
+      @Composable
+      fun LikeButton(isLiked: Boolean, onClick: () -> Unit) {
+          val scale by animateFloatAsState(
+              targetValue = if (isLiked) 1.2f else 1f,
+              animationSpec = spring(
+                  dampingRatio = Spring.DampingRatioMediumBouncy,
+                  stiffness = Spring.StiffnessLow
+              )
+          )
+          
+          val color by animateColorAsState(
+              targetValue = if (isLiked) Color.Red else Color.Gray,
+              animationSpec = tween(300)
+          )
+          
+          IconButton(
+              onClick = onClick,
+              modifier = Modifier.scale(scale)
+          ) {
+              Icon(
+                  imageVector = if (isLiked) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
+                  contentDescription = if (isLiked) "Unlike" else "Like",
+                  tint = color
+              )
+          }
+      }
+    
+    animated_visibility: |
+      @Composable
+      fun MatchNotification(match: Match?, onDismiss: () -> Unit) {
+          AnimatedVisibility(
+              visible = match != null,
+              enter = fadeIn() + scaleIn(),
+              exit = fadeOut() + scaleOut()
+          ) {
+              match?.let {
+                  MatchCard(
+                      match = it,
+                      onDismiss = onDismiss
+                  )
+              }
+          }
+      }
+      
+      // Custom enter/exit
+      AnimatedVisibility(
+          visible = isVisible,
+          enter = slideInVertically(
+              initialOffsetY = { fullHeight -> fullHeight },
+              animationSpec = tween(300, easing = FastOutSlowInEasing)
+          ) + fadeIn(),
+          exit = slideOutVertically(
+              targetOffsetY = { fullHeight -> fullHeight }
+          ) + fadeOut()
+      ) {
+          // Content
+      }
+    
+    animated_content: |
+      // Animate between different content
+      @Composable
+      fun StatefulButton(state: ButtonState) {
+          AnimatedContent(
+              targetState = state,
+              transitionSpec = {
+                  fadeIn(animationSpec = tween(150)) togetherWith 
+                  fadeOut(animationSpec = tween(150))
+              }
+          ) { targetState ->
+              when (targetState) {
+                  ButtonState.Loading -> CircularProgressIndicator(Modifier.size(24.dp))
+                  ButtonState.Success -> Icon(Icons.Default.Check, "Success")
+                  ButtonState.Error -> Icon(Icons.Default.Error, "Error")
+                  ButtonState.Idle -> Text("Submit")
+              }
+          }
+      }
+
+  gesture_animations:
+    swipe_to_dismiss: |
+      @OptIn(ExperimentalMaterial3Api::class)
+      @Composable
+      fun SwipeableMatchCard(
+          match: Match,
+          onDismiss: () -> Unit
+      ) {
+          val dismissState = rememberSwipeToDismissBoxState(
+              confirmValueChange = { value ->
+                  if (value != SwipeToDismissBoxValue.Settled) {
+                      onDismiss()
+                      true
+                  } else false
+              }
+          )
+          
+          SwipeToDismissBox(
+              state = dismissState,
+              backgroundContent = {
+                  val color by animateColorAsState(
+                      when (dismissState.targetValue) {
+                          SwipeToDismissBoxValue.StartToEnd -> Color.Green.copy(alpha = 0.5f)
+                          SwipeToDismissBoxValue.EndToStart -> Color.Red.copy(alpha = 0.5f)
+                          else -> Color.Transparent
+                      }
+                  )
+                  Box(
+                      modifier = Modifier
+                          .fillMaxSize()
+                          .background(color)
+                          .padding(16.dp),
+                      contentAlignment = if (dismissState.targetValue == SwipeToDismissBoxValue.StartToEnd) {
+                          Alignment.CenterStart
+                      } else Alignment.CenterEnd
+                  ) {
+                      Icon(
+                          imageVector = if (dismissState.targetValue == SwipeToDismissBoxValue.StartToEnd) {
+                              Icons.Default.Favorite
+                          } else Icons.Default.Delete,
+                          contentDescription = null,
+                          tint = Color.White
+                      )
+                  }
+              }
+          ) {
+              MatchCard(match)
+          }
+      }
+    
+    draggable_card: |
+      // Tinder-style swipeable card
+      @Composable
+      fun SwipeableProfileCard(
+          profile: Profile,
+          onSwipeLeft: () -> Unit,
+          onSwipeRight: () -> Unit,
+          onSuperLike: () -> Unit
+      ) {
+          var offsetX by remember { mutableFloatStateOf(0f) }
+          var offsetY by remember { mutableFloatStateOf(0f) }
+          val rotation = (offsetX / 20).coerceIn(-15f, 15f)
+          
+          val swipeThreshold = 300f
+          
+          Card(
+              modifier = Modifier
+                  .offset { IntOffset(offsetX.toInt(), offsetY.toInt()) }
+                  .rotate(rotation)
+                  .pointerInput(Unit) {
+                      detectDragGestures(
+                          onDragEnd = {
+                              when {
+                                  offsetX > swipeThreshold -> {
+                                      onSwipeRight()
+                                  }
+                                  offsetX < -swipeThreshold -> {
+                                      onSwipeLeft()
+                                  }
+                                  offsetY < -swipeThreshold -> {
+                                      onSuperLike()
+                                  }
+                                  else -> {
+                                      // Animate back to center
+                                  }
+                              }
+                              offsetX = 0f
+                              offsetY = 0f
+                          },
+                          onDrag = { change, dragAmount ->
+                              change.consume()
+                              offsetX += dragAmount.x
+                              offsetY += dragAmount.y
+                          }
+                      )
+                  }
+          ) {
+              Box {
+                  ProfileContent(profile)
+                  
+                  // Like indicator
+                  if (offsetX > 50f) {
+                      Text(
+                          "LIKE",
+                          modifier = Modifier
+                              .align(Alignment.TopStart)
+                              .padding(16.dp)
+                              .rotate(-15f)
+                              .border(2.dp, Color.Green, RoundedCornerShape(4.dp))
+                              .padding(8.dp),
+                          color = Color.Green,
+                          fontWeight = FontWeight.Bold
+                      )
+                  }
+                  
+                  // Nope indicator
+                  if (offsetX < -50f) {
+                      Text(
+                          "NOPE",
+                          modifier = Modifier
+                              .align(Alignment.TopEnd)
+                              .padding(16.dp)
+                              .rotate(15f)
+                              .border(2.dp, Color.Red, RoundedCornerShape(4.dp))
+                              .padding(8.dp),
+                          color = Color.Red,
+                          fontWeight = FontWeight.Bold
+                      )
+                  }
+              }
+          }
+      }
+
+  complex_animations:
+    match_celebration: |
+      @Composable
+      fun MatchCelebration(
+          match: Match,
+          onDismiss: () -> Unit
+      ) {
+          val scale = remember { Animatable(0f) }
+          val heartScale = remember { Animatable(0f) }
+          val confettiAlpha = remember { Animatable(0f) }
+          
+          LaunchedEffect(Unit) {
+              // Sequence of animations
+              scale.animateTo(
+                  targetValue = 1f,
+                  animationSpec = spring(
+                      dampingRatio = Spring.DampingRatioMediumBouncy,
+                      stiffness = Spring.StiffnessMedium
+                  )
+              )
+              
+              launch {
+                  heartScale.animateTo(
+                      targetValue = 1f,
+                      animationSpec = spring(dampingRatio = 0.3f)
+                  )
+              }
+              
+              launch {
+                  confettiAlpha.animateTo(1f, animationSpec = tween(500))
+                  delay(2000)
+                  confettiAlpha.animateTo(0f, animationSpec = tween(500))
+              }
+          }
+          
+          Box(
+              modifier = Modifier
+                  .fillMaxSize()
+                  .background(Color.Black.copy(alpha = 0.8f))
+                  .clickable(onClick = onDismiss),
+              contentAlignment = Alignment.Center
+          ) {
+              // Confetti particles
+              ConfettiParticles(alpha = confettiAlpha.value)
+              
+              Column(
+                  modifier = Modifier.scale(scale.value),
+                  horizontalAlignment = Alignment.CenterHorizontally
+              ) {
+                  // Heart animation
+                  Icon(
+                      imageVector = Icons.Filled.Favorite,
+                      contentDescription = null,
+                      modifier = Modifier
+                          .size(100.dp)
+                          .scale(heartScale.value),
+                      tint = Color.Red
+                  )
+                  
+                  Text(
+                      "It's a Match!",
+                      style = MaterialTheme.typography.displaySmall,
+                      color = Color.White
+                  )
+                  
+                  Text(
+                      "You and ${match.otherUser.name} liked each other",
+                      color = Color.White.copy(alpha = 0.8f)
+                  )
+                  
+                  // Profile photos
+                  Row(
+                      modifier = Modifier.padding(vertical = 24.dp),
+                      horizontalArrangement = Arrangement.spacedBy((-20).dp)
+                  ) {
+                      CircularProfileImage(match.currentUser.photoUrl)
+                      CircularProfileImage(match.otherUser.photoUrl)
+                  }
+                  
+                  // Actions
+                  Button(onClick = { /* Start chat */ }) {
+                      Text("Send Message")
+                  }
+                  
+                  TextButton(onClick = onDismiss) {
+                      Text("Keep Swiping", color = Color.White)
+                  }
+              }
+          }
+      }
+
+# ============================================================
+# SECTION 5: MODIFIERS
+# ============================================================
+modifiers:
+
+  common_patterns:
+    combined_modifiers: |
+      // Order matters! Modifiers apply in sequence
+      Box(
+          modifier = Modifier
+              .fillMaxWidth()
+              .padding(16.dp)           // Outer padding
+              .background(
+                  color = MaterialTheme.colorScheme.surface,
+                  shape = RoundedCornerShape(12.dp)
+              )
+              .clip(RoundedCornerShape(12.dp))  // Clip content
+              .clickable { /* action */ }        // Ripple inside clip
+              .padding(16.dp)           // Inner padding
+      )
+    
+    custom_modifiers: |
+      // Extension function for reusable modifier
+      fun Modifier.profileCard() = this
+          .fillMaxWidth()
+          .padding(horizontal = 16.dp, vertical = 8.dp)
+          .shadow(4.dp, RoundedCornerShape(16.dp))
+          .background(
+              MaterialTheme.colorScheme.surface,
+              RoundedCornerShape(16.dp)
+          )
+          .clip(RoundedCornerShape(16.dp))
+      
+      // Composed modifier with state
+      fun Modifier.shimmer(): Modifier = composed {
+          val transition = rememberInfiniteTransition()
+          val translateAnim by transition.animateFloat(
+              initialValue = 0f,
+              targetValue = 1000f,
+              animationSpec = infiniteRepeatable(
+                  animation = tween(1200, easing = FastOutSlowInEasing),
+                  repeatMode = RepeatMode.Restart
+              )
+          )
+          
+          background(
+              brush = Brush.linearGradient(
+                  colors = listOf(
+                      Color.LightGray.copy(alpha = 0.6f),
+                      Color.LightGray.copy(alpha = 0.2f),
+                      Color.LightGray.copy(alpha = 0.6f)
+                  ),
+                  start = Offset(translateAnim - 1000f, 0f),
+                  end = Offset(translateAnim, 0f)
+              )
+          )
+      }
+    
+    conditional_modifiers: |
+      @Composable
+      fun ConditionalCard(
+          isSelected: Boolean,
+          isPremium: Boolean
+      ) {
+          Card(
+              modifier = Modifier
+                  .fillMaxWidth()
+                  .then(
+                      if (isSelected) Modifier.border(
+                          2.dp,
+                          MaterialTheme.colorScheme.primary,
+                          RoundedCornerShape(12.dp)
+                      ) else Modifier
+                  )
+                  .then(
+                      if (isPremium) Modifier.background(
+                          Brush.linearGradient(
+                              colors = listOf(Color(0xFFFFD700), Color(0xFFFFA500))
+                          )
+                      ) else Modifier
+                  )
+          ) {
+              // Content
+          }
+      }
+
+  accessibility_modifiers:
+    semantics: |
+      // Custom accessibility
+      @Composable
+      fun ProfileCard(profile: Profile) {
+          Card(
+              modifier = Modifier
+                  .semantics {
+                      contentDescription = "${profile.name}, ${profile.age} years old, ${profile.distance} miles away"
+                      if (profile.isVerified) {
+                          stateDescription = "Verified profile"
+                      }
+                  }
+                  .clickable(
+                      onClick = { /* view profile */ },
+                      onClickLabel = "View profile"
+                  )
+          ) {
+              // Content
+          }
+      }
+      
+      // Merge descendants for screen reader
+      Row(
+          modifier = Modifier.semantics(mergeDescendants = true) {
+              contentDescription = "${user.name} sent: ${message.content}"
+          }
+      ) {
+          Avatar(user)
+          Text(user.name)
+          Text(message.content)
+      }

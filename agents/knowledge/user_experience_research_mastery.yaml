@@ -1,0 +1,751 @@
+# User Experience (UX) Research & Design Mastery
+# Comprehensive UX methodology for user-centered product development
+# Version: 1.0.0
+# Last Updated: 2026-02-02
+
+metadata:
+  skill_name: "User Experience Research Mastery"
+  category: "product_design"
+  purpose: "Master UX research methods and user-centered design for production apps"
+  relevance:
+    - "Product strategy"
+    - "User research"
+    - "Usability testing"
+    - "Dating app optimization"
+
+# ============================================================
+# SECTION 1: UX RESEARCH FUNDAMENTALS
+# ============================================================
+ux_research_fundamentals:
+
+  research_types:
+    generative:
+      purpose: "Discover unmet needs and opportunities"
+      when: "Early product development, new feature exploration"
+      methods:
+        - "User interviews"
+        - "Contextual inquiry"
+        - "Diary studies"
+        - "Ethnographic research"
+      output: "User needs, pain points, opportunities"
+      
+    evaluative:
+      purpose: "Test solutions and measure usability"
+      when: "Design validation, pre-launch testing"
+      methods:
+        - "Usability testing"
+        - "A/B testing"
+        - "Heuristic evaluation"
+        - "Accessibility audits"
+      output: "Usability issues, improvement recommendations"
+      
+    quantitative:
+      purpose: "Measure behaviors at scale"
+      methods:
+        - "Surveys"
+        - "Analytics"
+        - "A/B testing"
+        - "Card sorting (quantitative)"
+      output: "Metrics, statistical significance, trends"
+      
+    qualitative:
+      purpose: "Understand the 'why' behind behaviors"
+      methods:
+        - "Interviews"
+        - "Observation"
+        - "Focus groups"
+        - "Think-aloud protocols"
+      output: "Insights, themes, user quotes"
+
+  research_planning:
+    research_questions:
+      template: |
+        # Research Question Framework
+        
+        ## Business Question
+        "How can we increase match-to-conversation rate?"
+        
+        ## Research Questions
+        1. What motivates users to message a match?
+        2. What barriers prevent users from messaging?
+        3. How do users decide which matches to message first?
+        4. What messaging features do users wish they had?
+        
+        ## Methods to Answer Each
+        1. Interviews + survey
+        2. Usability testing + analytics
+        3. Think-aloud protocol
+        4. Competitive analysis + interviews
+    
+    participant_recruitment:
+      screener_criteria:
+        demographics: "Age, gender, location"
+        behavior: "App usage frequency, dating activity"
+        psychographics: "Dating goals, tech savviness"
+        exclusions: "Industry employees, recent participants"
+      sample_sizes:
+        usability_testing: "5-8 participants (85% of issues)"
+        interviews: "12-20 participants (saturation)"
+        surveys: "200+ for statistical significance"
+        a_b_tests: "Depends on effect size, MDE calculator"
+      
+    research_ethics:
+      principles:
+        - "Informed consent"
+        - "Confidentiality"
+        - "Right to withdraw"
+        - "No deception without debriefing"
+        - "Protect vulnerable populations"
+      dating_app_specific:
+        - "Extra sensitivity around relationship history"
+        - "Trauma-informed interview techniques"
+        - "Anonymize all dating-related data"
+        - "Don't require sharing personal photos in research"
+
+# ============================================================
+# SECTION 2: RESEARCH METHODS
+# ============================================================
+research_methods:
+
+  user_interviews:
+    interview_types:
+      structured: "Same questions, same order, standardized"
+      semi_structured: "Guide topics, flexible follow-ups"
+      unstructured: "Open conversation, emergent topics"
+    
+    interview_guide_template: |
+      # SafeConnect User Interview Guide
+      Duration: 45-60 minutes
+      
+      ## Introduction (5 min)
+      - Thank participant
+      - Explain purpose (general, not leading)
+      - Get consent for recording
+      - Remind: no right answers, we're testing the product
+      
+      ## Warm-up (5 min)
+      - Tell me about yourself
+      - How do you typically meet new people?
+      
+      ## Dating App Experience (15 min)
+      - Walk me through your typical dating app usage
+      - What apps have you tried? What did you like/dislike?
+      - Tell me about a positive/negative experience
+      
+      ## Safety & Trust (15 min)
+      - What concerns do you have about dating apps?
+      - How do you decide if someone is trustworthy?
+      - What would make you feel safer?
+      
+      ## Concept Testing (10 min)
+      - [Show SafeConnect concept]
+      - First impressions?
+      - What appeals to you? What doesn't?
+      
+      ## Wrap-up (5 min)
+      - Anything else you'd like to share?
+      - Can we contact you for follow-up?
+    
+    interviewing_techniques:
+      dos:
+        - "Ask open-ended questions"
+        - "Use 'tell me about...' and 'describe...'"
+        - "Follow up with 'why?' and 'can you give an example?'"
+        - "Allow silence (5-7 seconds)"
+        - "Mirror and paraphrase"
+        - "Ask about specific past behavior, not hypotheticals"
+      donts:
+        - "Don't ask leading questions"
+        - "Don't interrupt"
+        - "Don't show agreement/disagreement"
+        - "Don't ask multiple questions at once"
+        - "Don't accept vague answers"
+        - "Don't assume - always probe"
+    
+    question_examples:
+      leading_bad: "Don't you think having a safety score would be helpful?"
+      open_good: "How do you assess someone's trustworthiness on dating apps?"
+      hypothetical_bad: "Would you use a feature that shows safety scores?"
+      behavioral_good: "Tell me about a time you felt unsafe on a dating app. What happened?"
+      vague_answer: "User: 'I guess I just look at their photos'"
+      probe: "What specifically about the photos do you look at? Walk me through it."
+
+  usability_testing:
+    test_planning:
+      moderated:
+        when: "Complex tasks, need follow-up questions"
+        setup: "In-person or remote video call"
+        facilitator_role: "Guide, observe, probe"
+      unmoderated:
+        when: "Large sample, simple tasks"
+        tools: ["UserTesting", "Maze", "Lookback"]
+        tradeoff: "Scale vs depth"
+    
+    task_design:
+      principles:
+        - "Real-world scenarios, not instructions"
+        - "Don't reveal UI labels in task"
+        - "One clear success criteria"
+        - "Appropriate difficulty progression"
+      
+      examples:
+        bad_task: "Click the safety button to view verification info"
+        good_task: "You're considering meeting Sarah for coffee. Before you agree, you want to know more about her verification status. How would you do that?"
+        
+        dating_app_tasks:
+          - "You just downloaded SafeConnect. Create your profile."
+          - "Browse potential matches and like someone you're interested in."
+          - "You matched with Alex! Start a conversation."
+          - "You're planning to meet Jordan tonight. Share your plans with a friend."
+          - "You're feeling overwhelmed. Take a break without losing your matches."
+          - "Report someone who made you uncomfortable."
+    
+    thinking_aloud:
+      instructions: |
+        "As you work through these tasks, please think out loud. 
+        Tell me what you're looking at, what you're thinking, 
+        what you're trying to do, and what questions you have.
+        I'm testing the app, not you - there are no wrong answers."
+      
+      probes:
+        - "What are you thinking right now?"
+        - "What did you expect to happen?"
+        - "Where would you go from here?"
+        - "What would you do next?"
+        - "Is this what you expected?"
+    
+    metrics:
+      effectiveness:
+        task_success: "Binary: completed or not"
+        completion_rate: "Percentage of users who complete"
+        error_rate: "Errors per task"
+      efficiency:
+        time_on_task: "Seconds to complete"
+        number_of_clicks: "Actions to complete"
+        help_requests: "Times user asked for help"
+      satisfaction:
+        sus_score: "System Usability Scale (0-100)"
+        nps: "Net Promoter Score"
+        post_task_rating: "5-point difficulty scale"
+
+  surveys:
+    survey_types:
+      satisfaction: "CSAT, NPS, SUS"
+      attitudes: "Feature interest, preferences"
+      segmentation: "User types, demographics"
+      benchmark: "Track metrics over time"
+    
+    question_design:
+      scales:
+        likert_5: "[Strongly Disagree -> Strongly Agree]"
+        likert_7: "More nuance, harder to decide"
+        semantic_differential: "[Easy ---- Difficult]"
+      
+      best_practices:
+        - "One concept per question"
+        - "Avoid double negatives"
+        - "Balanced scales (equal positive/negative)"
+        - "Include 'N/A' when appropriate"
+        - "Randomize answer order (except scales)"
+        - "Keep under 5 minutes"
+    
+    standard_scales:
+      sus_questions: |
+        System Usability Scale (10 items, 5-point Likert)
+        1. I think I would like to use this app frequently
+        2. I found the app unnecessarily complex
+        3. I thought the app was easy to use
+        4. I think I would need support to use this app
+        5. I found the features well integrated
+        6. I thought there was too much inconsistency
+        7. I imagine most people would learn quickly
+        8. I found the app very cumbersome
+        9. I felt very confident using the app
+        10. I needed to learn a lot before I could start
+        
+        Scoring: ((Odd items - 1) + (5 - Even items)) * 2.5
+        Result: 0-100, 68+ is above average
+      
+      nps_question: |
+        "How likely are you to recommend SafeConnect to a friend?"
+        Scale: 0-10
+        
+        Scoring:
+        - Detractors: 0-6
+        - Passives: 7-8
+        - Promoters: 9-10
+        
+        NPS = % Promoters - % Detractors
+        Range: -100 to +100
+
+  competitive_analysis:
+    framework:
+      direct_competitors:
+        dating: ["Tinder", "Bumble", "Hinge", "Coffee Meets Bagel"]
+        safety_focused: ["Once", "S'More"]
+      indirect_competitors:
+        social: ["Facebook Dating", "Instagram"]
+        niche: ["The League", "Raya"]
+    
+    evaluation_dimensions:
+      features: "What features do they offer?"
+      experience: "How do they implement each feature?"
+      positioning: "How do they differentiate?"
+      strengths: "What do users love?"
+      weaknesses: "What do users complain about?"
+    
+    competitive_matrix: |
+      | Feature          | Tinder | Bumble | Hinge | SafeConnect |
+      |------------------|--------|--------|-------|-------------|
+      | Swipe interface  | ✓      | ✓      | ✓     | ✓           |
+      | Photo verify     | ✓      | ✓      | ✓     | ✓ (mandatory)|
+      | Video chat       | ✓      | ✓      | ✓     | ✓ + safety   |
+      | Background check | -      | ✓ (opt)| -     | ✓           |
+      | Safe date check  | -      | -      | -     | ✓ (unique)  |
+      | Games            | Vibes  | Questions| -   | ✓ (12+ games)|
+      | Women first      | -      | ✓      | -     | Optional    |
+
+# ============================================================
+# SECTION 3: USER PERSONAS & JOURNEYS
+# ============================================================
+user_modeling:
+
+  personas:
+    purpose: "Represent target user segments for design decisions"
+    components:
+      - "Name and photo (humanize)"
+      - "Demographics"
+      - "Goals and motivations"
+      - "Frustrations and pain points"
+      - "Behaviors and preferences"
+      - "Quote that captures their essence"
+    
+    example_personas:
+      safety_seeker:
+        name: "Maya, 28"
+        occupation: "Marketing Manager"
+        location: "Urban, lives alone"
+        dating_goals: "Looking for long-term relationship"
+        tech_comfort: "High - daily smartphone user"
+        frustrations:
+          - "Catfishing experiences in past"
+          - "Uncomfortable first date situations"
+          - "Having to share personal info too early"
+        needs:
+          - "Verified identities before meeting"
+          - "Safe way to video chat first"
+          - "Check-in system for dates"
+        quote: "I want to feel excited about dating, not anxious about my safety."
+        
+      cautious_returner:
+        name: "David, 35"
+        occupation: "Software Engineer"
+        location: "Suburban"
+        dating_goals: "Getting back into dating after divorce"
+        tech_comfort: "Very high"
+        frustrations:
+          - "Feels rusty at dating"
+          - "Worried about scams"
+          - "Doesn't know modern dating norms"
+        needs:
+          - "Clear verification of who people are"
+          - "Icebreakers and conversation guides"
+          - "Gradual trust building"
+        quote: "I'm ready to date again, but the app landscape feels like the Wild West."
+        
+      adventurous_dater:
+        name: "Jordan, 24"
+        occupation: "Graduate Student"
+        location: "University town"
+        dating_goals: "Meeting interesting people, open to where it goes"
+        tech_comfort: "Native - grew up with smartphones"
+        frustrations:
+          - "Superficial conversations"
+          - "Same boring profiles"
+          - "Friends worry when they go on dates"
+        needs:
+          - "Fun ways to get to know matches"
+          - "Easy way to share date plans"
+          - "Quick video vibe check"
+        quote: "I want dating to be fun, not feel like a job interview."
+
+  journey_mapping:
+    purpose: "Visualize end-to-end experience to find opportunities"
+    
+    journey_phases:
+      awareness:
+        touchpoints: ["Ad", "Friend referral", "App store"]
+        actions: ["See ad", "Hear about app", "Search app store"]
+        thoughts: ["Is this different?", "Will this work?"]
+        emotions: ["Curious", "Skeptical"]
+        opportunities: ["Clear safety-first positioning", "Social proof"]
+        
+      onboarding:
+        touchpoints: ["Download", "Signup", "Profile creation"]
+        actions: ["Create account", "Verify identity", "Add photos", "Write bio"]
+        thoughts: ["Why so much verification?", "Is this secure?", "How do I look?"]
+        emotions: ["Hopeful", "Anxious", "Self-conscious"]
+        opportunities: ["Explain benefits of verification", "Profile tips", "Progress indicators"]
+        
+      discovery:
+        touchpoints: ["Feed", "Profiles", "Matching"]
+        actions: ["Swipe", "View profiles", "Like/pass", "Get matches"]
+        thoughts: ["Are these real people?", "Who will I match with?", "What should I look for?"]
+        emotions: ["Excited", "Overwhelmed", "Hopeful"]
+        opportunities: ["Trust indicators", "Match suggestions", "Quality over quantity"]
+        
+      connection:
+        touchpoints: ["Match notification", "Chat", "Video call"]
+        actions: ["Receive match", "Start conversation", "Video chat"]
+        thoughts: ["What do I say?", "Are they who they say?", "Do we click?"]
+        emotions: ["Nervous", "Excited", "Cautious"]
+        opportunities: ["Icebreakers", "Voice/video verify", "Conversation prompts"]
+        
+      meeting:
+        touchpoints: ["Plan date", "Check-in", "The date"]
+        actions: ["Share plans", "Enable location", "Go on date", "Check in"]
+        thoughts: ["Is this safe?", "Who should I tell?", "How do I exit if needed?"]
+        emotions: ["Vulnerable", "Excited", "Alert"]
+        opportunities: ["Date planning tools", "Check-in prompts", "Emergency features"]
+        
+      ongoing:
+        touchpoints: ["Feedback", "Relationship", "Referral"]
+        actions: ["Rate experience", "Continue dating", "Tell friends"]
+        thoughts: ["Did it go well?", "Should I see them again?", "Would I recommend this?"]
+        emotions: ["Reflective", "Hopeful/Disappointed", "Grateful"]
+        opportunities: ["Anonymous feedback", "Safety tips", "Referral rewards"]
+    
+    emotional_mapping: |
+      Phase:    Awareness → Onboarding → Discovery → Connection → Meeting → Ongoing
+      Emotion:     😊   →    😰😊    →   😊😰    →    😰😊    →   😨😊   →   😌
+                Curious    Anxious/   Excited/    Nervous/   Vulnerable/  Satisfied/
+                           Hopeful    Overwhelmed  Hopeful    Excited     Reflective
+
+# ============================================================
+# SECTION 4: INFORMATION ARCHITECTURE
+# ============================================================
+information_architecture:
+
+  card_sorting:
+    open_sort:
+      process: "Users create their own categories"
+      output: "Discover user mental models"
+      when: "Early IA development"
+    closed_sort:
+      process: "Users sort into predefined categories"
+      output: "Validate proposed structure"
+      when: "Testing existing IA"
+    hybrid_sort:
+      process: "Predefined categories + option to create new"
+      output: "Both discovery and validation"
+    
+    analysis:
+      similarity_matrix: "Which items grouped together most?"
+      dendogram: "Hierarchical clustering visualization"
+      standardization: "Consistent category naming"
+      
+  tree_testing:
+    purpose: "Test findability without visual design influence"
+    process: |
+      1. Create tree structure of navigation
+      2. Give users tasks (e.g., "Find safety settings")
+      3. Users navigate tree to find item
+      4. Measure success rate and path
+    
+    metrics:
+      success_rate: "Did they find correct location?"
+      directness: "Did they go straight there?"
+      time_to_find: "How long did it take?"
+
+  navigation_patterns:
+    dating_app_ia:
+      bottom_nav:
+        - "Discover (swipe feed)"
+        - "Matches (conversations)"
+        - "Games (engagement)"
+        - "Profile (settings)"
+      profile_sub_nav:
+        - "Edit profile"
+        - "Safety center"
+        - "Settings"
+        - "Help"
+      settings_organization:
+        account: ["Email", "Phone", "Password", "Delete account"]
+        privacy: ["Hide profile", "Block list", "Data settings"]
+        safety: ["Verification", "Emergency contacts", "Check-in settings"]
+        notifications: ["Matches", "Messages", "Marketing"]
+        preferences: ["Distance", "Age range", "Looking for"]
+
+# ============================================================
+# SECTION 5: DESIGN THINKING & IDEATION
+# ============================================================
+design_thinking:
+
+  double_diamond:
+    discover:
+      activities: ["Research", "Interviews", "Observation"]
+      output: "Deep understanding of problem space"
+    define:
+      activities: ["Synthesis", "Analysis", "Problem framing"]
+      output: "Clear problem statement"
+    develop:
+      activities: ["Ideation", "Prototyping", "Testing"]
+      output: "Potential solutions explored"
+    deliver:
+      activities: ["Implementation", "Launch", "Iteration"]
+      output: "Solution in market"
+
+  ideation_techniques:
+    brainstorming:
+      rules:
+        - "Defer judgment"
+        - "Quantity over quality"
+        - "Build on others' ideas"
+        - "Wild ideas welcome"
+        - "One conversation at a time"
+        - "Be visual"
+      
+    how_might_we:
+      purpose: "Reframe problems as opportunities"
+      formula: "How might we [verb] [user] [need/insight]?"
+      examples:
+        - "How might we make safety feel empowering rather than scary?"
+        - "How might we help users verify someone's identity without friction?"
+        - "How might we make the first message less intimidating?"
+        - "How might we give users confidence before an in-person date?"
+    
+    crazy_eights:
+      process: |
+        1. Fold paper into 8 sections
+        2. Set timer for 8 minutes
+        3. Sketch 8 different ideas (1 minute each)
+        4. No erasing, keep moving
+        5. Share and vote on favorites
+      benefit: "Forces rapid ideation past obvious solutions"
+    
+    storyboarding:
+      purpose: "Visualize user experience through scenario"
+      elements:
+        - "User character"
+        - "Setting/context"
+        - "Goal/motivation"
+        - "Steps of interaction"
+        - "Emotional state at each step"
+        - "Resolution"
+
+  prototyping:
+    fidelity_spectrum:
+      paper:
+        effort: "Minutes"
+        best_for: "Early concepts, flow validation"
+        tools: ["Paper", "Sharpies", "Sticky notes"]
+      low_fi:
+        effort: "Hours"
+        best_for: "Structure and layout testing"
+        tools: ["Whimsical", "Balsamiq", "Figma wireframes"]
+      mid_fi:
+        effort: "Days"
+        best_for: "Interaction testing, user flows"
+        tools: ["Figma", "Sketch", "Adobe XD"]
+      high_fi:
+        effort: "Weeks"
+        best_for: "Visual design validation, dev handoff"
+        tools: ["Figma with design system", "Protopie"]
+    
+    prototype_principles:
+      - "Prototype the riskiest assumptions first"
+      - "Only build what you need to test"
+      - "Make it real enough to get honest feedback"
+      - "Plan what you'll learn, not just what you'll make"
+
+# ============================================================
+# SECTION 6: DATING APP UX BEST PRACTICES
+# ============================================================
+dating_app_ux:
+
+  trust_building:
+    verification_ux:
+      principles:
+        - "Make benefits clear before asking for verification"
+        - "Show progress and completion"
+        - "Reward completion (better matches, badges)"
+        - "Never surprise users with requirements"
+      
+      verification_flow: |
+        Step 1: Photo Verification
+        - Explain: "Real photos = real connections"
+        - Show: Example of selfie pose
+        - Do: Take real-time selfie
+        - Reward: Blue checkmark, verification badge
+        
+        Step 2: ID Verification (optional but encouraged)
+        - Explain: "Verified identities, safer dates"
+        - Show: Which IDs accepted
+        - Do: Scan ID document
+        - Reward: Gold verification badge
+        
+        Step 3: Background Check (premium)
+        - Explain: "Extra peace of mind"
+        - Partner: Trusted background check service
+        - Reward: Platinum badge, priority in discovery
+    
+    trust_signals:
+      profile_signals:
+        - "Verification badges (prominent but not overwhelming)"
+        - "Member since date"
+        - "Response rate"
+        - "Mutual connections"
+        - "Last active (within privacy bounds)"
+      conversation_signals:
+        - "Voice note = voice matches video"
+        - "Response time patterns"
+        - "Profile consistency over time"
+
+  safety_centered_design:
+    proactive_safety:
+      before_matching:
+        - "Require photo verification"
+        - "Show verification status prominently"
+        - "AI-detect red flag language in bios"
+      during_conversation:
+        - "Detect request for personal info too early"
+        - "Flag suspicious patterns"
+        - "Offer video chat before meeting"
+      before_meeting:
+        - "Prompt to share date plans"
+        - "Suggest public first meeting locations"
+        - "Enable check-in reminders"
+      during_date:
+        - "Timed check-ins"
+        - "Discreet emergency alert option"
+        - "Location sharing with trusted contacts"
+    
+    reactive_safety:
+      reporting:
+        - "Easy access (but not disruptive)"
+        - "Specific report categories"
+        - "Anonymous option"
+        - "Immediate action feedback"
+      blocking:
+        - "Immediate effect"
+        - "No notification to blocked user"
+        - "Can't be circumvented"
+        - "Review past conversations option"
+      support:
+        - "Safety resources readily available"
+        - "Professional help hotlines"
+        - "Community guidelines clear"
+
+  engagement_patterns:
+    gamification:
+      why_works: "Dating already has game elements - matches are wins"
+      techniques:
+        progress: "Profile completion, verification levels"
+        rewards: "Badges, super likes, visibility boosts"
+        social: "Leaderboards for games, shared experiences"
+        surprise: "Daily picks, random rewards"
+      
+    ice_breakers:
+      problem: "40% of matches never message"
+      solutions:
+        prompts: "Answer prompts instead of blank bio"
+        games: "Play a game to start conversation"
+        questions: "App suggests personalized questions"
+        voice_intro: "Optional voice note introduction"
+    
+    reducing_churn:
+      reasons_users_leave:
+        - "Too many matches, overwhelmed"
+        - "No matches, discouraged"
+        - "Bad experiences"
+        - "Found relationship"
+      solutions:
+        overwhelming: "Quality limits, curated picks, snooze"
+        discouraged: "Profile tips, expanded settings, encouragement"
+        bad_experience: "Better safety features, support"
+        success: "Graduate users, referral program"
+
+# ============================================================
+# SECTION 7: UX METRICS & ANALYTICS
+# ============================================================
+ux_metrics:
+
+  dating_app_metrics:
+    acquisition:
+      - "App store conversion rate"
+      - "Install to signup rate"
+      - "Signup completion rate"
+    activation:
+      - "Profile completion rate"
+      - "First swipe session length"
+      - "First match rate"
+      - "First message sent rate"
+    engagement:
+      - "DAU/MAU ratio"
+      - "Sessions per day"
+      - "Swipes per session"
+      - "Messages per match"
+      - "Match to conversation rate"
+      - "Conversation to date rate"
+    retention:
+      - "Day 1/7/30 retention"
+      - "Churn rate"
+      - "Return rate after churn"
+    monetization:
+      - "Conversion to premium"
+      - "LTV (lifetime value)"
+      - "ARPU (average revenue per user)"
+    satisfaction:
+      - "NPS"
+      - "App store rating"
+      - "Customer support tickets"
+  
+  safety_metrics:
+    - "Photo verification completion rate"
+    - "Reports per 1000 users"
+    - "Block rate"
+    - "False positive rate on AI detection"
+    - "Check-in feature usage rate"
+    - "Emergency alert activations"
+    - "User-reported unsafe dates (should be zero)"
+
+  analytics_implementation:
+    event_tracking: |
+      // Key events to track
+      data class AnalyticsEvent(
+          val name: String,
+          val properties: Map<String, Any>
+      )
+      
+      // Examples
+      trackEvent("profile_created", mapOf(
+          "photos_count" to 3,
+          "bio_length" to 150,
+          "verification_started" to true
+      ))
+      
+      trackEvent("swipe", mapOf(
+          "direction" to "right",
+          "profile_id" to "xxx",
+          "time_viewing" to 4.5,
+          "is_verified" to true
+      ))
+      
+      trackEvent("match", mapOf(
+          "matched_user_id" to "xxx",
+          "mutual_verification" to true,
+          "time_since_like" to 120
+      ))
+      
+      trackEvent("message_sent", mapOf(
+          "match_id" to "xxx",
+          "message_type" to "text", // or voice, game_invite
+          "conversation_age" to 0,  // first message
+          "used_prompt" to true
+      ))
+      
+      trackEvent("date_planned", mapOf(
+          "shared_with_contacts" to true,
+          "check_in_enabled" to true,
+          "venue_type" to "restaurant"
+      ))

@@ -1,0 +1,2080 @@
+# =============================================================================
+# ML ENGINEERING / MLOps MASTERY - Professional Best Practices
+# =============================================================================
+# Comprehensive guide covering Experiment Tracking, Feature Engineering,
+# Model Serving, Monitoring, CI/CD for ML, and Responsible AI
+# Version: 1.0.0
+# Last Updated: 2026-02-02
+# =============================================================================
+
+metadata:
+  domain: "ML Engineering / MLOps"
+  level: "Mastery"
+  focus: "Verifiable, Production-Grade Practices"
+  technologies:
+    - MLflow
+    - Feast / Tecton
+    - FastAPI / TensorFlow Serving
+    - Evidently AI / Alibi Detect
+    - DVC / CML
+    - SHAP / LIME
+
+# =============================================================================
+# SECTION 1: EXPERIMENT TRACKING
+# =============================================================================
+experiment_tracking:
+  overview: |
+    Experiment tracking enables reproducibility, collaboration, and systematic
+    optimization. MLflow is the de-facto standard, providing experiment logging,
+    model registry, and deployment capabilities.
+
+  mlflow_patterns:
+    basic_setup:
+      description: "Production-ready MLflow configuration"
+      code_example: |
+        import mlflow
+        from mlflow.tracking import MlflowClient
+        
+        # Configure tracking server (use remote in production)
+        mlflow.set_tracking_uri("http://mlflow-server:5000")
+        mlflow.set_experiment("fraud-detection-v2")
+        
+        # Enable autologging for frameworks
+        mlflow.sklearn.autolog(log_models=True, log_input_examples=True)
+        mlflow.pytorch.autolog(log_models=True)
+      
+      best_practices:
+        - "Use remote tracking server, never local file:// in production"
+        - "Enable artifact storage on S3/GCS/Azure Blob"
+        - "Set up PostgreSQL backend for metadata (not SQLite)"
+
+    structured_experiment:
+      description: "Comprehensive experiment logging pattern"
+      code_example: |
+        import mlflow
+        import hashlib
+        from datetime import datetime
+        
+        def run_experiment(
+            model_fn,
+            train_data,
+            test_data,
+            params: dict,
+            tags: dict = None
+        ):
+            """
+            Reproducible experiment wrapper with full lineage tracking.
+            """
+            # Generate deterministic run name
+            param_hash = hashlib.md5(str(sorted(params.items())).encode()).hexdigest()[:8]
+            run_name = f"{model_fn.__name__}_{param_hash}_{datetime.now():%Y%m%d}"
+            
+            with mlflow.start_run(run_name=run_name) as run:
+                # Log environment
+                mlflow.log_param("python_version", sys.version)
+                mlflow.log_param("mlflow_version", mlflow.__version__)
+                
+                # Log data lineage
+                mlflow.log_param("train_data_hash", hash_dataframe(train_data))
+                mlflow.log_param("train_data_shape", str(train_data.shape))
+                mlflow.log_param("test_data_shape", str(test_data.shape))
+                
+                # Log hyperparameters
+                mlflow.log_params(params)
+                
+                # Log custom tags
+                mlflow.set_tags(tags or {})
+                mlflow.set_tag("engineer", os.environ.get("USER", "unknown"))
+                
+                # Train model
+                model = model_fn(**params)
+                model.fit(train_data.drop("target", axis=1), train_data["target"])
+                
+                # Evaluate and log metrics
+                predictions = model.predict(test_data.drop("target", axis=1))
+                metrics = calculate_metrics(test_data["target"], predictions)
+                mlflow.log_metrics(metrics)
+                
+                # Log model with signature
+                signature = mlflow.models.infer_signature(
+                    train_data.drop("target", axis=1),
+                    predictions
+                )
+                mlflow.sklearn.log_model(
+                    model,
+                    "model",
+                    signature=signature,
+                    input_example=train_data.drop("target", axis=1).head(5)
+                )
+                
+                # Log artifacts
+                mlflow.log_artifact("config.yaml")
+                
+                return run.info.run_id
+
+    model_registry:
+      description: "Model versioning and lifecycle management"
+      code_example: |
+        from mlflow.tracking import MlflowClient
+        from mlflow.entities.model_registry import ModelVersion
+        
+        client = MlflowClient()
+        
+        # Register model from run
+        model_uri = f"runs:/{run_id}/model"
+        model_version = mlflow.register_model(model_uri, "fraud-detector")
+        
+        # Add model description and tags
+        client.update_model_version(
+            name="fraud-detector",
+            version=model_version.version,
+            description="XGBoost fraud classifier trained on 2026-Q1 data"
+        )
+        client.set_model_version_tag(
+            name="fraud-detector",
+            version=model_version.version,
+            key="validation_status",
+            value="pending"
+        )
+        
+        # Stage transitions with approval workflow
+        def promote_model(model_name: str, version: int, target_stage: str):
+            """
+            Promote model through staging workflow.
+            Stages: None -> Staging -> Production -> Archived
+            """
+            current = client.get_model_version(model_name, version)
+            
+            # Validate transition
+            valid_transitions = {
+                "None": ["Staging"],
+                "Staging": ["Production", "Archived"],
+                "Production": ["Archived"],
+            }
+            if target_stage not in valid_transitions.get(current.current_stage, []):
+                raise ValueError(f"Invalid transition: {current.current_stage} -> {target_stage}")
+            
+            # Archive current production model
+            if target_stage == "Production":
+                for mv in client.search_model_versions(f"name='{model_name}'"):
+                    if mv.current_stage == "Production":
+                        client.transition_model_version_stage(
+                            name=model_name,
+                            version=mv.version,
+                            stage="Archived"
+                        )
+            
+            client.transition_model_version_stage(
+                name=model_name,
+                version=version,
+                stage=target_stage
+            )
+
+  reproducibility:
+    requirements:
+      - "Pin all dependency versions (requirements.txt / conda.yaml)"
+      - "Log random seeds for all stochastic operations"
+      - "Version control data with DVC or Delta Lake"
+      - "Use deterministic data splits (hash-based)"
+    
+    code_example: |
+      import random
+      import numpy as np
+      import torch
+      import hashlib
+      
+      def set_reproducibility(seed: int = 42):
+          """Ensure deterministic behavior across runs."""
+          random.seed(seed)
+          np.random.seed(seed)
+          torch.manual_seed(seed)
+          torch.cuda.manual_seed_all(seed)
+          torch.backends.cudnn.deterministic = True
+          torch.backends.cudnn.benchmark = False
+          os.environ["PYTHONHASHSEED"] = str(seed)
+      
+      def deterministic_split(df, test_ratio=0.2, salt="experiment_v1"):
+          """
+          Hash-based split for reproducibility across environments.
+          Same row always goes to same split regardless of order.
+          """
+          def row_hash(row_id):
+              h = hashlib.md5(f"{row_id}{salt}".encode()).hexdigest()
+              return int(h, 16) % 100
+          
+          df["_split_hash"] = df["id"].apply(row_hash)
+          test_mask = df["_split_hash"] < (test_ratio * 100)
+          
+          train_df = df[~test_mask].drop("_split_hash", axis=1)
+          test_df = df[test_mask].drop("_split_hash", axis=1)
+          
+          return train_df, test_df
+
+  checklist:
+    experiment_setup:
+      - "[ ] Remote MLflow tracking server configured"
+      - "[ ] Artifact storage on cloud object store"
+      - "[ ] PostgreSQL/MySQL backend for metadata"
+      - "[ ] Autologging enabled for ML framework"
+    
+    run_logging:
+      - "[ ] All hyperparameters logged"
+      - "[ ] Data lineage (hash, version, shape) logged"
+      - "[ ] Model signature and input example logged"
+      - "[ ] Environment details captured"
+      - "[ ] Git commit hash tagged"
+    
+    model_management:
+      - "[ ] Models registered with descriptions"
+      - "[ ] Staging workflow defined (Staging -> Production)"
+      - "[ ] Model validation gates before promotion"
+      - "[ ] Archived models retained for rollback"
+
+# =============================================================================
+# SECTION 2: FEATURE ENGINEERING
+# =============================================================================
+feature_engineering:
+  overview: |
+    Feature stores provide a centralized repository for feature computation,
+    storage, and serving. They solve training-serving skew by ensuring identical
+    feature logic in batch training and real-time inference.
+
+  feature_store_architecture:
+    components:
+      offline_store:
+        description: "Historical feature storage for training"
+        technologies: ["Parquet on S3", "Delta Lake", "BigQuery", "Snowflake"]
+        use_cases:
+          - "Batch training data generation"
+          - "Backfilling historical features"
+          - "Point-in-time joins for training"
+      
+      online_store:
+        description: "Low-latency feature serving for inference"
+        technologies: ["Redis", "DynamoDB", "Cassandra", "Bigtable"]
+        use_cases:
+          - "Real-time model inference (<10ms)"
+          - "Feature freshness requirements"
+          - "High QPS serving"
+      
+      feature_registry:
+        description: "Metadata catalog of all features"
+        capabilities:
+          - "Feature discovery and documentation"
+          - "Lineage tracking (data source -> feature)"
+          - "Schema evolution and versioning"
+
+  feast_patterns:
+    feature_definition:
+      description: "Declaring features with Feast"
+      code_example: |
+        from feast import Entity, Feature, FeatureView, FileSource, ValueType
+        from feast.types import Float32, Int64, String
+        from datetime import timedelta
+        
+        # Define entity (primary key)
+        customer = Entity(
+            name="customer_id",
+            value_type=ValueType.INT64,
+            description="Unique customer identifier"
+        )
+        
+        # Define data source
+        customer_stats_source = FileSource(
+            path="s3://features/customer_stats.parquet",
+            timestamp_field="event_timestamp",
+            created_timestamp_column="created_at"
+        )
+        
+        # Define feature view
+        customer_features = FeatureView(
+            name="customer_features",
+            entities=[customer],
+            ttl=timedelta(days=90),  # Feature freshness
+            schema=[
+                Feature(name="total_purchases", dtype=Int64),
+                Feature(name="avg_purchase_value", dtype=Float32),
+                Feature(name="days_since_last_purchase", dtype=Int64),
+                Feature(name="preferred_category", dtype=String),
+            ],
+            source=customer_stats_source,
+            online=True,  # Materialize to online store
+            tags={"team": "fraud", "tier": "critical"}
+        )
+    
+    point_in_time_join:
+      description: "Prevent data leakage with temporal joins"
+      code_example: |
+        from feast import FeatureStore
+        import pandas as pd
+        
+        store = FeatureStore(repo_path="feature_repo/")
+        
+        # Training data with timestamps (when prediction was needed)
+        entity_df = pd.DataFrame({
+            "customer_id": [1001, 1002, 1003, 1001],
+            "event_timestamp": [
+                "2026-01-15 10:00:00",
+                "2026-01-16 14:30:00",
+                "2026-01-17 09:15:00",
+                "2026-01-20 11:00:00",  # Same customer, different time
+            ]
+        })
+        entity_df["event_timestamp"] = pd.to_datetime(entity_df["event_timestamp"])
+        
+        # Point-in-time correct feature retrieval
+        # Only features available BEFORE event_timestamp are returned
+        training_df = store.get_historical_features(
+            entity_df=entity_df,
+            features=[
+                "customer_features:total_purchases",
+                "customer_features:avg_purchase_value",
+                "customer_features:days_since_last_purchase",
+            ]
+        ).to_df()
+        
+        # This prevents target leakage - customer 1001 gets different
+        # feature values for Jan 15 vs Jan 20 timestamps
+      
+      why: |
+        Point-in-time joins are critical to prevent data leakage. Without them,
+        training data would include future information not available at
+        prediction time, causing models to perform worse in production.
+
+    online_serving:
+      description: "Low-latency feature retrieval for inference"
+      code_example: |
+        from feast import FeatureStore
+        
+        store = FeatureStore(repo_path="feature_repo/")
+        
+        # Real-time feature retrieval (<10ms with Redis online store)
+        def get_features_for_prediction(customer_ids: list[int]) -> dict:
+            """
+            Fetch features for real-time inference.
+            Returns latest feature values from online store.
+            """
+            entity_rows = [{"customer_id": cid} for cid in customer_ids]
+            
+            feature_vector = store.get_online_features(
+                features=[
+                    "customer_features:total_purchases",
+                    "customer_features:avg_purchase_value",
+                    "customer_features:days_since_last_purchase",
+                ],
+                entity_rows=entity_rows
+            ).to_dict()
+            
+            return feature_vector
+        
+        # Materialize features to online store (run periodically)
+        # feast materialize-incremental $(date +%Y-%m-%dT%H:%M:%S)
+
+  feature_engineering_patterns:
+    aggregation_features:
+      description: "Time-windowed aggregations"
+      code_example: |
+        import pyspark.sql.functions as F
+        from pyspark.sql.window import Window
+        
+        def compute_rolling_features(events_df, entity_col, timestamp_col):
+            """
+            Compute rolling aggregations at multiple time windows.
+            """
+            windows = {
+                "1d": 86400,
+                "7d": 86400 * 7,
+                "30d": 86400 * 30,
+            }
+            
+            result = events_df
+            
+            for window_name, seconds in windows.items():
+                window_spec = (
+                    Window
+                    .partitionBy(entity_col)
+                    .orderBy(F.col(timestamp_col).cast("long"))
+                    .rangeBetween(-seconds, 0)
+                )
+                
+                result = result.withColumn(
+                    f"txn_count_{window_name}",
+                    F.count("*").over(window_spec)
+                ).withColumn(
+                    f"txn_sum_{window_name}",
+                    F.sum("amount").over(window_spec)
+                ).withColumn(
+                    f"txn_avg_{window_name}",
+                    F.avg("amount").over(window_spec)
+                )
+            
+            return result
+    
+    ratio_features:
+      description: "Derived ratio and comparison features"
+      code_example: |
+        def compute_ratio_features(df):
+            """
+            Ratio features capture relative patterns.
+            Always handle division by zero.
+            """
+            return df.assign(
+                # Current vs historical comparison
+                amount_vs_avg_7d=lambda x: x["amount"] / x["txn_avg_7d"].replace(0, 1),
+                amount_vs_avg_30d=lambda x: x["amount"] / x["txn_avg_30d"].replace(0, 1),
+                
+                # Velocity features
+                txn_velocity_ratio=lambda x: (
+                    x["txn_count_1d"] / x["txn_count_7d"].replace(0, 1) * 7
+                ),
+                
+                # Percentile rank within entity
+                amount_percentile=lambda x: x.groupby("customer_id")["amount"]
+                    .transform(lambda s: s.rank(pct=True))
+            )
+    
+    embedding_features:
+      description: "Learned embeddings for categorical features"
+      code_example: |
+        import tensorflow as tf
+        from tensorflow.keras.layers import Embedding, Flatten, Concatenate
+        
+        class EmbeddingFeaturizer:
+            """
+            Learn embeddings for high-cardinality categoricals.
+            Embeddings capture semantic similarity.
+            """
+            def __init__(self, categorical_dims: dict[str, tuple[int, int]]):
+                """
+                categorical_dims: {col_name: (vocab_size, embedding_dim)}
+                """
+                self.embeddings = {}
+                for col, (vocab_size, embed_dim) in categorical_dims.items():
+                    self.embeddings[col] = Embedding(
+                        input_dim=vocab_size,
+                        output_dim=embed_dim,
+                        name=f"{col}_embedding"
+                    )
+            
+            def __call__(self, inputs: dict[str, tf.Tensor]) -> tf.Tensor:
+                embedded = []
+                for col, layer in self.embeddings.items():
+                    embedded.append(Flatten()(layer(inputs[col])))
+                return Concatenate()(embedded)
+
+  checklist:
+    feature_store_setup:
+      - "[ ] Offline store configured (S3/Delta Lake)"
+      - "[ ] Online store configured (Redis/DynamoDB)"
+      - "[ ] Feature registry documented"
+      - "[ ] Materialization pipeline scheduled"
+    
+    feature_quality:
+      - "[ ] Point-in-time correctness validated"
+      - "[ ] Feature freshness SLOs defined"
+      - "[ ] Null/missing value handling documented"
+      - "[ ] Feature schemas versioned"
+    
+    training_serving_parity:
+      - "[ ] Same feature computation logic for batch/online"
+      - "[ ] Feature monitoring for distribution drift"
+      - "[ ] Latency requirements validated (<10ms online)"
+
+# =============================================================================
+# SECTION 3: MODEL SERVING
+# =============================================================================
+model_serving:
+  overview: |
+    Model serving patterns depend on latency requirements, throughput needs,
+    and infrastructure constraints. Batch serving optimizes for throughput,
+    while real-time serving optimizes for latency.
+
+  batch_vs_realtime:
+    batch_inference:
+      description: "Precompute predictions for all entities"
+      use_cases:
+        - "Daily recommendation generation"
+        - "Weekly churn scoring"
+        - "Latency tolerance > minutes"
+      
+      code_example: |
+        import mlflow
+        from pyspark.sql import SparkSession
+        
+        def batch_inference_pipeline(
+            model_name: str,
+            model_stage: str,
+            input_path: str,
+            output_path: str
+        ):
+            """
+            Distributed batch inference with Spark.
+            """
+            spark = SparkSession.builder.getOrCreate()
+            
+            # Load production model
+            model_uri = f"models:/{model_name}/{model_stage}"
+            model = mlflow.pyfunc.spark_udf(spark, model_uri)
+            
+            # Read input data
+            df = spark.read.parquet(input_path)
+            
+            # Apply model at scale
+            predictions = df.withColumn(
+                "prediction",
+                model(*[df[c] for c in feature_columns])
+            )
+            
+            # Add metadata
+            predictions = predictions.withColumn(
+                "prediction_timestamp", F.current_timestamp()
+            ).withColumn(
+                "model_version", F.lit(model_stage)
+            )
+            
+            # Write predictions
+            predictions.write.mode("overwrite").parquet(output_path)
+            
+            return predictions.count()
+      
+      best_practices:
+        - "Partition output by date for incremental queries"
+        - "Include model version and timestamp in output"
+        - "Validate prediction distribution before writing"
+        - "Set up alerting for job failures"
+    
+    realtime_inference:
+      description: "On-demand predictions with low latency"
+      use_cases:
+        - "Fraud detection at transaction time"
+        - "Real-time personalization"
+        - "Latency requirements < 100ms"
+      
+      latency_targets:
+        p50: "<20ms"
+        p95: "<50ms"
+        p99: "<100ms"
+
+  fastapi_serving:
+    basic_pattern:
+      description: "Production-ready FastAPI model server"
+      code_example: |
+        from fastapi import FastAPI, HTTPException, Depends
+        from pydantic import BaseModel, Field, validator
+        from contextlib import asynccontextmanager
+        import mlflow
+        import numpy as np
+        from typing import Optional
+        import time
+        
+        # Pydantic models for validation
+        class PredictionRequest(BaseModel):
+            customer_id: int = Field(..., gt=0)
+            amount: float = Field(..., gt=0)
+            merchant_category: str
+            timestamp: Optional[str] = None
+            
+            @validator("merchant_category")
+            def validate_category(cls, v):
+                valid_categories = {"retail", "food", "travel", "entertainment"}
+                if v not in valid_categories:
+                    raise ValueError(f"Invalid category: {v}")
+                return v
+        
+        class PredictionResponse(BaseModel):
+            prediction: float
+            probability: float
+            model_version: str
+            latency_ms: float
+        
+        # Global model holder
+        class ModelManager:
+            def __init__(self):
+                self.model = None
+                self.model_version = None
+            
+            def load_model(self, model_name: str, stage: str = "Production"):
+                model_uri = f"models:/{model_name}/{stage}"
+                self.model = mlflow.pyfunc.load_model(model_uri)
+                self.model_version = f"{model_name}@{stage}"
+        
+        model_manager = ModelManager()
+        
+        @asynccontextmanager
+        async def lifespan(app: FastAPI):
+            # Startup: Load model
+            model_manager.load_model("fraud-detector", "Production")
+            yield
+            # Shutdown: Cleanup
+        
+        app = FastAPI(
+            title="Fraud Detection API",
+            version="1.0.0",
+            lifespan=lifespan
+        )
+        
+        @app.post("/predict", response_model=PredictionResponse)
+        async def predict(request: PredictionRequest):
+            start_time = time.time()
+            
+            try:
+                # Prepare features
+                features = prepare_features(request)
+                
+                # Run inference
+                prediction = model_manager.model.predict(features)
+                probability = float(prediction[0])
+                
+                latency_ms = (time.time() - start_time) * 1000
+                
+                return PredictionResponse(
+                    prediction=1 if probability > 0.5 else 0,
+                    probability=probability,
+                    model_version=model_manager.model_version,
+                    latency_ms=latency_ms
+                )
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=str(e))
+        
+        @app.get("/health")
+        async def health():
+            return {
+                "status": "healthy",
+                "model_loaded": model_manager.model is not None,
+                "model_version": model_manager.model_version
+            }
+    
+    advanced_patterns:
+      model_caching:
+        description: "Cache multiple model versions for A/B testing"
+        code_example: |
+          from functools import lru_cache
+          from typing import Dict
+          import mlflow
+          
+          class MultiModelManager:
+              """
+              Manage multiple model versions for A/B testing
+              and gradual rollouts.
+              """
+              def __init__(self):
+                  self._models: Dict[str, any] = {}
+                  self._traffic_split: Dict[str, float] = {}
+              
+              def load_models(self, model_configs: list[dict]):
+                  """
+                  Load multiple model versions.
+                  config: [{"name": "v1", "uri": "...", "traffic": 0.9}, ...]
+                  """
+                  for config in model_configs:
+                      model_uri = config["uri"]
+                      self._models[config["name"]] = mlflow.pyfunc.load_model(model_uri)
+                      self._traffic_split[config["name"]] = config["traffic"]
+              
+              def get_model_for_request(self, request_id: str) -> tuple[str, any]:
+                  """
+                  Deterministic model selection based on request_id.
+                  Ensures same user always gets same model version.
+                  """
+                  hash_val = hash(request_id) % 100
+                  cumulative = 0
+                  
+                  for name, traffic_pct in self._traffic_split.items():
+                      cumulative += traffic_pct * 100
+                      if hash_val < cumulative:
+                          return name, self._models[name]
+                  
+                  # Fallback to first model
+                  first_name = list(self._models.keys())[0]
+                  return first_name, self._models[first_name]
+      
+      async_batching:
+        description: "Batch requests for GPU efficiency"
+        code_example: |
+          import asyncio
+          from collections import deque
+          from dataclasses import dataclass
+          from typing import Any
+          import numpy as np
+          
+          @dataclass
+          class PendingRequest:
+              features: np.ndarray
+              future: asyncio.Future
+          
+          class AsyncBatcher:
+              """
+              Batch incoming requests for efficient GPU utilization.
+              Trades latency for throughput.
+              """
+              def __init__(
+                  self,
+                  model,
+                  max_batch_size: int = 32,
+                  max_wait_ms: float = 10.0
+              ):
+                  self.model = model
+                  self.max_batch_size = max_batch_size
+                  self.max_wait_ms = max_wait_ms
+                  self.pending: deque[PendingRequest] = deque()
+                  self._lock = asyncio.Lock()
+                  self._batch_task = None
+              
+              async def predict(self, features: np.ndarray) -> np.ndarray:
+                  """Submit request and wait for batched result."""
+                  future = asyncio.Future()
+                  request = PendingRequest(features=features, future=future)
+                  
+                  async with self._lock:
+                      self.pending.append(request)
+                      
+                      # Start batch processor if not running
+                      if self._batch_task is None or self._batch_task.done():
+                          self._batch_task = asyncio.create_task(
+                              self._process_batch()
+                          )
+                  
+                  return await future
+              
+              async def _process_batch(self):
+                  """Process accumulated requests in batch."""
+                  await asyncio.sleep(self.max_wait_ms / 1000)
+                  
+                  async with self._lock:
+                      if not self.pending:
+                          return
+                      
+                      # Collect batch
+                      batch = []
+                      while self.pending and len(batch) < self.max_batch_size:
+                          batch.append(self.pending.popleft())
+                  
+                  # Run batched inference
+                  features_batch = np.vstack([r.features for r in batch])
+                  predictions = self.model.predict(features_batch)
+                  
+                  # Distribute results
+                  for i, request in enumerate(batch):
+                      request.future.set_result(predictions[i])
+
+  containerization:
+    description: "Docker deployment for model serving"
+    dockerfile_example: |
+      # Multi-stage build for smaller image
+      FROM python:3.11-slim as builder
+      
+      WORKDIR /app
+      
+      # Install build dependencies
+      RUN apt-get update && apt-get install -y --no-install-recommends \
+          build-essential \
+          && rm -rf /var/lib/apt/lists/*
+      
+      # Install Python dependencies
+      COPY requirements.txt .
+      RUN pip install --no-cache-dir --user -r requirements.txt
+      
+      # Production image
+      FROM python:3.11-slim
+      
+      WORKDIR /app
+      
+      # Copy installed packages
+      COPY --from=builder /root/.local /root/.local
+      ENV PATH=/root/.local/bin:$PATH
+      
+      # Copy application code
+      COPY app/ ./app/
+      COPY models/ ./models/
+      
+      # Non-root user for security
+      RUN useradd -m appuser && chown -R appuser:appuser /app
+      USER appuser
+      
+      # Health check
+      HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+          CMD curl -f http://localhost:8000/health || exit 1
+      
+      EXPOSE 8000
+      
+      CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"]
+
+  checklist:
+    api_design:
+      - "[ ] Request/response validation with Pydantic"
+      - "[ ] Health endpoint implemented"
+      - "[ ] Model version in response"
+      - "[ ] Latency tracking in response"
+    
+    reliability:
+      - "[ ] Graceful startup/shutdown"
+      - "[ ] Connection pooling for dependencies"
+      - "[ ] Timeout configuration"
+      - "[ ] Circuit breaker for downstream services"
+    
+    scalability:
+      - "[ ] Horizontal scaling tested"
+      - "[ ] Load balancer configured"
+      - "[ ] Autoscaling rules defined"
+      - "[ ] Resource limits set (CPU/memory)"
+
+# =============================================================================
+# SECTION 4: MODEL MONITORING
+# =============================================================================
+model_monitoring:
+  overview: |
+    Model performance degrades over time due to data drift (input distribution
+    changes) and concept drift (relationship between inputs and outputs changes).
+    Continuous monitoring detects degradation before business impact.
+
+  drift_types:
+    data_drift:
+      description: "Input feature distribution changes"
+      causes:
+        - "Seasonality (holiday shopping patterns)"
+        - "External events (pandemic, economic changes)"
+        - "Data pipeline bugs"
+        - "Upstream system changes"
+      
+      detection_methods:
+        statistical_tests:
+          - name: "Kolmogorov-Smirnov Test"
+            description: "Compares two distributions"
+            use_for: "Continuous features"
+          - name: "Chi-Square Test"
+            description: "Compares categorical distributions"
+            use_for: "Categorical features"
+          - name: "Population Stability Index (PSI)"
+            description: "Measures distribution shift magnitude"
+            use_for: "Production monitoring"
+    
+    concept_drift:
+      description: "Relationship P(Y|X) changes over time"
+      causes:
+        - "User behavior changes"
+        - "Competitor actions"
+        - "Regulatory changes"
+        - "Market dynamics"
+      
+      detection_methods:
+        - "Monitor prediction accuracy with delayed labels"
+        - "Track prediction distribution changes"
+        - "Use proxy metrics when labels delayed"
+
+  evidently_patterns:
+    data_drift_report:
+      description: "Automated drift detection with Evidently"
+      code_example: |
+        from evidently import ColumnMapping
+        from evidently.report import Report
+        from evidently.metric_preset import DataDriftPreset, TargetDriftPreset
+        from evidently.metrics import (
+            DataDriftTable,
+            DatasetDriftMetric,
+            ColumnDriftMetric
+        )
+        import pandas as pd
+        
+        def detect_data_drift(
+            reference_data: pd.DataFrame,
+            current_data: pd.DataFrame,
+            numerical_features: list[str],
+            categorical_features: list[str],
+            target_column: str = None
+        ) -> dict:
+            """
+            Compare current data distribution against reference (training) data.
+            Returns drift metrics and alerts.
+            """
+            column_mapping = ColumnMapping(
+                numerical_features=numerical_features,
+                categorical_features=categorical_features,
+                target=target_column
+            )
+            
+            report = Report(metrics=[
+                DatasetDriftMetric(),
+                DataDriftTable(),
+            ])
+            
+            report.run(
+                reference_data=reference_data,
+                current_data=current_data,
+                column_mapping=column_mapping
+            )
+            
+            # Extract results
+            results = report.as_dict()
+            
+            drift_summary = {
+                "dataset_drift_detected": results["metrics"][0]["result"]["dataset_drift"],
+                "drift_share": results["metrics"][0]["result"]["share_of_drifted_columns"],
+                "drifted_columns": [],
+                "drift_scores": {}
+            }
+            
+            # Identify drifted columns
+            for col_result in results["metrics"][1]["result"]["drift_by_columns"].values():
+                if col_result["drift_detected"]:
+                    drift_summary["drifted_columns"].append(col_result["column_name"])
+                drift_summary["drift_scores"][col_result["column_name"]] = col_result["drift_score"]
+            
+            return drift_summary
+    
+    continuous_monitoring:
+      description: "Production monitoring pipeline"
+      code_example: |
+        from evidently.metrics import (
+            ColumnDriftMetric,
+            ColumnSummaryMetric,
+            DatasetMissingValuesMetric
+        )
+        from evidently.report import Report
+        from datetime import datetime, timedelta
+        import json
+        
+        class ModelMonitor:
+            """
+            Continuous model monitoring for production.
+            Runs hourly/daily to detect drift.
+            """
+            def __init__(
+                self,
+                reference_data: pd.DataFrame,
+                feature_columns: list[str],
+                drift_threshold: float = 0.1
+            ):
+                self.reference_data = reference_data
+                self.feature_columns = feature_columns
+                self.drift_threshold = drift_threshold
+            
+            def run_monitoring(
+                self,
+                current_data: pd.DataFrame,
+                window_name: str
+            ) -> dict:
+                """
+                Run monitoring checks and return alerts.
+                """
+                alerts = []
+                metrics = {}
+                
+                # 1. Data drift check
+                drift_report = Report(metrics=[
+                    ColumnDriftMetric(column_name=col)
+                    for col in self.feature_columns
+                ])
+                drift_report.run(
+                    reference_data=self.reference_data,
+                    current_data=current_data
+                )
+                
+                drift_results = drift_report.as_dict()
+                for i, col in enumerate(self.feature_columns):
+                    drift_score = drift_results["metrics"][i]["result"]["drift_score"]
+                    metrics[f"{col}_drift_score"] = drift_score
+                    
+                    if drift_score > self.drift_threshold:
+                        alerts.append({
+                            "type": "data_drift",
+                            "column": col,
+                            "drift_score": drift_score,
+                            "threshold": self.drift_threshold,
+                            "severity": "high" if drift_score > 0.3 else "medium"
+                        })
+                
+                # 2. Missing values check
+                missing_report = Report(metrics=[DatasetMissingValuesMetric()])
+                missing_report.run(current_data=current_data)
+                
+                missing_results = missing_report.as_dict()
+                missing_share = missing_results["metrics"][0]["result"]["current"]["share_of_missing_values"]
+                metrics["missing_value_share"] = missing_share
+                
+                if missing_share > 0.05:  # >5% missing
+                    alerts.append({
+                        "type": "data_quality",
+                        "issue": "high_missing_values",
+                        "missing_share": missing_share,
+                        "severity": "high" if missing_share > 0.2 else "medium"
+                    })
+                
+                # 3. Volume check
+                volume_ratio = len(current_data) / len(self.reference_data)
+                metrics["volume_ratio"] = volume_ratio
+                
+                if volume_ratio < 0.5 or volume_ratio > 2.0:
+                    alerts.append({
+                        "type": "volume_anomaly",
+                        "volume_ratio": volume_ratio,
+                        "severity": "medium"
+                    })
+                
+                return {
+                    "window": window_name,
+                    "timestamp": datetime.utcnow().isoformat(),
+                    "metrics": metrics,
+                    "alerts": alerts,
+                    "alert_count": len(alerts)
+                }
+            
+            def send_alerts(self, monitoring_result: dict):
+                """Send alerts to notification channels."""
+                if monitoring_result["alert_count"] > 0:
+                    # PagerDuty for high severity
+                    high_alerts = [a for a in monitoring_result["alerts"] 
+                                   if a["severity"] == "high"]
+                    if high_alerts:
+                        self._send_pagerduty(high_alerts)
+                    
+                    # Slack for all alerts
+                    self._send_slack(monitoring_result)
+                
+                # Always log metrics
+                self._log_metrics(monitoring_result)
+
+  prediction_monitoring:
+    description: "Track model predictions over time"
+    code_example: |
+      from collections import defaultdict
+      from dataclasses import dataclass, field
+      import numpy as np
+      from typing import Optional
+      import time
+      
+      @dataclass
+      class PredictionStats:
+          """Rolling statistics for prediction monitoring."""
+          window_seconds: int = 3600  # 1 hour window
+          predictions: list = field(default_factory=list)
+          timestamps: list = field(default_factory=list)
+          
+          def add_prediction(self, prediction: float, timestamp: float = None):
+              ts = timestamp or time.time()
+              self.predictions.append(prediction)
+              self.timestamps.append(ts)
+              self._cleanup_old()
+          
+          def _cleanup_old(self):
+              cutoff = time.time() - self.window_seconds
+              while self.timestamps and self.timestamps[0] < cutoff:
+                  self.timestamps.pop(0)
+                  self.predictions.pop(0)
+          
+          def get_stats(self) -> dict:
+              if not self.predictions:
+                  return {}
+              
+              preds = np.array(self.predictions)
+              return {
+                  "count": len(preds),
+                  "mean": float(np.mean(preds)),
+                  "std": float(np.std(preds)),
+                  "min": float(np.min(preds)),
+                  "max": float(np.max(preds)),
+                  "p50": float(np.percentile(preds, 50)),
+                  "p95": float(np.percentile(preds, 95)),
+                  "positive_rate": float(np.mean(preds > 0.5))
+              }
+      
+      class PredictionMonitor:
+          """
+          Monitor prediction distributions for anomalies.
+          """
+          def __init__(self, baseline_stats: dict):
+              self.baseline = baseline_stats
+              self.current_stats = PredictionStats()
+          
+          def record_prediction(self, prediction: float):
+              self.current_stats.add_prediction(prediction)
+          
+          def check_anomalies(self) -> list[dict]:
+              """Compare current predictions to baseline."""
+              current = self.current_stats.get_stats()
+              if not current:
+                  return []
+              
+              anomalies = []
+              
+              # Check mean shift
+              if abs(current["mean"] - self.baseline["mean"]) > 2 * self.baseline["std"]:
+                  anomalies.append({
+                      "type": "prediction_mean_shift",
+                      "current_mean": current["mean"],
+                      "baseline_mean": self.baseline["mean"],
+                      "severity": "high"
+                  })
+              
+              # Check positive rate shift
+              rate_diff = abs(current["positive_rate"] - self.baseline["positive_rate"])
+              if rate_diff > 0.1:  # 10% shift
+                  anomalies.append({
+                      "type": "positive_rate_shift",
+                      "current_rate": current["positive_rate"],
+                      "baseline_rate": self.baseline["positive_rate"],
+                      "severity": "high" if rate_diff > 0.2 else "medium"
+                  })
+              
+              return anomalies
+
+  checklist:
+    data_monitoring:
+      - "[ ] Reference dataset stored for comparison"
+      - "[ ] Drift detection scheduled (hourly/daily)"
+      - "[ ] Feature-level drift thresholds defined"
+      - "[ ] Missing value monitoring enabled"
+      - "[ ] Volume anomaly detection configured"
+    
+    prediction_monitoring:
+      - "[ ] Prediction distribution tracked"
+      - "[ ] Latency percentiles monitored"
+      - "[ ] Error rate tracked"
+      - "[ ] Baseline statistics established"
+    
+    alerting:
+      - "[ ] Alert thresholds defined"
+      - "[ ] Escalation paths configured"
+      - "[ ] Runbooks documented"
+      - "[ ] On-call rotation established"
+
+# =============================================================================
+# SECTION 5: CI/CD FOR ML
+# =============================================================================
+cicd_for_ml:
+  overview: |
+    ML CI/CD extends traditional software CI/CD with model validation,
+    data validation, and training pipeline automation. The goal is
+    automated, reproducible, and safe model deployments.
+
+  pipeline_stages:
+    code_quality:
+      description: "Standard software engineering checks"
+      steps:
+        - "Linting (flake8, black, isort)"
+        - "Type checking (mypy)"
+        - "Unit tests (pytest)"
+        - "Security scanning (bandit)"
+    
+    data_validation:
+      description: "Validate input data quality"
+      steps:
+        - "Schema validation"
+        - "Data quality checks (Great Expectations)"
+        - "Data drift detection vs training data"
+    
+    model_training:
+      description: "Automated training pipeline"
+      steps:
+        - "Feature computation"
+        - "Model training with tracked experiments"
+        - "Hyperparameter optimization"
+        - "Model artifact storage"
+    
+    model_validation:
+      description: "Quality gates before deployment"
+      steps:
+        - "Performance threshold checks"
+        - "Fairness/bias evaluation"
+        - "Model comparison vs current production"
+        - "Shadow mode testing"
+    
+    deployment:
+      description: "Safe model rollout"
+      steps:
+        - "Canary deployment (1-5% traffic)"
+        - "Gradual rollout"
+        - "Automated rollback triggers"
+
+  github_actions_pipeline:
+    description: "Complete ML CI/CD workflow"
+    code_example: |
+      # .github/workflows/ml-pipeline.yml
+      name: ML Training Pipeline
+      
+      on:
+        push:
+          branches: [main]
+          paths:
+            - 'src/**'
+            - 'training/**'
+            - 'config/**'
+        schedule:
+          - cron: '0 6 * * 1'  # Weekly retraining
+        workflow_dispatch:
+          inputs:
+            force_retrain:
+              description: 'Force model retraining'
+              type: boolean
+              default: false
+      
+      env:
+        MLFLOW_TRACKING_URI: ${{ secrets.MLFLOW_TRACKING_URI }}
+        AWS_REGION: us-west-2
+      
+      jobs:
+        code-quality:
+          runs-on: ubuntu-latest
+          steps:
+            - uses: actions/checkout@v4
+            
+            - name: Set up Python
+              uses: actions/setup-python@v5
+              with:
+                python-version: '3.11'
+                cache: 'pip'
+            
+            - name: Install dependencies
+              run: |
+                pip install -r requirements-dev.txt
+            
+            - name: Lint and format check
+              run: |
+                black --check src/ training/
+                isort --check-only src/ training/
+                flake8 src/ training/
+            
+            - name: Type check
+              run: mypy src/ training/
+            
+            - name: Unit tests
+              run: pytest tests/unit -v --cov=src --cov-report=xml
+            
+            - name: Security scan
+              run: bandit -r src/ -ll
+        
+        data-validation:
+          runs-on: ubuntu-latest
+          needs: code-quality
+          steps:
+            - uses: actions/checkout@v4
+            
+            - name: Set up Python
+              uses: actions/setup-python@v5
+              with:
+                python-version: '3.11'
+            
+            - name: Install dependencies
+              run: pip install -r requirements.txt
+            
+            - name: Validate data schema
+              run: python scripts/validate_data_schema.py
+            
+            - name: Run data quality checks
+              run: |
+                python -m great_expectations checkpoint run training_data_checkpoint
+            
+            - name: Check for data drift
+              run: python scripts/check_data_drift.py --threshold 0.1
+        
+        train-model:
+          runs-on: ubuntu-latest
+          needs: data-validation
+          outputs:
+            run_id: ${{ steps.train.outputs.run_id }}
+            model_version: ${{ steps.register.outputs.version }}
+          steps:
+            - uses: actions/checkout@v4
+            
+            - name: Configure AWS credentials
+              uses: aws-actions/configure-aws-credentials@v4
+              with:
+                aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+                aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+                aws-region: ${{ env.AWS_REGION }}
+            
+            - name: Set up Python
+              uses: actions/setup-python@v5
+              with:
+                python-version: '3.11'
+            
+            - name: Install dependencies
+              run: pip install -r requirements.txt
+            
+            - name: Train model
+              id: train
+              run: |
+                RUN_ID=$(python training/train.py \
+                  --config config/training_config.yaml \
+                  --output-run-id)
+                echo "run_id=$RUN_ID" >> $GITHUB_OUTPUT
+            
+            - name: Register model
+              id: register
+              run: |
+                VERSION=$(python scripts/register_model.py \
+                  --run-id ${{ steps.train.outputs.run_id }} \
+                  --model-name fraud-detector)
+                echo "version=$VERSION" >> $GITHUB_OUTPUT
+        
+        validate-model:
+          runs-on: ubuntu-latest
+          needs: train-model
+          steps:
+            - uses: actions/checkout@v4
+            
+            - name: Set up Python
+              uses: actions/setup-python@v5
+              with:
+                python-version: '3.11'
+            
+            - name: Install dependencies
+              run: pip install -r requirements.txt
+            
+            - name: Performance validation
+              run: |
+                python scripts/validate_model.py \
+                  --model-version ${{ needs.train-model.outputs.model_version }} \
+                  --min-accuracy 0.95 \
+                  --min-auc 0.90
+            
+            - name: Fairness evaluation
+              run: |
+                python scripts/evaluate_fairness.py \
+                  --model-version ${{ needs.train-model.outputs.model_version }} \
+                  --max-disparity 0.1
+            
+            - name: Compare with production
+              run: |
+                python scripts/compare_models.py \
+                  --candidate-version ${{ needs.train-model.outputs.model_version }} \
+                  --min-improvement 0.01
+        
+        deploy-staging:
+          runs-on: ubuntu-latest
+          needs: [train-model, validate-model]
+          environment: staging
+          steps:
+            - uses: actions/checkout@v4
+            
+            - name: Promote to Staging
+              run: |
+                python scripts/promote_model.py \
+                  --model-name fraud-detector \
+                  --version ${{ needs.train-model.outputs.model_version }} \
+                  --stage Staging
+            
+            - name: Deploy to staging
+              run: |
+                kubectl apply -f k8s/staging/
+                kubectl rollout status deployment/fraud-detector-staging
+            
+            - name: Run integration tests
+              run: pytest tests/integration -v --environment staging
+        
+        deploy-production:
+          runs-on: ubuntu-latest
+          needs: deploy-staging
+          environment: production
+          steps:
+            - name: Promote to Production
+              run: |
+                python scripts/promote_model.py \
+                  --model-name fraud-detector \
+                  --version ${{ needs.train-model.outputs.model_version }} \
+                  --stage Production
+            
+            - name: Canary deployment (5%)
+              run: |
+                kubectl apply -f k8s/production/canary.yaml
+                sleep 300  # 5 minute observation
+            
+            - name: Check canary metrics
+              run: |
+                python scripts/check_canary_metrics.py \
+                  --max-error-rate 0.01 \
+                  --max-latency-p99 100
+            
+            - name: Full rollout
+              run: |
+                kubectl apply -f k8s/production/
+                kubectl rollout status deployment/fraud-detector
+
+  validation_gates:
+    performance_gates:
+      description: "Minimum performance requirements"
+      code_example: |
+        import mlflow
+        from mlflow.tracking import MlflowClient
+        import sys
+        
+        def validate_model_performance(
+            model_name: str,
+            model_version: int,
+            thresholds: dict
+        ) -> bool:
+            """
+            Validate model meets minimum performance thresholds.
+            Fails CI/CD pipeline if thresholds not met.
+            """
+            client = MlflowClient()
+            
+            # Get run metrics
+            mv = client.get_model_version(model_name, str(model_version))
+            run = client.get_run(mv.run_id)
+            metrics = run.data.metrics
+            
+            failures = []
+            
+            for metric_name, min_value in thresholds.items():
+                actual_value = metrics.get(metric_name)
+                
+                if actual_value is None:
+                    failures.append(f"Metric '{metric_name}' not found")
+                elif actual_value < min_value:
+                    failures.append(
+                        f"{metric_name}: {actual_value:.4f} < {min_value:.4f} (threshold)"
+                    )
+            
+            if failures:
+                print("❌ Model validation FAILED:")
+                for f in failures:
+                    print(f"  - {f}")
+                return False
+            
+            print("✅ Model validation PASSED")
+            return True
+        
+        if __name__ == "__main__":
+            thresholds = {
+                "accuracy": 0.95,
+                "auc_roc": 0.90,
+                "precision": 0.85,
+                "recall": 0.80,
+                "f1_score": 0.82
+            }
+            
+            success = validate_model_performance(
+                model_name="fraud-detector",
+                model_version=int(sys.argv[1]),
+                thresholds=thresholds
+            )
+            
+            sys.exit(0 if success else 1)
+    
+    shadow_testing:
+      description: "Test new model alongside production"
+      code_example: |
+        from fastapi import FastAPI, BackgroundTasks
+        import mlflow
+        import logging
+        
+        class ShadowModeServer:
+            """
+            Run candidate model in shadow mode.
+            Serves production model, logs candidate predictions for analysis.
+            """
+            def __init__(
+                self,
+                production_model_uri: str,
+                candidate_model_uri: str
+            ):
+                self.production_model = mlflow.pyfunc.load_model(production_model_uri)
+                self.candidate_model = mlflow.pyfunc.load_model(candidate_model_uri)
+                self.logger = logging.getLogger("shadow_mode")
+            
+            async def predict_with_shadow(
+                self,
+                features,
+                background_tasks: BackgroundTasks
+            ):
+                """
+                Return production prediction, run candidate in background.
+                """
+                # Production prediction (returned to user)
+                prod_prediction = self.production_model.predict(features)
+                
+                # Schedule shadow prediction (non-blocking)
+                background_tasks.add_task(
+                    self._shadow_predict,
+                    features,
+                    prod_prediction
+                )
+                
+                return prod_prediction
+            
+            def _shadow_predict(self, features, prod_prediction):
+                """Log candidate prediction for comparison."""
+                try:
+                    candidate_prediction = self.candidate_model.predict(features)
+                    
+                    self.logger.info({
+                        "production_prediction": float(prod_prediction[0]),
+                        "candidate_prediction": float(candidate_prediction[0]),
+                        "prediction_match": abs(prod_prediction[0] - candidate_prediction[0]) < 0.1
+                    })
+                except Exception as e:
+                    self.logger.error(f"Shadow prediction failed: {e}")
+
+  checklist:
+    pipeline_setup:
+      - "[ ] CI/CD platform configured (GitHub Actions/GitLab CI)"
+      - "[ ] MLflow tracking integrated"
+      - "[ ] Artifact storage configured"
+      - "[ ] Environment secrets managed securely"
+    
+    validation_gates:
+      - "[ ] Performance thresholds defined"
+      - "[ ] Fairness metrics evaluated"
+      - "[ ] Model comparison vs production"
+      - "[ ] Shadow mode testing implemented"
+    
+    deployment:
+      - "[ ] Canary deployment strategy"
+      - "[ ] Rollback automation"
+      - "[ ] Health checks configured"
+      - "[ ] Monitoring integration"
+
+# =============================================================================
+# SECTION 6: RESPONSIBLE AI
+# =============================================================================
+responsible_ai:
+  overview: |
+    Responsible AI ensures models are fair, explainable, and accountable.
+    This includes bias detection, model interpretability, and documentation
+    of model behavior and limitations.
+
+  bias_detection:
+    fairness_metrics:
+      description: "Quantify disparities across protected groups"
+      metrics:
+        demographic_parity:
+          description: "Equal positive prediction rates across groups"
+          formula: "P(Ŷ=1|A=0) = P(Ŷ=1|A=1)"
+          code_example: |
+            def demographic_parity_difference(
+                y_pred: np.ndarray,
+                sensitive_feature: np.ndarray
+            ) -> float:
+                """
+                Compute difference in positive prediction rates.
+                0 = perfect parity, >0.1 typically concerning.
+                """
+                groups = np.unique(sensitive_feature)
+                rates = {}
+                
+                for group in groups:
+                    mask = sensitive_feature == group
+                    rates[group] = y_pred[mask].mean()
+                
+                return max(rates.values()) - min(rates.values())
+        
+        equalized_odds:
+          description: "Equal TPR and FPR across groups"
+          formula: "P(Ŷ=1|Y=1,A=0) = P(Ŷ=1|Y=1,A=1)"
+          code_example: |
+            from sklearn.metrics import confusion_matrix
+            
+            def equalized_odds_difference(
+                y_true: np.ndarray,
+                y_pred: np.ndarray,
+                sensitive_feature: np.ndarray
+            ) -> dict:
+                """
+                Compute TPR and FPR differences across groups.
+                """
+                groups = np.unique(sensitive_feature)
+                tpr_by_group = {}
+                fpr_by_group = {}
+                
+                for group in groups:
+                    mask = sensitive_feature == group
+                    tn, fp, fn, tp = confusion_matrix(
+                        y_true[mask], y_pred[mask]
+                    ).ravel()
+                    
+                    tpr_by_group[group] = tp / (tp + fn) if (tp + fn) > 0 else 0
+                    fpr_by_group[group] = fp / (fp + tn) if (fp + tn) > 0 else 0
+                
+                return {
+                    "tpr_difference": max(tpr_by_group.values()) - min(tpr_by_group.values()),
+                    "fpr_difference": max(fpr_by_group.values()) - min(fpr_by_group.values()),
+                    "tpr_by_group": tpr_by_group,
+                    "fpr_by_group": fpr_by_group
+                }
+    
+    fairlearn_integration:
+      description: "Automated fairness assessment with Fairlearn"
+      code_example: |
+        from fairlearn.metrics import (
+            MetricFrame,
+            demographic_parity_difference,
+            equalized_odds_difference,
+            selection_rate
+        )
+        from sklearn.metrics import accuracy_score, precision_score, recall_score
+        
+        def comprehensive_fairness_report(
+            y_true: np.ndarray,
+            y_pred: np.ndarray,
+            sensitive_features: dict[str, np.ndarray]
+        ) -> dict:
+            """
+            Generate fairness report across multiple sensitive attributes.
+            """
+            metrics = {
+                "accuracy": accuracy_score,
+                "precision": precision_score,
+                "recall": recall_score,
+                "selection_rate": selection_rate
+            }
+            
+            report = {}
+            
+            for attr_name, attr_values in sensitive_features.items():
+                metric_frame = MetricFrame(
+                    metrics=metrics,
+                    y_true=y_true,
+                    y_pred=y_pred,
+                    sensitive_features=attr_values
+                )
+                
+                report[attr_name] = {
+                    "metrics_by_group": metric_frame.by_group.to_dict(),
+                    "overall_metrics": metric_frame.overall.to_dict(),
+                    "metric_differences": metric_frame.difference().to_dict(),
+                    "metric_ratios": metric_frame.ratio().to_dict(),
+                    "demographic_parity_diff": demographic_parity_difference(
+                        y_true, y_pred, sensitive_features=attr_values
+                    ),
+                    "equalized_odds_diff": equalized_odds_difference(
+                        y_true, y_pred, sensitive_features=attr_values
+                    )
+                }
+            
+            return report
+        
+        def check_fairness_thresholds(
+            report: dict,
+            max_demographic_parity_diff: float = 0.1,
+            max_equalized_odds_diff: float = 0.1
+        ) -> list[str]:
+            """
+            Check if model meets fairness thresholds.
+            Returns list of violations.
+            """
+            violations = []
+            
+            for attr_name, attr_report in report.items():
+                dp_diff = attr_report["demographic_parity_diff"]
+                if dp_diff > max_demographic_parity_diff:
+                    violations.append(
+                        f"{attr_name}: Demographic parity diff {dp_diff:.3f} > {max_demographic_parity_diff}"
+                    )
+                
+                eo_diff = attr_report["equalized_odds_diff"]
+                if eo_diff > max_equalized_odds_diff:
+                    violations.append(
+                        f"{attr_name}: Equalized odds diff {eo_diff:.3f} > {max_equalized_odds_diff}"
+                    )
+            
+            return violations
+
+  explainability:
+    shap_explanations:
+      description: "SHAP (SHapley Additive exPlanations) for feature importance"
+      code_example: |
+        import shap
+        import numpy as np
+        import pandas as pd
+        
+        class SHAPExplainer:
+            """
+            SHAP-based model explanations for interpretability.
+            """
+            def __init__(self, model, background_data: pd.DataFrame):
+                """
+                Initialize SHAP explainer.
+                Use TreeExplainer for tree models, KernelExplainer for others.
+                """
+                self.model = model
+                
+                # Select appropriate explainer
+                model_type = type(model).__name__
+                if model_type in ["XGBClassifier", "LGBMClassifier", "RandomForestClassifier"]:
+                    self.explainer = shap.TreeExplainer(model)
+                else:
+                    # Sample background for kernel explainer (expensive)
+                    background_sample = shap.sample(background_data, 100)
+                    self.explainer = shap.KernelExplainer(
+                        model.predict_proba,
+                        background_sample
+                    )
+            
+            def explain_prediction(self, instance: pd.DataFrame) -> dict:
+                """
+                Generate explanation for single prediction.
+                """
+                shap_values = self.explainer.shap_values(instance)
+                
+                # Handle multi-class output
+                if isinstance(shap_values, list):
+                    shap_values = shap_values[1]  # Positive class
+                
+                feature_names = instance.columns.tolist()
+                
+                # Sort by absolute impact
+                importance = list(zip(feature_names, shap_values[0]))
+                importance.sort(key=lambda x: abs(x[1]), reverse=True)
+                
+                return {
+                    "base_value": float(self.explainer.expected_value),
+                    "prediction_contribution": float(np.sum(shap_values[0])),
+                    "feature_contributions": [
+                        {"feature": f, "contribution": float(c)}
+                        for f, c in importance
+                    ],
+                    "top_positive_features": [
+                        {"feature": f, "contribution": float(c)}
+                        for f, c in importance if c > 0
+                    ][:5],
+                    "top_negative_features": [
+                        {"feature": f, "contribution": float(c)}
+                        for f, c in importance if c < 0
+                    ][:5]
+                }
+            
+            def global_feature_importance(
+                self,
+                X: pd.DataFrame,
+                n_samples: int = 1000
+            ) -> pd.DataFrame:
+                """
+                Compute global feature importance from SHAP values.
+                """
+                sample_idx = np.random.choice(len(X), min(n_samples, len(X)), replace=False)
+                X_sample = X.iloc[sample_idx]
+                
+                shap_values = self.explainer.shap_values(X_sample)
+                
+                if isinstance(shap_values, list):
+                    shap_values = shap_values[1]
+                
+                importance_df = pd.DataFrame({
+                    "feature": X.columns,
+                    "mean_abs_shap": np.abs(shap_values).mean(axis=0),
+                    "mean_shap": shap_values.mean(axis=0),
+                    "std_shap": shap_values.std(axis=0)
+                }).sort_values("mean_abs_shap", ascending=False)
+                
+                return importance_df
+    
+    lime_explanations:
+      description: "LIME (Local Interpretable Model-agnostic Explanations)"
+      code_example: |
+        from lime.lime_tabular import LimeTabularExplainer
+        import numpy as np
+        import pandas as pd
+        
+        class LIMEExplainer:
+            """
+            LIME-based local explanations.
+            Model-agnostic approach using local linear approximations.
+            """
+            def __init__(
+                self,
+                training_data: pd.DataFrame,
+                feature_names: list[str],
+                categorical_features: list[int] = None,
+                class_names: list[str] = None
+            ):
+                self.explainer = LimeTabularExplainer(
+                    training_data.values,
+                    feature_names=feature_names,
+                    categorical_features=categorical_features,
+                    class_names=class_names or ["Negative", "Positive"],
+                    mode="classification"
+                )
+            
+            def explain_prediction(
+                self,
+                model,
+                instance: np.ndarray,
+                num_features: int = 10
+            ) -> dict:
+                """
+                Generate LIME explanation for single instance.
+                """
+                explanation = self.explainer.explain_instance(
+                    instance,
+                    model.predict_proba,
+                    num_features=num_features,
+                    top_labels=1
+                )
+                
+                # Get explanation for positive class
+                label = explanation.top_labels[0]
+                feature_weights = explanation.as_list(label=label)
+                
+                return {
+                    "predicted_class": int(label),
+                    "prediction_probability": float(
+                        explanation.predict_proba[label]
+                    ),
+                    "local_explanation": [
+                        {"feature_condition": f, "weight": float(w)}
+                        for f, w in feature_weights
+                    ],
+                    "intercept": float(explanation.intercept[label]),
+                    "local_prediction": float(explanation.local_pred[label])
+                }
+    
+    explanation_api:
+      description: "Serve explanations alongside predictions"
+      code_example: |
+        from fastapi import FastAPI
+        from pydantic import BaseModel
+        from typing import Optional
+        
+        class ExplainedPredictionResponse(BaseModel):
+            prediction: int
+            probability: float
+            explanation: Optional[dict] = None
+        
+        class ExplainedPredictionRequest(BaseModel):
+            features: dict
+            include_explanation: bool = False
+        
+        @app.post("/predict/explained", response_model=ExplainedPredictionResponse)
+        async def predict_with_explanation(request: ExplainedPredictionRequest):
+            """
+            Return prediction with optional SHAP explanation.
+            """
+            features_df = pd.DataFrame([request.features])
+            
+            # Get prediction
+            probability = model.predict_proba(features_df)[0, 1]
+            prediction = int(probability > 0.5)
+            
+            response = ExplainedPredictionResponse(
+                prediction=prediction,
+                probability=probability
+            )
+            
+            # Generate explanation if requested
+            if request.include_explanation:
+                explanation = shap_explainer.explain_prediction(features_df)
+                response.explanation = explanation
+            
+            return response
+
+  model_cards:
+    description: "Standardized model documentation"
+    template: |
+      # Model Card: [Model Name]
+      
+      ## Model Details
+      - **Model Type**: [e.g., XGBoost Classifier]
+      - **Version**: [e.g., 1.2.0]
+      - **Training Date**: [YYYY-MM-DD]
+      - **Model Owner**: [Team/Individual]
+      - **Contact**: [Email]
+      
+      ## Intended Use
+      - **Primary Use Case**: [Description]
+      - **Primary Users**: [Description]
+      - **Out-of-Scope Uses**: [What the model should NOT be used for]
+      
+      ## Training Data
+      - **Dataset**: [Name/description]
+      - **Size**: [Number of samples]
+      - **Date Range**: [Time period covered]
+      - **Features**: [Number and types]
+      - **Known Limitations**: [Data quality issues, biases]
+      
+      ## Evaluation
+      ### Performance Metrics
+      | Metric | Training | Validation | Test |
+      |--------|----------|------------|------|
+      | Accuracy | X.XX | X.XX | X.XX |
+      | AUC-ROC | X.XX | X.XX | X.XX |
+      | Precision | X.XX | X.XX | X.XX |
+      | Recall | X.XX | X.XX | X.XX |
+      
+      ### Fairness Evaluation
+      | Sensitive Attribute | Demographic Parity Diff | Equalized Odds Diff |
+      |---------------------|-------------------------|---------------------|
+      | Gender | X.XX | X.XX |
+      | Age Group | X.XX | X.XX |
+      
+      ## Ethical Considerations
+      - **Potential Harms**: [Description]
+      - **Mitigations**: [What was done to address risks]
+      - **Human Oversight**: [How humans are involved in decisions]
+      
+      ## Caveats and Recommendations
+      - **Known Failure Cases**: [Scenarios where model performs poorly]
+      - **Monitoring Recommendations**: [What to watch for in production]
+      - **Retraining Triggers**: [When to retrain]
+    
+    code_example: |
+      from dataclasses import dataclass, asdict
+      from datetime import date
+      from typing import Optional
+      import yaml
+      
+      @dataclass
+      class ModelCard:
+          """Structured model documentation."""
+          # Model Details
+          model_name: str
+          model_type: str
+          version: str
+          training_date: date
+          owner: str
+          contact: str
+          
+          # Intended Use
+          primary_use_case: str
+          primary_users: str
+          out_of_scope_uses: list[str]
+          
+          # Training Data
+          dataset_name: str
+          dataset_size: int
+          date_range: str
+          num_features: int
+          known_data_limitations: list[str]
+          
+          # Performance
+          metrics: dict[str, dict[str, float]]
+          fairness_metrics: dict[str, dict[str, float]]
+          
+          # Ethics
+          potential_harms: list[str]
+          mitigations: list[str]
+          human_oversight: str
+          
+          # Caveats
+          known_failure_cases: list[str]
+          monitoring_recommendations: list[str]
+          retraining_triggers: list[str]
+          
+          def to_yaml(self) -> str:
+              return yaml.dump(asdict(self), default_flow_style=False)
+          
+          def to_markdown(self) -> str:
+              """Generate markdown model card."""
+              md = f"# Model Card: {self.model_name}\n\n"
+              md += "## Model Details\n"
+              md += f"- **Model Type**: {self.model_type}\n"
+              md += f"- **Version**: {self.version}\n"
+              md += f"- **Training Date**: {self.training_date}\n"
+              md += f"- **Owner**: {self.owner}\n\n"
+              # ... continue for all sections
+              return md
+
+  checklist:
+    bias_evaluation:
+      - "[ ] Protected attributes identified"
+      - "[ ] Fairness metrics computed"
+      - "[ ] Disparities within thresholds"
+      - "[ ] Bias mitigation applied if needed"
+    
+    explainability:
+      - "[ ] Global feature importance documented"
+      - "[ ] Local explanations available"
+      - "[ ] Explanation API deployed (if needed)"
+      - "[ ] Stakeholders can understand decisions"
+    
+    documentation:
+      - "[ ] Model card created"
+      - "[ ] Intended use documented"
+      - "[ ] Known limitations documented"
+      - "[ ] Ethical considerations addressed"
+
+# =============================================================================
+# APPENDIX: TOOL COMPARISON
+# =============================================================================
+tool_comparison:
+  experiment_tracking:
+    - tool: "MLflow"
+      pros: ["Open source", "Model registry", "Broad integrations"]
+      cons: ["Self-hosted complexity", "UI limitations"]
+      best_for: "General ML experimentation"
+    
+    - tool: "Weights & Biases"
+      pros: ["Superior visualization", "Team collaboration", "Hyperparameter sweeps"]
+      cons: ["SaaS cost", "Data privacy concerns"]
+      best_for: "Research teams, deep learning"
+    
+    - tool: "Neptune.ai"
+      pros: ["Flexible metadata", "Real-time monitoring"]
+      cons: ["Smaller community"]
+      best_for: "Custom metadata needs"
+  
+  feature_stores:
+    - tool: "Feast"
+      pros: ["Open source", "Flexible deployment", "Active community"]
+      cons: ["Operational complexity", "Limited transformations"]
+      best_for: "Self-hosted, Kubernetes environments"
+    
+    - tool: "Tecton"
+      pros: ["Managed service", "Real-time features", "Enterprise support"]
+      cons: ["Cost", "Vendor lock-in"]
+      best_for: "Enterprise, critical latency needs"
+    
+    - tool: "Databricks Feature Store"
+      pros: ["Unity Catalog integration", "Spark native"]
+      cons: ["Databricks dependency"]
+      best_for: "Databricks-centric organizations"
+  
+  model_serving:
+    - tool: "FastAPI"
+      pros: ["Simple", "Async support", "Pydantic validation"]
+      cons: ["Manual scaling", "No model management"]
+      best_for: "Custom serving, small scale"
+    
+    - tool: "TensorFlow Serving"
+      pros: ["High performance", "Model versioning", "Batching"]
+      cons: ["TensorFlow models only", "Complex setup"]
+      best_for: "TensorFlow production deployments"
+    
+    - tool: "Seldon Core"
+      pros: ["Model A/B testing", "Multi-framework", "Kubernetes native"]
+      cons: ["Complexity", "Learning curve"]
+      best_for: "Enterprise Kubernetes ML"
+    
+    - tool: "BentoML"
+      pros: ["Easy packaging", "Multi-framework", "Good DX"]
+      cons: ["Younger project"]
+      best_for: "Rapid ML deployment"
+  
+  monitoring:
+    - tool: "Evidently"
+      pros: ["Open source", "Comprehensive drift detection", "Reports"]
+      cons: ["Batch-focused"]
+      best_for: "Data drift monitoring"
+    
+    - tool: "Alibi Detect"
+      pros: ["Advanced drift algorithms", "Outlier detection"]
+      cons: ["Limited visualization"]
+      best_for: "Statistical drift detection"
+    
+    - tool: "Arize"
+      pros: ["Real-time monitoring", "Root cause analysis", "Managed"]
+      cons: ["Cost", "SaaS only"]
+      best_for: "Enterprise real-time monitoring"
+
+# =============================================================================
+# REFERENCES
+# =============================================================================
+references:
+  official_documentation:
+    - name: "MLflow Documentation"
+      url: "https://mlflow.org/docs/latest/index.html"
+    - name: "Feast Documentation"
+      url: "https://docs.feast.dev/"
+    - name: "Evidently AI Documentation"
+      url: "https://docs.evidentlyai.com/"
+    - name: "SHAP Documentation"
+      url: "https://shap.readthedocs.io/"
+    - name: "Fairlearn Documentation"
+      url: "https://fairlearn.org/main/user_guide/"
+  
+  best_practices:
+    - name: "Google ML Best Practices"
+      url: "https://developers.google.com/machine-learning/guides/rules-of-ml"
+    - name: "AWS MLOps Whitepaper"
+      url: "https://docs.aws.amazon.com/whitepapers/latest/mlops-foundation-roadmap/"
+    - name: "Microsoft Responsible AI"
+      url: "https://www.microsoft.com/en-us/ai/responsible-ai"

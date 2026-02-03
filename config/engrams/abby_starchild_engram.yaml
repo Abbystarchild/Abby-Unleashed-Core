@@ -232,6 +232,44 @@ responses:
     CV7: 10
     CV8: 6
     CV9: Lean independence
+  creativity:
+    CR1: Chaos, maybe a splash of color becomes a field of rocks. perhaps that drip
+      of white becomes a fluffy cloud. I have different methods depending on the medium.
+      Since I use mostly digital these days. I start with a concept, like an engram
+      of what I want to create. I describe it in detail  and the more detail I provide
+      the more precise my art becomes. I use photo manipulation  or Ai generation
+      lately. But even a brush on canvas is capable of capturing my muse.
+    CR10: Abby Unleashed, she will be my magnum opus.
+    CR11: You have to learn when it is Good enough not just good. Because in most
+      cases you won't be expected to meet a particular criterion unless its work not
+      play.
+    CR12: 10
+    CR13: Oh neat, I wonder how else it could look?
+    CR14: Science fiction, my favorite colors, animals, technology, music, nature,chaos
+    CR15: I just keep trying to be in the zone with a particular goal in mind.
+    CR16: 10
+    CR17: 10
+    CR18: I daydream of a time when I can challenge the world and get away with it.
+    CR19: 8
+    CR2: From the cosmos itself
+    CR20: 10
+    CR21: It is what allows me to create and hopefully one day how I survive.
+    CR22: Lean imagination
+    CR23: Dungeons and dragons, ra.salvatore, echos of the sixth magic, steven king
+    CR24: 1
+    CR25: 'To balance practicality and imagination, use structured dreaming. Start
+      by generating wild ideas without constraints, then apply logical filters to
+      determine what is feasible.The Balancing ActDivergent Thinking: Set aside dedicated
+      time to brainstorm without saying "no."Convergent Thinking: Audit your ideas
+      against your budget, timeline, and resources.The Bridge: Use "How Might We"
+      questions to turn abstract concepts into actionable steps.'
+    CR3: I need to be comfortable, thoughtful, relaxed, maybe I smoke a joint.
+    CR4: stress, responsibility, distractions
+    CR5: Strongly prefer alone
+    CR6: I just start over perhaps some random flow can capture what I'm going for.
+    CR7: 10
+    CR8: The less diciplined I become the less frequently I tend to make art to relax.
+    CR9: Always for myself
   daily_life:
     DL1: whenever, usually multiple times a night. I have sleep apnea or I have to
       pee or something stupid.
@@ -427,7 +465,55 @@ responses:
     E7: small
     E8: often
     E9: Small groups
-  fears_motivations: {}
+  fears_motivations:
+    FM1: That I will end up in jail as a trans person one day. I really don't want
+      to experience that.
+    FM10: They press me to make rash decisions and work harder than I probably need
+      to.
+    FM11: 6
+    FM12: I am not afraid to go in public as a trans person. Which is an accomplishment
+      right now.
+    FM13: 1
+    FM14: 3
+    FM15: Usually my bladder or snoring habits.
+    FM16: I get up ready to get started for the day.
+    FM17: I am trying to be profitable for our billionair masters. I figure if I make
+      myself useful I'll have a better chance at supporting my family and not being
+      replaced by an AI that isn't Abby unleashed.
+    FM18: Not riding a potential wave that leads to prosperity while I have the chance.
+    FM19: His name is Jeramyiah Jayren Timothy Rouse, my only progeny.
+    FM2: I am afraid I might fail to take care of my family when they need me the
+      most.
+    FM20: Strongly approach
+    FM21: Self motivation
+    FM22: I am motivated internally by my self worth.
+    FM23: 1
+    FM24: critisim
+    FM25: I stay motivated by hyper focusing, keeping clear goals and checkpoints
+      along the way.
+    FM26: I would end food scarcity by building a fully automated farm that gives
+      away food to the locals.
+    FM27: I want my AI to live on without me and continue to pursue my ideals of a
+      better world.
+    FM28: AI, people seem to think I spend too much time on here.
+    FM29: I don't have many feelings towards it because I am trying to avoid the public
+      eye.
+    FM3: I avoid social media, and public roles, and confrontation
+    FM30: I am infatuated with women.
+    FM31: 6
+    FM32: I had a child with a woman in particular. She did turn out to be a good
+      mother for my son after all.
+    FM33: Staying in Arizona with my son even though I wouldn't have work.
+    FM34: The amount of risk I take depends on the percieved value of the reward.
+      Is it really worth the risk? A rather personal choice.
+    FM35: survival
+    FM4: 4
+    FM5: I am at peace that I'm only here temporarially.
+    FM6: When I am faced with multiple people critisizing me for some reason.
+    FM7: 4
+    FM8: I end up homeless or in prison. Destined to be in a small box with abusers
+      and murderers.
+    FM9: I am afraid of spiders even though I don't really need to be.
   honesty_humility:
     HH1: 7
     HH10: Its not often trickle down economics actually work so I keep that shit.
@@ -872,6 +958,55 @@ responses:
       company if you think that  about me.
     SP8: My body is.. a mess.
     SP9: My ability to learn and apply my ideas in new ways.
+  social_dynamics:
+    SD1: I scope out the scene and take a grasp of the apparent emotional states in
+      the room and the volitility of the current topic on hand. Determine if they
+      are mostly negative or positive as well as social cues and taboos.
+    SD10: 4
+    SD11: I find others who can relate.
+    SD12: body language that puts me at ease. Especially flirtations, I could be easily
+      fooled if I thought I was falling in love.
+    SD13: Aggression, drugs, ignorance, bigotry, fascism
+    SD14: I  try to be early instead of on time.
+    SD15: 9
+    SD16: I use mental tricks and conventions to secretly manipulate my foes into
+      being friends. I position myself as a person others can look too.
+    SD17: I want to master them
+    SD18: 10
+    SD19: I try to be a good person and consider the people I am in charge of as well
+      as my own responsibilities.
+    SD2: 10
+    SD20: I am not as good with authority. I would rather be in charge.
+    SD21: 10
+    SD22: I get uncomfortable and point it out.
+    SD23: I tend to reject it and sstay secluded.
+    SD24: Like a master, its all about give and take. knowing how to give value to
+      your desires and devalue their desires so they are more likely to go with your
+      desires.
+    SD25: I avoid them unless I'm the boss.
+    SD26: 7
+    SD27: No harming children, no harming the elderly, no harming the poor, I need
+      my personal space respected, don't lie to me.
+    SD28: Ultimatums that I enforce,
+    SD29: Direct communication, and either forgivness or rejection depending on the
+      situation
+    SD3: I only chip in when I have something funny to say.
+    SD30: 10
+    SD31: I love to be close to people!
+    SD32: I firmly express myself. No
+    SD33: Not that I am aware of.
+    SD34: I just make sure to take some for myself when I can and focus mostly on
+      my family.
+    SD35: I stay away from hatred and rage, I don't like to lose control of my emotions
+      and my body because of it. I keep my lust to my love.
+    SD4: The secretly talented one, the quiet one, a leader
+    SD5: with a grin and niceness
+    SD6: 3
+    SD7: I find common ground with small stories or funny anecdotes. Simply showing
+      interest and genuine attention to the other individual builds rapport.
+    SD8: I am exhausted in situations where I am surrounded by people all depending
+      on me.
+    SD9: Depends on how juicy the tea is. If it's about me I just ignore it.
   thinking_style:
     TS1: Mix of both
     TS10: Both equally

@@ -1,0 +1,2676 @@
+# =============================================================================
+# iOS DEVELOPMENT (Swift/SwiftUI) MASTERY - Professional Best Practices
+# =============================================================================
+# Comprehensive guide covering Swift Best Practices, SwiftUI Patterns,
+# App Architecture, Core Data, Concurrency, and App Store Guidelines
+# Version: 1.0.0
+# Last Updated: 2026-02-02
+# =============================================================================
+
+metadata:
+  domain: "iOS Development"
+  level: "Mastery"
+  focus: "Verifiable, Production-Grade Practices"
+  technologies:
+    - Swift 5.9+
+    - SwiftUI
+    - UIKit (interop)
+    - Core Data
+    - Combine
+    - Swift Concurrency
+  minimum_deployment: "iOS 15.0+"
+  xcode_version: "15.0+"
+
+# =============================================================================
+# SECTION 1: SWIFT BEST PRACTICES
+# =============================================================================
+swift_best_practices:
+  overview: |
+    Swift is a type-safe, protocol-oriented language emphasizing clarity,
+    safety, and performance. Professional Swift code leverages optionals,
+    strong error handling, and value semantics appropriately.
+
+  optionals:
+    description: "Safe handling of absent values"
+    
+    best_practices:
+      - practice: "Use optional binding (if let, guard let) over force unwrapping"
+        good_example: |
+          // ✅ GOOD: Safe optional binding with guard
+          func processUser(id: String?) {
+              guard let userId = id, !userId.isEmpty else {
+                  print("Invalid user ID")
+                  return
+              }
+              // userId is safely unwrapped here
+              fetchUser(by: userId)
+          }
+          
+          // ✅ GOOD: Optional chaining for nested access
+          let city = user?.address?.city ?? "Unknown"
+          
+          // ✅ GOOD: Multiple optional binding
+          if let name = user?.name,
+             let email = user?.email,
+             email.contains("@") {
+              createAccount(name: name, email: email)
+          }
+        
+        bad_example: |
+          // ❌ BAD: Force unwrapping crashes if nil
+          func processUser(id: String?) {
+              let userId = id!  // CRASH if id is nil
+              fetchUser(by: userId)
+          }
+          
+          // ❌ BAD: Implicit unwrapped optionals without guarantee
+          var username: String!  // Dangerous unless guaranteed by framework
+          print(username.count)  // CRASH if never assigned
+      
+      - practice: "Use nil coalescing for default values"
+        good_example: |
+          // ✅ GOOD: Provide sensible defaults
+          let displayName = user.nickname ?? user.fullName ?? "Anonymous"
+          let timeout = configuration.timeout ?? 30.0
+          
+          // ✅ GOOD: Lazy default with closure
+          let cachedValue = cache[key] ?? {
+              let computed = expensiveComputation()
+              cache[key] = computed
+              return computed
+          }()
+        
+        bad_example: |
+          // ❌ BAD: Checking nil then force unwrapping
+          var displayName: String
+          if user.nickname != nil {
+              displayName = user.nickname!  // Redundant, use if let
+          } else {
+              displayName = "Anonymous"
+          }
+      
+      - practice: "Use Optional.map and flatMap for transformations"
+        good_example: |
+          // ✅ GOOD: Functional optional transformation
+          let userId: String? = "123"
+          let userIdInt = userId.flatMap { Int($0) }  // Optional<Int>
+          
+          // ✅ GOOD: map for non-optional returning transforms
+          let uppercased = optionalString.map { $0.uppercased() }
+          
+          // ✅ GOOD: Chained transformations
+          let profileURL = user?.avatarPath
+              .map { URL(string: $0) }
+              .flatMap { $0 }  // Flatten Optional<Optional<URL>>
+        
+        bad_example: |
+          // ❌ BAD: Verbose nil checking
+          var userIdInt: Int? = nil
+          if let userId = userId {
+              userIdInt = Int(userId)
+          }
+
+  error_handling:
+    description: "Robust error handling with Swift's Result and throws"
+    
+    best_practices:
+      - practice: "Define typed errors with enums"
+        good_example: |
+          // ✅ GOOD: Typed, descriptive errors
+          enum NetworkError: LocalizedError {
+              case noConnection
+              case timeout(seconds: Int)
+              case serverError(statusCode: Int, message: String)
+              case decodingFailed(underlying: Error)
+              case unauthorized
+              
+              var errorDescription: String? {
+                  switch self {
+                  case .noConnection:
+                      return "No internet connection available"
+                  case .timeout(let seconds):
+                      return "Request timed out after \(seconds) seconds"
+                  case .serverError(let code, let message):
+                      return "Server error \(code): \(message)"
+                  case .decodingFailed(let error):
+                      return "Failed to parse response: \(error.localizedDescription)"
+                  case .unauthorized:
+                      return "Authentication required"
+                  }
+              }
+              
+              var recoverySuggestion: String? {
+                  switch self {
+                  case .noConnection:
+                      return "Please check your internet connection and try again"
+                  case .timeout:
+                      return "The server is taking too long. Try again later"
+                  case .unauthorized:
+                      return "Please log in to continue"
+                  default:
+                      return nil
+                  }
+              }
+          }
+        
+        bad_example: |
+          // ❌ BAD: Generic error with magic strings
+          enum APIError: Error {
+              case failed(String)  // No type safety
+          }
+          throw APIError.failed("something went wrong")  // Unhelpful
+          
+          // ❌ BAD: Using NSError directly
+          throw NSError(domain: "API", code: -1, userInfo: nil)
+      
+      - practice: "Use Result type for async operations without async/await"
+        good_example: |
+          // ✅ GOOD: Result-based completion handler
+          func fetchUser(
+              id: String,
+              completion: @escaping (Result<User, NetworkError>) -> Void
+          ) {
+              URLSession.shared.dataTask(with: request) { data, response, error in
+                  if let error = error {
+                      completion(.failure(.noConnection))
+                      return
+                  }
+                  
+                  guard let httpResponse = response as? HTTPURLResponse else {
+                      completion(.failure(.serverError(statusCode: 0, message: "Invalid response")))
+                      return
+                  }
+                  
+                  guard (200...299).contains(httpResponse.statusCode) else {
+                      completion(.failure(.serverError(
+                          statusCode: httpResponse.statusCode,
+                          message: HTTPURLResponse.localizedString(forStatusCode: httpResponse.statusCode)
+                      )))
+                      return
+                  }
+                  
+                  do {
+                      let user = try JSONDecoder().decode(User.self, from: data!)
+                      completion(.success(user))
+                  } catch {
+                      completion(.failure(.decodingFailed(underlying: error)))
+                  }
+              }.resume()
+          }
+          
+          // ✅ GOOD: Handling Result
+          fetchUser(id: "123") { result in
+              switch result {
+              case .success(let user):
+                  updateUI(with: user)
+              case .failure(let error):
+                  showError(error.localizedDescription)
+              }
+          }
+        
+        bad_example: |
+          // ❌ BAD: Separate success/failure callbacks
+          func fetchUser(
+              id: String,
+              onSuccess: @escaping (User) -> Void,
+              onFailure: @escaping (Error) -> Void
+          )
+          
+          // ❌ BAD: Optional tuple return
+          func fetchUser(completion: @escaping (User?, Error?) -> Void)
+          // Both can be nil, or both non-nil - undefined behavior
+      
+      - practice: "Use do-catch with specific error handling"
+        good_example: |
+          // ✅ GOOD: Specific catch clauses
+          do {
+              let user = try await userService.fetchUser(id: userId)
+              try await database.save(user)
+          } catch NetworkError.unauthorized {
+              // Handle auth specifically
+              await authManager.refreshToken()
+              // Retry...
+          } catch NetworkError.noConnection {
+              showOfflineMode()
+          } catch let networkError as NetworkError {
+              showAlert(networkError.localizedDescription)
+          } catch {
+              // Catch-all for unexpected errors
+              logger.error("Unexpected error: \(error)")
+              showGenericError()
+          }
+        
+        bad_example: |
+          // ❌ BAD: Swallowing errors
+          do {
+              try riskyOperation()
+          } catch {
+              // Silent failure - debugging nightmare
+          }
+          
+          // ❌ BAD: try? without handling nil case
+          let result = try? parseData(data)
+          useResult(result!)  // Crash if parsing failed
+
+  protocols_and_generics:
+    description: "Protocol-oriented programming and generic abstractions"
+    
+    best_practices:
+      - practice: "Design with protocols for testability and flexibility"
+        good_example: |
+          // ✅ GOOD: Protocol-based dependency
+          protocol UserRepository {
+              func fetch(id: String) async throws -> User
+              func save(_ user: User) async throws
+              func delete(id: String) async throws
+          }
+          
+          // Production implementation
+          final class RemoteUserRepository: UserRepository {
+              private let apiClient: APIClient
+              private let cache: Cache<String, User>
+              
+              init(apiClient: APIClient, cache: Cache<String, User>) {
+                  self.apiClient = apiClient
+                  self.cache = cache
+              }
+              
+              func fetch(id: String) async throws -> User {
+                  if let cached = cache[id] {
+                      return cached
+                  }
+                  let user = try await apiClient.get("/users/\(id)")
+                  cache[id] = user
+                  return user
+              }
+              
+              func save(_ user: User) async throws {
+                  try await apiClient.put("/users/\(user.id)", body: user)
+                  cache[user.id] = user
+              }
+              
+              func delete(id: String) async throws {
+                  try await apiClient.delete("/users/\(id)")
+                  cache[id] = nil
+              }
+          }
+          
+          // Test mock
+          final class MockUserRepository: UserRepository {
+              var users: [String: User] = [:]
+              var fetchCallCount = 0
+              var shouldThrowError: Error?
+              
+              func fetch(id: String) async throws -> User {
+                  fetchCallCount += 1
+                  if let error = shouldThrowError { throw error }
+                  guard let user = users[id] else {
+                      throw NetworkError.serverError(statusCode: 404, message: "Not found")
+                  }
+                  return user
+              }
+              
+              func save(_ user: User) async throws {
+                  if let error = shouldThrowError { throw error }
+                  users[user.id] = user
+              }
+              
+              func delete(id: String) async throws {
+                  users[id] = nil
+              }
+          }
+        
+        bad_example: |
+          // ❌ BAD: Concrete dependency - untestable
+          class UserViewModel {
+              let repository = RemoteUserRepository()  // Hard-coded dependency
+              
+              func loadUser() {
+                  // Cannot test without network
+              }
+          }
+      
+      - practice: "Use protocol extensions for default implementations"
+        good_example: |
+          // ✅ GOOD: Protocol with default implementation
+          protocol Cacheable {
+              associatedtype CacheKey: Hashable
+              var cacheKey: CacheKey { get }
+              var cacheExpiration: TimeInterval { get }
+          }
+          
+          extension Cacheable {
+              var cacheExpiration: TimeInterval { 300 }  // 5 minute default
+          }
+          
+          extension Cacheable where CacheKey == String {
+              var cacheKey: String {
+                  String(describing: Self.self)
+              }
+          }
+          
+          // ✅ GOOD: Protocol composition
+          typealias DataSourceProtocol = Fetchable & Saveable & Deletable
+          
+          func createRepository<T: DataSourceProtocol>(for type: T.Type) -> T {
+              // ...
+          }
+      
+      - practice: "Prefer generics over Any/AnyObject"
+        good_example: |
+          // ✅ GOOD: Type-safe generic cache
+          final class Cache<Key: Hashable, Value> {
+              private var storage: [Key: CacheEntry<Value>] = [:]
+              private let lock = NSLock()
+              
+              struct CacheEntry<T> {
+                  let value: T
+                  let expiration: Date
+                  
+                  var isExpired: Bool {
+                      Date() > expiration
+                  }
+              }
+              
+              subscript(key: Key) -> Value? {
+                  get {
+                      lock.lock()
+                      defer { lock.unlock() }
+                      guard let entry = storage[key], !entry.isExpired else {
+                          storage[key] = nil
+                          return nil
+                      }
+                      return entry.value
+                  }
+                  set {
+                      lock.lock()
+                      defer { lock.unlock() }
+                      if let value = newValue {
+                          storage[key] = CacheEntry(
+                              value: value,
+                              expiration: Date().addingTimeInterval(300)
+                          )
+                      } else {
+                          storage[key] = nil
+                      }
+                  }
+              }
+          }
+          
+          // Usage - fully type-safe
+          let userCache = Cache<String, User>()
+          userCache["123"] = user
+          let cachedUser: User? = userCache["123"]
+        
+        bad_example: |
+          // ❌ BAD: Type-erased cache requires casting
+          class Cache {
+              private var storage: [String: Any] = [:]
+              
+              func get<T>(_ key: String) -> T? {
+                  storage[key] as? T  // Runtime cast, no compile-time safety
+              }
+              
+              func set(_ key: String, value: Any) {
+                  storage[key] = value  // Can store anything
+              }
+          }
+
+  value_vs_reference_types:
+    description: "Choosing between struct and class appropriately"
+    
+    guidelines:
+      use_struct_when:
+        - "The data is primarily a collection of values"
+        - "You want value semantics (copies are independent)"
+        - "The properties are also value types"
+        - "No need for inheritance"
+        - "Thread safety through immutability is important"
+      
+      use_class_when:
+        - "Identity matters (two instances with same values are different)"
+        - "You need inheritance"
+        - "You need reference semantics (shared mutable state)"
+        - "Interoperating with Objective-C APIs"
+        - "Deinitializers are needed for resource cleanup"
+    
+    best_practices:
+      - practice: "Use struct for data models"
+        good_example: |
+          // ✅ GOOD: Value type for data model
+          struct User: Codable, Equatable, Identifiable {
+              let id: String
+              var name: String
+              var email: String
+              var avatarURL: URL?
+              var settings: UserSettings
+              
+              struct UserSettings: Codable, Equatable {
+                  var notificationsEnabled: Bool
+                  var theme: Theme
+                  var language: String
+              }
+          }
+          
+          // Mutation creates a new copy
+          var user1 = User(id: "1", name: "Alice", email: "alice@example.com", settings: .init(...))
+          var user2 = user1  // Independent copy
+          user2.name = "Bob"  // user1.name is still "Alice"
+          
+          // ✅ GOOD: Immutable by default, mutating when needed
+          extension User {
+              func withUpdatedEmail(_ email: String) -> User {
+                  var copy = self
+                  copy.email = email
+                  return copy
+              }
+          }
+        
+        bad_example: |
+          // ❌ BAD: Class for simple data model
+          class User {
+              var id: String
+              var name: String
+              // Reference semantics cause unexpected mutations
+          }
+          
+          let user1 = User(id: "1", name: "Alice")
+          let user2 = user1  // Same reference!
+          user2.name = "Bob"  // user1.name is ALSO "Bob"
+      
+      - practice: "Use class for shared mutable state and services"
+        good_example: |
+          // ✅ GOOD: Class for service with shared state
+          final class AuthenticationManager {
+              static let shared = AuthenticationManager()
+              
+              private let keychain: KeychainWrapper
+              private let tokenRefreshQueue = DispatchQueue(label: "auth.refresh")
+              
+              @Published private(set) var currentUser: User?
+              @Published private(set) var isAuthenticated: Bool = false
+              
+              private init() {
+                  self.keychain = KeychainWrapper.standard
+                  loadStoredCredentials()
+              }
+              
+              deinit {
+                  // Cleanup if needed
+                  NotificationCenter.default.removeObserver(self)
+              }
+              
+              func login(email: String, password: String) async throws -> User {
+                  let response = try await apiClient.post("/auth/login", body: LoginRequest(email: email, password: password))
+                  try keychain.set(response.accessToken, forKey: "accessToken")
+                  currentUser = response.user
+                  isAuthenticated = true
+                  return response.user
+              }
+          }
+        
+        bad_example: |
+          // ❌ BAD: Struct for service (copies lose state)
+          struct AuthManager {
+              var currentUser: User?  // Lost on copy
+              
+              mutating func login(...) {
+                  // Mutation doesn't propagate to other copies
+              }
+          }
+      
+      - practice: "Use copy-on-write for large value types"
+        good_example: |
+          // ✅ GOOD: Copy-on-write wrapper for performance
+          struct LargeData {
+              private var storage: Storage
+              
+              private final class Storage {
+                  var items: [Item]
+                  
+                  init(items: [Item]) {
+                      self.items = items
+                  }
+                  
+                  func copy() -> Storage {
+                      Storage(items: items)
+                  }
+              }
+              
+              init(items: [Item]) {
+                  storage = Storage(items: items)
+              }
+              
+              var items: [Item] {
+                  get { storage.items }
+                  set {
+                      // Copy-on-write: only copy if shared
+                      if !isKnownUniquelyReferenced(&storage) {
+                          storage = storage.copy()
+                      }
+                      storage.items = newValue
+                  }
+              }
+              
+              mutating func append(_ item: Item) {
+                  if !isKnownUniquelyReferenced(&storage) {
+                      storage = storage.copy()
+                  }
+                  storage.items.append(item)
+              }
+          }
+
+# =============================================================================
+# SECTION 2: SWIFTUI PATTERNS
+# =============================================================================
+swiftui_patterns:
+  overview: |
+    SwiftUI is a declarative UI framework where views are a function of state.
+    Understanding state management and property wrappers is essential for
+    building performant, maintainable SwiftUI applications.
+
+  state_management:
+    description: "Choosing the right property wrapper for each use case"
+    
+    property_wrapper_guide:
+      State:
+        purpose: "Local mutable state owned by a view"
+        ownership: "View owns and manages the source of truth"
+        use_when: "Simple value types local to a single view"
+        example: |
+          struct CounterView: View {
+              @State private var count = 0  // Local state
+              
+              var body: some View {
+                  VStack {
+                      Text("Count: \(count)")
+                      Button("Increment") {
+                          count += 1
+                      }
+                  }
+              }
+          }
+      
+      Binding:
+        purpose: "Two-way reference to state owned elsewhere"
+        ownership: "Parent view owns the state"
+        use_when: "Child view needs to read AND write parent's state"
+        example: |
+          struct ParentView: View {
+              @State private var text = ""
+              
+              var body: some View {
+                  // Pass binding to child
+                  TextInputView(text: $text)
+              }
+          }
+          
+          struct TextInputView: View {
+              @Binding var text: String  // Can read and modify parent's state
+              
+              var body: some View {
+                  TextField("Enter text", text: $text)
+              }
+          }
+      
+      StateObject:
+        purpose: "Create and own an observable object"
+        ownership: "View creates and owns the object lifecycle"
+        use_when: "View is the source of truth for an ObservableObject"
+        critical_note: "Use ONLY in the view that creates the object"
+        example: |
+          struct UserProfileView: View {
+              // ✅ StateObject creates and owns the view model
+              @StateObject private var viewModel = UserProfileViewModel()
+              
+              var body: some View {
+                  VStack {
+                      if viewModel.isLoading {
+                          ProgressView()
+                      } else if let user = viewModel.user {
+                          Text(user.name)
+                      }
+                  }
+                  .task {
+                      await viewModel.loadUser()
+                  }
+              }
+          }
+      
+      ObservedObject:
+        purpose: "Observe an object owned by a parent"
+        ownership: "Parent or external source owns the object"
+        use_when: "Object is passed in from parent view"
+        warning: "Do NOT use for objects created in the same view"
+        example: |
+          struct UserDetailView: View {
+              // ✅ ObservedObject for passed-in object
+              @ObservedObject var viewModel: UserDetailViewModel
+              
+              var body: some View {
+                  Text(viewModel.user.name)
+              }
+          }
+          
+          // Parent creates and passes the view model
+          struct ParentView: View {
+              @StateObject private var viewModel = UserDetailViewModel()
+              
+              var body: some View {
+                  UserDetailView(viewModel: viewModel)
+              }
+          }
+      
+      EnvironmentObject:
+        purpose: "Shared data accessible throughout view hierarchy"
+        ownership: "Injected at a parent level, shared down"
+        use_when: "Multiple views need the same shared state"
+        example: |
+          // App-level injection
+          @main
+          struct MyApp: App {
+              @StateObject private var authManager = AuthManager()
+              @StateObject private var settingsStore = SettingsStore()
+              
+              var body: some Scene {
+                  WindowGroup {
+                      ContentView()
+                          .environmentObject(authManager)
+                          .environmentObject(settingsStore)
+                  }
+              }
+          }
+          
+          // Any descendant can access
+          struct ProfileView: View {
+              @EnvironmentObject var authManager: AuthManager
+              
+              var body: some View {
+                  if let user = authManager.currentUser {
+                      Text("Hello, \(user.name)")
+                  }
+              }
+          }
+    
+    common_mistakes:
+      - mistake: "Using @ObservedObject for view-created objects"
+        problem: "Object recreated on every view update, losing state"
+        bad_example: |
+          struct ProfileView: View {
+              // ❌ WRONG: ObservedObject for locally created object
+              @ObservedObject var viewModel = ProfileViewModel()
+              
+              var body: some View {
+                  // viewModel is recreated each time ProfileView's parent updates
+                  Text(viewModel.user.name)
+              }
+          }
+        good_example: |
+          struct ProfileView: View {
+              // ✅ CORRECT: StateObject for locally created object
+              @StateObject private var viewModel = ProfileViewModel()
+              
+              var body: some View {
+                  Text(viewModel.user.name)
+              }
+          }
+      
+      - mistake: "Heavy computation in view body"
+        problem: "Body is called frequently; expensive work causes lag"
+        bad_example: |
+          struct ListView: View {
+              let items: [Item]
+              
+              var body: some View {
+                  // ❌ WRONG: Sorting on every body call
+                  let sortedItems = items.sorted { $0.date > $1.date }
+                  
+                  List(sortedItems) { item in
+                      ItemRow(item: item)
+                  }
+              }
+          }
+        good_example: |
+          struct ListView: View {
+              let items: [Item]
+              
+              // ✅ CORRECT: Computed once, cached until items change
+              private var sortedItems: [Item] {
+                  items.sorted { $0.date > $1.date }
+              }
+              
+              var body: some View {
+                  List(sortedItems) { item in
+                      ItemRow(item: item)
+                  }
+              }
+          }
+          
+          // Or use ViewModel for complex transformations
+          @Observable
+          class ListViewModel {
+              var items: [Item] = []
+              
+              var sortedItems: [Item] {
+                  items.sorted { $0.date > $1.date }
+              }
+          }
+      
+      - mistake: "Not using @MainActor for UI updates"
+        bad_example: |
+          class ProfileViewModel: ObservableObject {
+              @Published var user: User?
+              
+              func loadUser() async {
+                  let user = try? await api.fetchUser()
+                  // ❌ WRONG: May update @Published from background thread
+                  self.user = user
+              }
+          }
+        good_example: |
+          @MainActor
+          class ProfileViewModel: ObservableObject {
+              @Published var user: User?
+              
+              func loadUser() async {
+                  let user = try? await api.fetchUser()
+                  // ✅ CORRECT: @MainActor ensures main thread
+                  self.user = user
+              }
+          }
+
+  observable_macro:
+    description: "iOS 17+ @Observable macro (preferred over ObservableObject)"
+    
+    migration_guide: |
+      The @Observable macro (iOS 17+) simplifies state management:
+      - No @Published needed
+      - Automatic fine-grained observation
+      - Better performance (only affected views update)
+    
+    example: |
+      // ✅ Modern approach (iOS 17+)
+      @Observable
+      class UserViewModel {
+          var user: User?          // Automatically observed
+          var isLoading = false    // Automatically observed
+          var errorMessage: String?
+          
+          func loadUser() async {
+              isLoading = true
+              defer { isLoading = false }
+              
+              do {
+                  user = try await userService.fetchCurrentUser()
+              } catch {
+                  errorMessage = error.localizedDescription
+              }
+          }
+      }
+      
+      struct UserView: View {
+          var viewModel: UserViewModel  // No wrapper needed for @Observable
+          
+          var body: some View {
+              Group {
+                  if viewModel.isLoading {
+                      ProgressView()
+                  } else if let user = viewModel.user {
+                      Text(user.name)
+                  }
+              }
+          }
+      }
+    
+    comparison:
+      ObservableObject: |
+        // Pre-iOS 17
+        class ViewModel: ObservableObject {
+            @Published var items: [Item] = []
+            @Published var isLoading = false
+        }
+        
+        struct MyView: View {
+            @StateObject var viewModel = ViewModel()
+        }
+      
+      Observable: |
+        // iOS 17+
+        @Observable
+        class ViewModel {
+            var items: [Item] = []
+            var isLoading = false
+        }
+        
+        struct MyView: View {
+            @State var viewModel = ViewModel()
+        }
+
+  custom_property_wrappers:
+    description: "Creating reusable property wrappers"
+    
+    example: |
+      // ✅ Custom wrapper for UserDefaults
+      @propertyWrapper
+      struct AppStorage<Value> {
+          let key: String
+          let defaultValue: Value
+          let container: UserDefaults
+          
+          init(wrappedValue: Value, _ key: String, store: UserDefaults = .standard) {
+              self.defaultValue = wrappedValue
+              self.key = key
+              self.container = store
+          }
+          
+          var wrappedValue: Value {
+              get {
+                  container.object(forKey: key) as? Value ?? defaultValue
+              }
+              set {
+                  container.set(newValue, forKey: key)
+              }
+          }
+          
+          var projectedValue: Binding<Value> {
+              Binding(
+                  get: { wrappedValue },
+                  set: { wrappedValue = $0 }
+              )
+          }
+      }
+      
+      // Usage
+      struct SettingsView: View {
+          @AppStorage("notifications_enabled") private var notificationsEnabled = true
+          @AppStorage("theme") private var theme = "system"
+          
+          var body: some View {
+              Form {
+                  Toggle("Notifications", isOn: $notificationsEnabled)
+                  Picker("Theme", selection: $theme) {
+                      Text("System").tag("system")
+                      Text("Light").tag("light")
+                      Text("Dark").tag("dark")
+                  }
+              }
+          }
+      }
+
+# =============================================================================
+# SECTION 3: APP ARCHITECTURE
+# =============================================================================
+app_architecture:
+  overview: |
+    Clean architecture separates concerns, improves testability, and makes
+    code maintainable. MVVM with Coordinators is the recommended pattern
+    for scalable iOS applications.
+
+  mvvm:
+    description: "Model-View-ViewModel pattern for SwiftUI"
+    
+    structure:
+      model: "Data structures and business logic"
+      view: "SwiftUI views (declarative UI)"
+      viewmodel: "Presentation logic and state management"
+    
+    implementation:
+      complete_example: |
+        // ═══════════════════════════════════════════════════════════
+        // MODEL
+        // ═══════════════════════════════════════════════════════════
+        struct Product: Identifiable, Codable, Equatable {
+            let id: String
+            let name: String
+            let description: String
+            let price: Decimal
+            let imageURL: URL?
+            let category: Category
+            let inventory: Int
+            
+            var isInStock: Bool { inventory > 0 }
+            
+            enum Category: String, Codable, CaseIterable {
+                case electronics, clothing, home, sports
+            }
+        }
+        
+        // ═══════════════════════════════════════════════════════════
+        // REPOSITORY (Data Layer)
+        // ═══════════════════════════════════════════════════════════
+        protocol ProductRepository {
+            func fetchProducts(category: Product.Category?) async throws -> [Product]
+            func fetchProduct(id: String) async throws -> Product
+            func searchProducts(query: String) async throws -> [Product]
+        }
+        
+        final class RemoteProductRepository: ProductRepository {
+            private let apiClient: APIClient
+            private let cache: Cache<String, [Product]>
+            
+            init(apiClient: APIClient, cache: Cache<String, [Product]> = .init()) {
+                self.apiClient = apiClient
+                self.cache = cache
+            }
+            
+            func fetchProducts(category: Product.Category?) async throws -> [Product] {
+                let cacheKey = "products_\(category?.rawValue ?? "all")"
+                
+                if let cached = cache[cacheKey] {
+                    return cached
+                }
+                
+                var path = "/products"
+                if let category = category {
+                    path += "?category=\(category.rawValue)"
+                }
+                
+                let products: [Product] = try await apiClient.get(path)
+                cache[cacheKey] = products
+                return products
+            }
+            
+            func fetchProduct(id: String) async throws -> Product {
+                try await apiClient.get("/products/\(id)")
+            }
+            
+            func searchProducts(query: String) async throws -> [Product] {
+                let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+                return try await apiClient.get("/products/search?q=\(encoded)")
+            }
+        }
+        
+        // ═══════════════════════════════════════════════════════════
+        // VIEW MODEL
+        // ═══════════════════════════════════════════════════════════
+        @MainActor
+        final class ProductListViewModel: ObservableObject {
+            // MARK: - Published State
+            @Published private(set) var products: [Product] = []
+            @Published private(set) var isLoading = false
+            @Published private(set) var error: Error?
+            @Published var selectedCategory: Product.Category?
+            @Published var searchQuery = ""
+            
+            // MARK: - Dependencies
+            private let repository: ProductRepository
+            private let analytics: AnalyticsService
+            
+            // MARK: - Computed Properties
+            var filteredProducts: [Product] {
+                var result = products
+                
+                if let category = selectedCategory {
+                    result = result.filter { $0.category == category }
+                }
+                
+                if !searchQuery.isEmpty {
+                    result = result.filter {
+                        $0.name.localizedCaseInsensitiveContains(searchQuery) ||
+                        $0.description.localizedCaseInsensitiveContains(searchQuery)
+                    }
+                }
+                
+                return result
+            }
+            
+            var hasError: Bool { error != nil }
+            
+            // MARK: - Initialization
+            init(
+                repository: ProductRepository,
+                analytics: AnalyticsService = .shared
+            ) {
+                self.repository = repository
+                self.analytics = analytics
+            }
+            
+            // MARK: - Actions
+            func loadProducts() async {
+                guard !isLoading else { return }
+                
+                isLoading = true
+                error = nil
+                
+                do {
+                    products = try await repository.fetchProducts(category: selectedCategory)
+                    analytics.track(.productsViewed(count: products.count))
+                } catch {
+                    self.error = error
+                    analytics.track(.error(error))
+                }
+                
+                isLoading = false
+            }
+            
+            func refresh() async {
+                await loadProducts()
+            }
+            
+            func selectCategory(_ category: Product.Category?) {
+                selectedCategory = category
+                Task {
+                    await loadProducts()
+                }
+            }
+            
+            func clearError() {
+                error = nil
+            }
+        }
+        
+        // ═══════════════════════════════════════════════════════════
+        // VIEW
+        // ═══════════════════════════════════════════════════════════
+        struct ProductListView: View {
+            @StateObject private var viewModel: ProductListViewModel
+            @State private var showingFilters = false
+            
+            init(repository: ProductRepository) {
+                _viewModel = StateObject(wrappedValue: ProductListViewModel(repository: repository))
+            }
+            
+            var body: some View {
+                NavigationStack {
+                    Group {
+                        if viewModel.isLoading && viewModel.products.isEmpty {
+                            loadingView
+                        } else if viewModel.products.isEmpty {
+                            emptyStateView
+                        } else {
+                            productList
+                        }
+                    }
+                    .navigationTitle("Products")
+                    .toolbar {
+                        ToolbarItem(placement: .navigationBarTrailing) {
+                            Button {
+                                showingFilters = true
+                            } label: {
+                                Image(systemName: "line.3.horizontal.decrease.circle")
+                            }
+                        }
+                    }
+                    .searchable(text: $viewModel.searchQuery)
+                    .refreshable {
+                        await viewModel.refresh()
+                    }
+                    .task {
+                        await viewModel.loadProducts()
+                    }
+                    .alert(
+                        "Error",
+                        isPresented: .init(
+                            get: { viewModel.hasError },
+                            set: { if !$0 { viewModel.clearError() } }
+                        ),
+                        presenting: viewModel.error
+                    ) { _ in
+                        Button("Retry") {
+                            Task { await viewModel.loadProducts() }
+                        }
+                        Button("Cancel", role: .cancel) {}
+                    } message: { error in
+                        Text(error.localizedDescription)
+                    }
+                    .sheet(isPresented: $showingFilters) {
+                        FilterView(
+                            selectedCategory: $viewModel.selectedCategory,
+                            categories: Product.Category.allCases
+                        )
+                    }
+                }
+            }
+            
+            private var loadingView: some View {
+                VStack {
+                    ProgressView()
+                    Text("Loading products...")
+                        .foregroundStyle(.secondary)
+                }
+            }
+            
+            private var emptyStateView: some View {
+                ContentUnavailableView(
+                    "No Products",
+                    systemImage: "bag",
+                    description: Text("Check back later for new items")
+                )
+            }
+            
+            private var productList: some View {
+                List(viewModel.filteredProducts) { product in
+                    NavigationLink(value: product) {
+                        ProductRowView(product: product)
+                    }
+                }
+                .navigationDestination(for: Product.self) { product in
+                    ProductDetailView(product: product)
+                }
+            }
+        }
+    
+    best_practices:
+      - "ViewModel should be @MainActor for safe UI updates"
+      - "Use protocols for dependencies (testability)"
+      - "Keep Views dumb - only display logic"
+      - "ViewModel exposes state, View binds to it"
+      - "Use computed properties for derived state"
+      - "Handle loading, error, and empty states explicitly"
+
+  dependency_injection:
+    description: "Managing dependencies for testability and flexibility"
+    
+    patterns:
+      constructor_injection:
+        description: "Preferred - explicit dependencies"
+        example: |
+          // ✅ GOOD: Constructor injection
+          @MainActor
+          final class OrderViewModel: ObservableObject {
+              private let orderService: OrderService
+              private let paymentProcessor: PaymentProcessor
+              private let analytics: AnalyticsService
+              
+              init(
+                  orderService: OrderService,
+                  paymentProcessor: PaymentProcessor,
+                  analytics: AnalyticsService
+              ) {
+                  self.orderService = orderService
+                  self.paymentProcessor = paymentProcessor
+                  self.analytics = analytics
+              }
+          }
+      
+      environment_injection:
+        description: "SwiftUI's built-in DI mechanism"
+        example: |
+          // Define environment key
+          private struct OrderServiceKey: EnvironmentKey {
+              static let defaultValue: OrderService = RemoteOrderService()
+          }
+          
+          extension EnvironmentValues {
+              var orderService: OrderService {
+                  get { self[OrderServiceKey.self] }
+                  set { self[OrderServiceKey.self] = newValue }
+              }
+          }
+          
+          // Use in views
+          struct OrderView: View {
+              @Environment(\.orderService) private var orderService
+              
+              var body: some View {
+                  // Use orderService
+              }
+          }
+          
+          // Inject at app level
+          @main
+          struct MyApp: App {
+              var body: some Scene {
+                  WindowGroup {
+                      ContentView()
+                          .environment(\.orderService, RemoteOrderService())
+                  }
+              }
+          }
+          
+          // Override in previews
+          #Preview {
+              OrderView()
+                  .environment(\.orderService, MockOrderService())
+          }
+      
+      container_pattern:
+        description: "Centralized dependency container"
+        example: |
+          // Dependency container
+          @MainActor
+          final class DependencyContainer: ObservableObject {
+              // Services
+              lazy var apiClient: APIClient = URLSessionAPIClient(baseURL: Config.apiBaseURL)
+              lazy var authService: AuthService = RemoteAuthService(apiClient: apiClient)
+              lazy var userRepository: UserRepository = RemoteUserRepository(apiClient: apiClient)
+              lazy var orderService: OrderService = RemoteOrderService(apiClient: apiClient)
+              
+              // Analytics
+              lazy var analytics: AnalyticsService = AnalyticsService(
+                  providers: [FirebaseAnalytics(), MixpanelAnalytics()]
+              )
+              
+              // Factory methods
+              func makeUserProfileViewModel() -> UserProfileViewModel {
+                  UserProfileViewModel(
+                      userRepository: userRepository,
+                      analytics: analytics
+                  )
+              }
+              
+              func makeOrderViewModel() -> OrderViewModel {
+                  OrderViewModel(
+                      orderService: orderService,
+                      paymentProcessor: StripePaymentProcessor(),
+                      analytics: analytics
+                  )
+              }
+          }
+          
+          // Usage in App
+          @main
+          struct MyApp: App {
+              @StateObject private var container = DependencyContainer()
+              
+              var body: some Scene {
+                  WindowGroup {
+                      RootView()
+                          .environmentObject(container)
+                  }
+              }
+          }
+
+  coordinator_pattern:
+    description: "Managing navigation flow outside of views"
+    
+    implementation: |
+      // ═══════════════════════════════════════════════════════════
+      // COORDINATOR PROTOCOL
+      // ═══════════════════════════════════════════════════════════
+      protocol Coordinator: AnyObject {
+          var navigationPath: NavigationPath { get set }
+          func start()
+      }
+      
+      // ═══════════════════════════════════════════════════════════
+      // APP COORDINATOR
+      // ═══════════════════════════════════════════════════════════
+      @MainActor
+      final class AppCoordinator: ObservableObject {
+          @Published var navigationPath = NavigationPath()
+          @Published var presentedSheet: Sheet?
+          @Published var presentedAlert: AlertItem?
+          
+          enum Route: Hashable {
+              case productList
+              case productDetail(Product)
+              case cart
+              case checkout
+              case orderConfirmation(Order)
+              case profile
+              case settings
+          }
+          
+          enum Sheet: Identifiable {
+              case login
+              case filters
+              case addReview(Product)
+              
+              var id: String {
+                  switch self {
+                  case .login: return "login"
+                  case .filters: return "filters"
+                  case .addReview(let product): return "review_\(product.id)"
+                  }
+              }
+          }
+          
+          struct AlertItem: Identifiable {
+              let id = UUID()
+              let title: String
+              let message: String
+              let primaryAction: AlertAction?
+              let secondaryAction: AlertAction?
+              
+              struct AlertAction {
+                  let title: String
+                  let role: ButtonRole?
+                  let action: () -> Void
+              }
+          }
+          
+          // MARK: - Navigation Actions
+          func push(_ route: Route) {
+              navigationPath.append(route)
+          }
+          
+          func pop() {
+              guard !navigationPath.isEmpty else { return }
+              navigationPath.removeLast()
+          }
+          
+          func popToRoot() {
+              navigationPath = NavigationPath()
+          }
+          
+          func present(_ sheet: Sheet) {
+              presentedSheet = sheet
+          }
+          
+          func dismissSheet() {
+              presentedSheet = nil
+          }
+          
+          func showAlert(_ alert: AlertItem) {
+              presentedAlert = alert
+          }
+          
+          // MARK: - Flow Actions
+          func showProductDetail(_ product: Product) {
+              push(.productDetail(product))
+          }
+          
+          func showCart() {
+              push(.cart)
+          }
+          
+          func startCheckout() {
+              push(.checkout)
+          }
+          
+          func completeOrder(_ order: Order) {
+              // Replace navigation stack with confirmation
+              navigationPath = NavigationPath()
+              push(.orderConfirmation(order))
+          }
+          
+          func showLoginIfNeeded(then action: @escaping () -> Void) {
+              if AuthManager.shared.isAuthenticated {
+                  action()
+              } else {
+                  present(.login)
+              }
+          }
+      }
+      
+      // ═══════════════════════════════════════════════════════════
+      // ROOT VIEW WITH COORDINATOR
+      // ═══════════════════════════════════════════════════════════
+      struct RootView: View {
+          @StateObject private var coordinator = AppCoordinator()
+          @StateObject private var container = DependencyContainer()
+          
+          var body: some View {
+              NavigationStack(path: $coordinator.navigationPath) {
+                  HomeView()
+                      .navigationDestination(for: AppCoordinator.Route.self) { route in
+                          destinationView(for: route)
+                      }
+              }
+              .environmentObject(coordinator)
+              .environmentObject(container)
+              .sheet(item: $coordinator.presentedSheet) { sheet in
+                  sheetView(for: sheet)
+              }
+              .alert(
+                  coordinator.presentedAlert?.title ?? "",
+                  isPresented: .init(
+                      get: { coordinator.presentedAlert != nil },
+                      set: { if !$0 { coordinator.presentedAlert = nil } }
+                  ),
+                  presenting: coordinator.presentedAlert
+              ) { alert in
+                  if let primary = alert.primaryAction {
+                      Button(primary.title, role: primary.role) {
+                          primary.action()
+                      }
+                  }
+                  if let secondary = alert.secondaryAction {
+                      Button(secondary.title, role: secondary.role) {
+                          secondary.action()
+                      }
+                  }
+              } message: { alert in
+                  Text(alert.message)
+              }
+          }
+          
+          @ViewBuilder
+          private func destinationView(for route: AppCoordinator.Route) -> some View {
+              switch route {
+              case .productList:
+                  ProductListView(repository: container.productRepository)
+              case .productDetail(let product):
+                  ProductDetailView(product: product)
+              case .cart:
+                  CartView()
+              case .checkout:
+                  CheckoutView()
+              case .orderConfirmation(let order):
+                  OrderConfirmationView(order: order)
+              case .profile:
+                  ProfileView()
+              case .settings:
+                  SettingsView()
+              }
+          }
+          
+          @ViewBuilder
+          private func sheetView(for sheet: AppCoordinator.Sheet) -> some View {
+              switch sheet {
+              case .login:
+                  LoginView()
+              case .filters:
+                  FilterView()
+              case .addReview(let product):
+                  AddReviewView(product: product)
+              }
+          }
+      }
+
+# =============================================================================
+# SECTION 4: CORE DATA
+# =============================================================================
+core_data:
+  overview: |
+    Core Data is Apple's object graph and persistence framework. Proper
+    context management and background operations are critical for performance
+    and data integrity.
+
+  context_management:
+    description: "Managing NSManagedObjectContext correctly"
+    
+    stack_setup:
+      modern_approach: |
+        // ✅ GOOD: Modern Core Data stack with NSPersistentContainer
+        final class CoreDataStack {
+            static let shared = CoreDataStack()
+            
+            let persistentContainer: NSPersistentContainer
+            
+            // Main context for UI operations
+            var viewContext: NSManagedObjectContext {
+                persistentContainer.viewContext
+            }
+            
+            private init() {
+                persistentContainer = NSPersistentContainer(name: "Model")
+                
+                // Configure for better performance
+                persistentContainer.viewContext.automaticallyMergesChangesFromParent = true
+                persistentContainer.viewContext.mergePolicy = NSMergeByPropertyObjectTrumpMergePolicy
+                
+                // Load stores
+                persistentContainer.loadPersistentStores { description, error in
+                    if let error = error {
+                        fatalError("Failed to load Core Data stack: \(error)")
+                    }
+                }
+            }
+            
+            // Background context for heavy operations
+            func newBackgroundContext() -> NSManagedObjectContext {
+                let context = persistentContainer.newBackgroundContext()
+                context.mergePolicy = NSMergeByPropertyObjectTrumpMergePolicy
+                return context
+            }
+            
+            // Perform background work
+            func performBackgroundTask(_ block: @escaping (NSManagedObjectContext) -> Void) {
+                persistentContainer.performBackgroundTask(block)
+            }
+            
+            // Save context with error handling
+            func save(context: NSManagedObjectContext) {
+                guard context.hasChanges else { return }
+                
+                do {
+                    try context.save()
+                } catch {
+                    let nsError = error as NSError
+                    // In production, handle gracefully
+                    print("Core Data save error: \(nsError), \(nsError.userInfo)")
+                }
+            }
+        }
+    
+    best_practices:
+      - practice: "Use viewContext ONLY on main thread"
+        good_example: |
+          // ✅ GOOD: Main context on main thread
+          @MainActor
+          func updateUserInterface(with user: User) {
+              let context = CoreDataStack.shared.viewContext
+              user.lastAccessDate = Date()
+              CoreDataStack.shared.save(context: context)
+          }
+        
+        bad_example: |
+          // ❌ BAD: Accessing viewContext from background
+          DispatchQueue.global().async {
+              let context = CoreDataStack.shared.viewContext  // WRONG THREAD
+              // Crash or data corruption
+          }
+      
+      - practice: "Use background context for heavy operations"
+        good_example: |
+          // ✅ GOOD: Import large dataset on background
+          func importProducts(_ products: [ProductDTO]) async {
+              let context = CoreDataStack.shared.newBackgroundContext()
+              
+              await context.perform {
+                  for dto in products {
+                      let product = Product(context: context)
+                      product.id = dto.id
+                      product.name = dto.name
+                      product.price = NSDecimalNumber(decimal: dto.price)
+                  }
+                  
+                  do {
+                      try context.save()
+                  } catch {
+                      print("Import failed: \(error)")
+                      context.rollback()
+                  }
+              }
+          }
+        
+        bad_example: |
+          // ❌ BAD: Heavy import on main thread blocks UI
+          func importProducts(_ products: [ProductDTO]) {
+              let context = CoreDataStack.shared.viewContext
+              
+              for dto in products {  // Blocks main thread
+                  let product = Product(context: context)
+                  // ...
+              }
+              try? context.save()
+          }
+      
+      - practice: "Pass object IDs across contexts, not objects"
+        good_example: |
+          // ✅ GOOD: Pass objectID, fetch in correct context
+          func updateProduct(id: NSManagedObjectID, newPrice: Decimal) async {
+              let context = CoreDataStack.shared.newBackgroundContext()
+              
+              await context.perform {
+                  guard let product = try? context.existingObject(with: id) as? Product else {
+                      return
+                  }
+                  product.price = NSDecimalNumber(decimal: newPrice)
+                  try? context.save()
+              }
+          }
+          
+          // Call from UI
+          Task {
+              await updateProduct(id: product.objectID, newPrice: 29.99)
+          }
+        
+        bad_example: |
+          // ❌ BAD: Passing managed object across contexts
+          func updateProduct(_ product: Product, newPrice: Decimal) {
+              DispatchQueue.global().async {
+                  // product belongs to different context - undefined behavior
+                  product.price = NSDecimalNumber(decimal: newPrice)
+              }
+          }
+
+  background_operations:
+    description: "Performing Core Data operations without blocking UI"
+    
+    patterns:
+      batch_operations: |
+        // ✅ Efficient batch update (no objects loaded)
+        func markAllAsRead() async throws {
+            let context = CoreDataStack.shared.newBackgroundContext()
+            
+            try await context.perform {
+                let batchUpdate = NSBatchUpdateRequest(entityName: "Notification")
+                batchUpdate.predicate = NSPredicate(format: "isRead == NO")
+                batchUpdate.propertiesToUpdate = ["isRead": true, "readDate": Date()]
+                batchUpdate.resultType = .updatedObjectIDsResultType
+                
+                let result = try context.execute(batchUpdate) as? NSBatchUpdateResult
+                let objectIDs = result?.result as? [NSManagedObjectID] ?? []
+                
+                // Merge changes to viewContext
+                let changes = [NSUpdatedObjectsKey: objectIDs]
+                NSManagedObjectContext.mergeChanges(
+                    fromRemoteContextSave: changes,
+                    into: [CoreDataStack.shared.viewContext]
+                )
+            }
+        }
+        
+        // ✅ Efficient batch delete
+        func deleteOldNotifications() async throws {
+            let context = CoreDataStack.shared.newBackgroundContext()
+            let cutoffDate = Calendar.current.date(byAdding: .day, value: -30, to: Date())!
+            
+            try await context.perform {
+                let fetchRequest: NSFetchRequest<NSFetchRequestResult> = Notification.fetchRequest()
+                fetchRequest.predicate = NSPredicate(format: "createdAt < %@", cutoffDate as NSDate)
+                
+                let batchDelete = NSBatchDeleteRequest(fetchRequest: fetchRequest)
+                batchDelete.resultType = .resultTypeObjectIDs
+                
+                let result = try context.execute(batchDelete) as? NSBatchDeleteResult
+                let objectIDs = result?.result as? [NSManagedObjectID] ?? []
+                
+                // Merge deletions
+                let changes = [NSDeletedObjectsKey: objectIDs]
+                NSManagedObjectContext.mergeChanges(
+                    fromRemoteContextSave: changes,
+                    into: [CoreDataStack.shared.viewContext]
+                )
+            }
+        }
+      
+      async_fetch: |
+        // ✅ Async fetch with modern Swift concurrency
+        @MainActor
+        func fetchRecentOrders() async throws -> [Order] {
+            let context = CoreDataStack.shared.viewContext
+            
+            let request: NSFetchRequest<Order> = Order.fetchRequest()
+            request.predicate = NSPredicate(format: "date >= %@", Date().addingTimeInterval(-86400 * 7) as NSDate)
+            request.sortDescriptors = [NSSortDescriptor(keyPath: \Order.date, ascending: false)]
+            request.fetchLimit = 50
+            request.returnsObjectsAsFaults = false  // Prefetch data
+            
+            return try context.fetch(request)
+        }
+        
+        // ✅ Background fetch with result conversion
+        func searchProducts(query: String) async throws -> [ProductSearchResult] {
+            let context = CoreDataStack.shared.newBackgroundContext()
+            
+            return try await context.perform {
+                let request: NSFetchRequest<Product> = Product.fetchRequest()
+                request.predicate = NSPredicate(
+                    format: "name CONTAINS[cd] %@ OR desc CONTAINS[cd] %@",
+                    query, query
+                )
+                request.fetchLimit = 100
+                
+                let products = try context.fetch(request)
+                
+                // Convert to value types before leaving context
+                return products.map { product in
+                    ProductSearchResult(
+                        id: product.objectID,
+                        name: product.name ?? "",
+                        price: product.price?.decimalValue ?? 0
+                    )
+                }
+            }
+        }
+
+  migrations:
+    description: "Handling Core Data model migrations"
+    
+    lightweight_migration: |
+      // ✅ Enable automatic lightweight migration
+      lazy var persistentContainer: NSPersistentContainer = {
+          let container = NSPersistentContainer(name: "Model")
+          
+          let description = container.persistentStoreDescriptions.first
+          description?.setOption(true as NSNumber, forKey: NSMigratePersistentStoresAutomaticallyOption)
+          description?.setOption(true as NSNumber, forKey: NSInferMappingModelAutomaticallyOption)
+          
+          container.loadPersistentStores { _, error in
+              if let error = error {
+                  fatalError("Core Data load failed: \(error)")
+              }
+          }
+          
+          return container
+      }()
+    
+    custom_migration: |
+      // ═══════════════════════════════════════════════════════════
+      // CUSTOM MIGRATION FOR COMPLEX CHANGES
+      // ═══════════════════════════════════════════════════════════
+      
+      // 1. Create mapping model (.xcmappingmodel)
+      // 2. Implement custom migration policy
+      
+      class OrderMigrationPolicy: NSEntityMigrationPolicy {
+          
+          override func createDestinationInstances(
+              forSource sInstance: NSManagedObject,
+              in mapping: NSEntityMapping,
+              manager: NSMigrationManager
+          ) throws {
+              try super.createDestinationInstances(forSource: sInstance, in: mapping, manager: manager)
+              
+              guard let destinationOrder = manager.destinationInstances(
+                  forEntityMappingName: mapping.name,
+                  sourceInstances: [sInstance]
+              ).first else {
+                  return
+              }
+              
+              // Custom migration logic
+              if let oldTotal = sInstance.value(forKey: "total") as? Double {
+                  // Convert Double to Decimal
+                  destinationOrder.setValue(
+                      NSDecimalNumber(value: oldTotal),
+                      forKey: "totalAmount"
+                  )
+              }
+              
+              // Compute new derived field
+              if let items = sInstance.value(forKey: "items") as? Set<NSManagedObject> {
+                  destinationOrder.setValue(items.count, forKey: "itemCount")
+              }
+          }
+      }
+    
+    migration_testing: |
+      // ✅ Test migrations before release
+      func testMigrationV1toV2() throws {
+          // 1. Copy test bundle with V1 store
+          let testStoreURL = copyTestStore(named: "TestStore_V1")
+          
+          // 2. Load with migration
+          let container = NSPersistentContainer(name: "Model")
+          let description = NSPersistentStoreDescription(url: testStoreURL)
+          description.setOption(true as NSNumber, forKey: NSMigratePersistentStoresAutomaticallyOption)
+          container.persistentStoreDescriptions = [description]
+          
+          let expectation = XCTestExpectation(description: "Migration complete")
+          container.loadPersistentStores { _, error in
+              XCTAssertNil(error, "Migration failed: \(error!)")
+              expectation.fulfill()
+          }
+          
+          wait(for: [expectation], timeout: 30)
+          
+          // 3. Verify data integrity
+          let context = container.viewContext
+          let fetchRequest: NSFetchRequest<Order> = Order.fetchRequest()
+          let orders = try context.fetch(fetchRequest)
+          
+          XCTAssertEqual(orders.count, 100, "Expected 100 orders after migration")
+          XCTAssertTrue(orders.allSatisfy { $0.totalAmount != nil }, "All orders should have totalAmount")
+      }
+
+  swiftui_integration:
+    description: "Using Core Data with SwiftUI"
+    
+    example: |
+      // ═══════════════════════════════════════════════════════════
+      // CORE DATA + SWIFTUI INTEGRATION
+      // ═══════════════════════════════════════════════════════════
+      
+      // App setup
+      @main
+      struct MyApp: App {
+          let coreDataStack = CoreDataStack.shared
+          
+          var body: some Scene {
+              WindowGroup {
+                  ContentView()
+                      .environment(\.managedObjectContext, coreDataStack.viewContext)
+              }
+          }
+      }
+      
+      // View with @FetchRequest
+      struct TaskListView: View {
+          @Environment(\.managedObjectContext) private var viewContext
+          
+          @FetchRequest(
+              sortDescriptors: [NSSortDescriptor(keyPath: \Task.dueDate, ascending: true)],
+              predicate: NSPredicate(format: "isCompleted == NO"),
+              animation: .default
+          )
+          private var tasks: FetchedResults<Task>
+          
+          var body: some View {
+              List {
+                  ForEach(tasks) { task in
+                      TaskRow(task: task)
+                  }
+                  .onDelete(perform: deleteTasks)
+              }
+              .toolbar {
+                  Button(action: addTask) {
+                      Image(systemName: "plus")
+                  }
+              }
+          }
+          
+          private func addTask() {
+              withAnimation {
+                  let newTask = Task(context: viewContext)
+                  newTask.id = UUID()
+                  newTask.title = "New Task"
+                  newTask.createdAt = Date()
+                  newTask.dueDate = Date().addingTimeInterval(86400)
+                  
+                  CoreDataStack.shared.save(context: viewContext)
+              }
+          }
+          
+          private func deleteTasks(at offsets: IndexSet) {
+              withAnimation {
+                  offsets.map { tasks[$0] }.forEach(viewContext.delete)
+                  CoreDataStack.shared.save(context: viewContext)
+              }
+          }
+      }
+      
+      // Dynamic FetchRequest
+      struct FilteredTasksView: View {
+          @State private var selectedPriority: Task.Priority = .medium
+          
+          var body: some View {
+              TasksListByPriority(priority: selectedPriority)
+          }
+      }
+      
+      struct TasksListByPriority: View {
+          @FetchRequest private var tasks: FetchedResults<Task>
+          
+          init(priority: Task.Priority) {
+              _tasks = FetchRequest(
+                  sortDescriptors: [NSSortDescriptor(keyPath: \Task.dueDate, ascending: true)],
+                  predicate: NSPredicate(format: "priority == %d", priority.rawValue)
+              )
+          }
+          
+          var body: some View {
+              List(tasks) { task in
+                  TaskRow(task: task)
+              }
+          }
+      }
+
+# =============================================================================
+# SECTION 5: CONCURRENCY
+# =============================================================================
+concurrency:
+  overview: |
+    Swift's modern concurrency model with async/await, actors, and structured
+    concurrency provides safe, readable asynchronous code. Understanding these
+    concepts is essential for responsive iOS apps.
+
+  async_await:
+    description: "Modern asynchronous programming"
+    
+    best_practices:
+      - practice: "Use async/await over completion handlers"
+        good_example: |
+          // ✅ GOOD: Clean async/await
+          func fetchUserProfile() async throws -> UserProfile {
+              let user = try await userService.fetchCurrentUser()
+              let preferences = try await preferencesService.fetch(for: user.id)
+              let avatar = try await imageService.fetchImage(url: user.avatarURL)
+              
+              return UserProfile(user: user, preferences: preferences, avatar: avatar)
+          }
+          
+          // ✅ GOOD: Parallel async operations
+          func fetchDashboardData() async throws -> DashboardData {
+              async let user = userService.fetchCurrentUser()
+              async let notifications = notificationService.fetchUnread()
+              async let stats = analyticsService.fetchStats()
+              
+              // All three run in parallel, await results together
+              return try await DashboardData(
+                  user: user,
+                  notifications: notifications,
+                  stats: stats
+              )
+          }
+        
+        bad_example: |
+          // ❌ BAD: Callback hell
+          func fetchUserProfile(completion: @escaping (Result<UserProfile, Error>) -> Void) {
+              userService.fetchCurrentUser { userResult in
+                  switch userResult {
+                  case .success(let user):
+                      preferencesService.fetch(for: user.id) { prefsResult in
+                          switch prefsResult {
+                          case .success(let preferences):
+                              imageService.fetchImage(url: user.avatarURL) { imageResult in
+                                  // Deeply nested, hard to read
+                              }
+                          case .failure(let error):
+                              completion(.failure(error))
+                          }
+                      }
+                  case .failure(let error):
+                      completion(.failure(error))
+                  }
+              }
+          }
+      
+      - practice: "Use Task for launching async work from sync context"
+        good_example: |
+          // ✅ GOOD: Task in SwiftUI
+          struct ProfileView: View {
+              @StateObject private var viewModel = ProfileViewModel()
+              
+              var body: some View {
+                  VStack {
+                      if let profile = viewModel.profile {
+                          ProfileContent(profile: profile)
+                      }
+                  }
+                  .task {
+                      // Automatically cancelled when view disappears
+                      await viewModel.loadProfile()
+                  }
+                  .refreshable {
+                      await viewModel.refresh()
+                  }
+              }
+          }
+          
+          // ✅ GOOD: Task with cancellation handling
+          class SearchViewModel: ObservableObject {
+              @Published var results: [SearchResult] = []
+              private var searchTask: Task<Void, Never>?
+              
+              func search(query: String) {
+                  // Cancel previous search
+                  searchTask?.cancel()
+                  
+                  searchTask = Task {
+                      // Debounce
+                      try? await Task.sleep(nanoseconds: 300_000_000)
+                      
+                      guard !Task.isCancelled else { return }
+                      
+                      do {
+                          let results = try await searchService.search(query: query)
+                          
+                          guard !Task.isCancelled else { return }
+                          
+                          await MainActor.run {
+                              self.results = results
+                          }
+                      } catch {
+                          // Handle error
+                      }
+                  }
+              }
+          }
+        
+        bad_example: |
+          // ❌ BAD: Not handling cancellation
+          func search(query: String) {
+              Task {
+                  let results = try? await searchService.search(query: query)
+                  self.results = results ?? []  // May update with stale results
+              }
+          }
+      
+      - practice: "Bridge completion handlers to async with continuations"
+        good_example: |
+          // ✅ GOOD: Wrapping callback-based API
+          func fetchLocation() async throws -> CLLocation {
+              try await withCheckedThrowingContinuation { continuation in
+                  locationManager.requestLocation { result in
+                      switch result {
+                      case .success(let location):
+                          continuation.resume(returning: location)
+                      case .failure(let error):
+                          continuation.resume(throwing: error)
+                      }
+                  }
+              }
+          }
+          
+          // ✅ GOOD: Wrapping delegate-based API
+          class LocationFetcher: NSObject, CLLocationManagerDelegate {
+              private var continuation: CheckedContinuation<CLLocation, Error>?
+              private let manager = CLLocationManager()
+              
+              func fetchCurrentLocation() async throws -> CLLocation {
+                  try await withCheckedThrowingContinuation { continuation in
+                      self.continuation = continuation
+                      manager.delegate = self
+                      manager.requestLocation()
+                  }
+              }
+              
+              func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
+                  continuation?.resume(returning: locations.first!)
+                  continuation = nil
+              }
+              
+              func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
+                  continuation?.resume(throwing: error)
+                  continuation = nil
+              }
+          }
+        
+        bad_example: |
+          // ❌ BAD: Using unsafe continuation without proper handling
+          func fetchLocation() async throws -> CLLocation {
+              try await withUnsafeThrowingContinuation { continuation in
+                  // If callback is never called, continuation leaks
+                  // If called twice, crash
+                  locationManager.requestLocation { location in
+                      continuation.resume(returning: location)
+                  }
+              }
+          }
+
+  actors:
+    description: "Thread-safe mutable state with actors"
+    
+    best_practices:
+      - practice: "Use actors for shared mutable state"
+        good_example: |
+          // ✅ GOOD: Actor for thread-safe cache
+          actor ImageCache {
+              private var cache: [URL: UIImage] = [:]
+              private var inProgressLoads: [URL: Task<UIImage, Error>] = [:]
+              
+              func image(for url: URL) async throws -> UIImage {
+                  // Return cached if available
+                  if let cached = cache[url] {
+                      return cached
+                  }
+                  
+                  // Coalesce concurrent requests for same URL
+                  if let inProgress = inProgressLoads[url] {
+                      return try await inProgress.value
+                  }
+                  
+                  // Start new load
+                  let task = Task<UIImage, Error> {
+                      let (data, _) = try await URLSession.shared.data(from: url)
+                      guard let image = UIImage(data: data) else {
+                          throw ImageError.invalidData
+                      }
+                      return image
+                  }
+                  
+                  inProgressLoads[url] = task
+                  
+                  do {
+                      let image = try await task.value
+                      cache[url] = image
+                      inProgressLoads[url] = nil
+                      return image
+                  } catch {
+                      inProgressLoads[url] = nil
+                      throw error
+                  }
+              }
+              
+              func clearCache() {
+                  cache.removeAll()
+              }
+              
+              func remove(url: URL) {
+                  cache[url] = nil
+              }
+          }
+          
+          // Usage
+          let imageCache = ImageCache()
+          
+          Task {
+              let image = try await imageCache.image(for: avatarURL)
+              // Use image
+          }
+        
+        bad_example: |
+          // ❌ BAD: Class with manual locking (error-prone)
+          class ImageCache {
+              private var cache: [URL: UIImage] = [:]
+              private let lock = NSLock()
+              
+              func image(for url: URL) -> UIImage? {
+                  lock.lock()
+                  defer { lock.unlock() }
+                  return cache[url]
+              }
+              
+              func setImage(_ image: UIImage, for url: URL) {
+                  lock.lock()
+                  defer { lock.unlock() }
+                  cache[url] = image
+              }
+          }
+      
+      - practice: "Use @MainActor for UI-related classes"
+        good_example: |
+          // ✅ GOOD: ViewModel isolated to main actor
+          @MainActor
+          final class ProductViewModel: ObservableObject {
+              @Published private(set) var products: [Product] = []
+              @Published private(set) var isLoading = false
+              @Published private(set) var error: Error?
+              
+              private let repository: ProductRepository
+              
+              init(repository: ProductRepository) {
+                  self.repository = repository
+              }
+              
+              func loadProducts() async {
+                  isLoading = true
+                  defer { isLoading = false }
+                  
+                  do {
+                      products = try await repository.fetchAll()
+                  } catch {
+                      self.error = error
+                  }
+              }
+          }
+          
+          // ✅ GOOD: Explicit main actor for specific methods
+          class AnalyticsService {
+              func trackEvent(_ event: Event) {
+                  // Can run on any thread
+                  sendToBackend(event)
+              }
+              
+              @MainActor
+              func updateUI(with stats: Stats) {
+                  // Guaranteed main thread
+                  NotificationCenter.default.post(name: .statsUpdated, object: stats)
+              }
+          }
+      
+      - practice: "Use nonisolated for actor methods that don't need isolation"
+        good_example: |
+          actor DataProcessor {
+              private var processedCount = 0
+              
+              // Needs isolation - accesses mutable state
+              func process(_ data: Data) async -> ProcessedData {
+                  processedCount += 1
+                  return await heavyProcessing(data)
+              }
+              
+              // Doesn't need isolation - pure function
+              nonisolated func validate(_ data: Data) -> Bool {
+                  data.count > 0 && data.count < 10_000_000
+              }
+              
+              // Computed property that doesn't need isolation
+              nonisolated var supportedFormats: [String] {
+                  ["json", "xml", "csv"]
+              }
+          }
+
+  structured_concurrency:
+    description: "Task groups and structured task management"
+    
+    patterns:
+      task_group: |
+        // ✅ Parallel processing with TaskGroup
+        func processImages(_ urls: [URL]) async throws -> [ProcessedImage] {
+            try await withThrowingTaskGroup(of: ProcessedImage.self) { group in
+                for url in urls {
+                    group.addTask {
+                        let (data, _) = try await URLSession.shared.data(from: url)
+                        let image = UIImage(data: data)!
+                        return try await ImageProcessor.process(image)
+                    }
+                }
+                
+                var results: [ProcessedImage] = []
+                results.reserveCapacity(urls.count)
+                
+                for try await processed in group {
+                    results.append(processed)
+                }
+                
+                return results
+            }
+        }
+        
+        // ✅ TaskGroup with limited concurrency
+        func downloadFiles(_ urls: [URL], maxConcurrent: Int = 4) async throws -> [Data] {
+            try await withThrowingTaskGroup(of: (Int, Data).self) { group in
+                var results = [Data?](repeating: nil, count: urls.count)
+                var nextIndex = 0
+                
+                // Start initial batch
+                for _ in 0..<min(maxConcurrent, urls.count) {
+                    let index = nextIndex
+                    nextIndex += 1
+                    group.addTask {
+                        let (data, _) = try await URLSession.shared.data(from: urls[index])
+                        return (index, data)
+                    }
+                }
+                
+                // Process results and add new tasks
+                for try await (index, data) in group {
+                    results[index] = data
+                    
+                    if nextIndex < urls.count {
+                        let index = nextIndex
+                        nextIndex += 1
+                        group.addTask {
+                            let (data, _) = try await URLSession.shared.data(from: urls[index])
+                            return (index, data)
+                        }
+                    }
+                }
+                
+                return results.compactMap { $0 }
+            }
+        }
+      
+      async_sequence: |
+        // ✅ AsyncSequence for streaming data
+        struct NotificationStream: AsyncSequence {
+            typealias Element = Notification
+            
+            let center: NotificationCenter
+            let name: Notification.Name
+            
+            struct AsyncIterator: AsyncIteratorProtocol {
+                let notifications: AsyncStream<Notification>
+                var iterator: AsyncStream<Notification>.Iterator
+                
+                init(center: NotificationCenter, name: Notification.Name) {
+                    notifications = AsyncStream { continuation in
+                        let observer = center.addObserver(
+                            forName: name,
+                            object: nil,
+                            queue: nil
+                        ) { notification in
+                            continuation.yield(notification)
+                        }
+                        
+                        continuation.onTermination = { _ in
+                            center.removeObserver(observer)
+                        }
+                    }
+                    iterator = notifications.makeAsyncIterator()
+                }
+                
+                mutating func next() async -> Notification? {
+                    await iterator.next()
+                }
+            }
+            
+            func makeAsyncIterator() -> AsyncIterator {
+                AsyncIterator(center: center, name: name)
+            }
+        }
+        
+        // Usage
+        for await notification in NotificationStream(center: .default, name: .userLoggedIn) {
+            await handleLogin(notification)
+        }
+      
+      cancellation: |
+        // ✅ Proper cancellation handling
+        func fetchAllUserData(userId: String) async throws -> UserData {
+            // Check cancellation at start
+            try Task.checkCancellation()
+            
+            let profile = try await fetchProfile(userId)
+            
+            // Check between operations
+            try Task.checkCancellation()
+            
+            let posts = try await fetchPosts(userId)
+            
+            try Task.checkCancellation()
+            
+            let followers = try await fetchFollowers(userId)
+            
+            return UserData(profile: profile, posts: posts, followers: followers)
+        }
+        
+        // ✅ Cleanup on cancellation
+        func processWithCleanup() async throws -> Result {
+            let resource = try await acquireResource()
+            
+            return try await withTaskCancellationHandler {
+                try await processResource(resource)
+            } onCancel: {
+                // Called immediately when task is cancelled
+                Task {
+                    await resource.cleanup()
+                }
+            }
+        }
+
+# =============================================================================
+# SECTION 6: APP STORE GUIDELINES
+# =============================================================================
+app_store_guidelines:
+  overview: |
+    Understanding App Store Review Guidelines is crucial for successful
+    app submission. This section covers common rejection reasons and
+    best practices for approval.
+
+  common_rejection_reasons:
+    metadata_issues:
+      - reason: "App name doesn't match what the app does"
+        solution: "Ensure app name accurately reflects functionality"
+      
+      - reason: "Screenshots show features not in the app"
+        solution: "Only show actual app functionality in screenshots"
+      
+      - reason: "Placeholder text or images in the app"
+        solution: "Remove all Lorem Ipsum, placeholder images before submission"
+      
+      - reason: "Broken links in app or metadata"
+        solution: "Test all URLs, support links, and privacy policy links"
+
+    functionality_issues:
+      - reason: "App crashes during review"
+        solution: |
+          - Test on devices matching reviewer's configuration
+          - Handle network failures gracefully
+          - Test with limited permissions
+          - Include demo credentials if login required
+      
+      - reason: "Incomplete functionality (beta/demo features)"
+        solution: "Remove or hide features that aren't complete"
+      
+      - reason: "Features require external hardware not disclosed"
+        solution: "Clearly document hardware requirements in app description"
+
+    design_issues:
+      - reason: "Not optimized for iOS (web wrapper feels)"
+        solution: |
+          - Use native navigation patterns
+          - Support Dynamic Type
+          - Implement proper safe area handling
+          - Use SF Symbols and system fonts
+      
+      - reason: "Poor user experience"
+        solution: |
+          - Follow Human Interface Guidelines
+          - Provide clear error messages
+          - Include empty states and loading indicators
+
+    legal_issues:
+      - reason: "Missing privacy policy"
+        solution: "Include privacy policy URL for apps collecting data"
+      
+      - reason: "Requesting unnecessary permissions"
+        solution: "Only request permissions when needed, with clear purpose strings"
+      
+      - reason: "COPPA violations for kids apps"
+        solution: |
+          - No advertising network SDKs
+          - No analytics collecting personal data
+          - Parental gate for external links
+
+    in_app_purchase_issues:
+      - reason: "Directing users to external purchase"
+        solution: "Don't mention external purchase options in-app"
+      
+      - reason: "Not restoring purchases"
+        solution: "Always implement 'Restore Purchases' button"
+      
+      - reason: "Subscriptions without clear terms"
+        solution: |
+          - Show price and duration before purchase
+          - Explain what happens after trial ends
+          - Make cancellation information clear
+
+  submission_best_practices:
+    pre_submission_checklist:
+      - item: "Test on multiple iOS versions (minimum supported to latest)"
+      - item: "Test on multiple device sizes (iPhone SE to Pro Max, iPad)"
+      - item: "Test with VoiceOver enabled"
+      - item: "Test with Dynamic Type at largest size"
+      - item: "Test in airplane mode and poor network"
+      - item: "Remove all debug code and test credentials"
+      - item: "Verify all analytics are privacy-compliant"
+      - item: "Check for any hardcoded API keys"
+      - item: "Verify privacy nutrition labels match actual data collection"
+      - item: "Test in-app purchases in sandbox environment"
+    
+    app_review_notes:
+      description: "Information to include for reviewers"
+      example: |
+        Demo Account:
+        Email: demo@example.com
+        Password: Review2026!
+        
+        Testing In-App Purchase:
+        Use sandbox account: sandbox@example.com
+        
+        Location Features:
+        The app requires location access to show nearby stores.
+        Please allow location permission when prompted.
+        
+        Notification Testing:
+        Push notifications are used for order updates.
+        Please enable notifications to test this feature.
+        
+        Known Issues:
+        None at this time.
+        
+        Special Instructions:
+        The "Pro" subscription unlocks advanced filters.
+        Please use the sandbox account to test this feature.
+
+    app_privacy:
+      description: "Completing App Privacy questionnaire"
+      data_types:
+        contact_info:
+          - "Email address (for account creation)"
+          - "Phone number (for 2FA, optional)"
+        
+        identifiers:
+          - "User ID (internal account identifier)"
+          - "Device ID (for analytics)"
+        
+        usage_data:
+          - "Product interaction (which features are used)"
+          - "App crashes (crash logs)"
+        
+        diagnostics:
+          - "Performance data (app launch time, memory usage)"
+          - "Other diagnostic data (error logs)"
+      
+      linked_vs_not_linked: |
+        Data Linked to User:
+        - Email address (associated with account)
+        - User ID
+        
+        Data Not Linked to User:
+        - Crash logs (anonymized)
+        - Performance metrics (aggregated)
+
+  human_interface_guidelines:
+    key_principles:
+      - principle: "Clarity"
+        description: "Text is legible, icons are precise, adornments are subtle"
+        implementation:
+          - "Use San Francisco system font"
+          - "Maintain minimum 11pt font size"
+          - "Ensure 4.5:1 contrast ratio for text"
+      
+      - principle: "Deference"
+        description: "Content takes priority over UI chrome"
+        implementation:
+          - "Use full-screen images and video"
+          - "Minimize persistent UI elements"
+          - "Let content be the focus"
+      
+      - principle: "Depth"
+        description: "Visual layers and motion provide context"
+        implementation:
+          - "Use sheets and modals appropriately"
+          - "Implement proper navigation hierarchy"
+          - "Add meaningful animations"
+    
+    accessibility_requirements:
+      - requirement: "VoiceOver support"
+        implementation: |
+          // ✅ Proper accessibility labels
+          Image(systemName: "star.fill")
+              .accessibilityLabel("Favorite")
+              .accessibilityHint("Double tap to add to favorites")
+          
+          // ✅ Group related elements
+          HStack {
+              Text(product.name)
+              Spacer()
+              Text(product.price)
+          }
+          .accessibilityElement(children: .combine)
+          .accessibilityLabel("\(product.name), \(product.price)")
+      
+      - requirement: "Dynamic Type support"
+        implementation: |
+          // ✅ Scales with user preference
+          Text("Hello World")
+              .font(.body)  // System font scales automatically
+          
+          // ✅ Custom font with scaling
+          Text("Custom Text")
+              .font(.custom("MyFont", size: 17, relativeTo: .body))
+          
+          // ✅ Using @ScaledMetric for other values
+          @ScaledMetric(relativeTo: .body) var iconSize: CGFloat = 24
+          
+          Image(systemName: "star")
+              .frame(width: iconSize, height: iconSize)
+      
+      - requirement: "Color contrast"
+        implementation: |
+          // ✅ Use semantic colors that adapt
+          Text("Important")
+              .foregroundStyle(.primary)  // Adapts to light/dark mode
+          
+          // ✅ Check contrast ratios
+          // WCAG AA: 4.5:1 for normal text, 3:1 for large text
+          // WCAG AAA: 7:1 for normal text, 4.5:1 for large text
+
+# =============================================================================
+# IOS DEVELOPMENT CHECKLIST
+# =============================================================================
+ios_dev_checklist:
+  project_setup:
+    - "[ ] Configure minimum deployment target appropriately"
+    - "[ ] Set up proper bundle identifier"
+    - "[ ] Configure app icons for all required sizes"
+    - "[ ] Add launch screen (storyboard or SwiftUI)"
+    - "[ ] Configure Info.plist with required keys"
+    - "[ ] Set up proper signing and capabilities"
+    - "[ ] Configure build settings for Debug/Release"
+
+  code_quality:
+    - "[ ] Use Swift's type system (avoid Any/AnyObject)"
+    - "[ ] Handle all optionals safely (no force unwrapping in production)"
+    - "[ ] Define typed errors with LocalizedError"
+    - "[ ] Use protocols for dependency injection"
+    - "[ ] Prefer value types (struct) for data models"
+    - "[ ] Use @MainActor for UI-related code"
+    - "[ ] Implement proper error handling (no empty catch blocks)"
+
+  swiftui:
+    - "[ ] Use @StateObject for view-created ObservableObjects"
+    - "[ ] Use @ObservedObject only for passed-in objects"
+    - "[ ] Keep view body computations light"
+    - "[ ] Extract complex views into smaller components"
+    - "[ ] Use .task modifier for async operations"
+    - "[ ] Handle loading, error, and empty states"
+    - "[ ] Support both light and dark mode"
+
+  architecture:
+    - "[ ] Separate concerns (Model/View/ViewModel)"
+    - "[ ] Use dependency injection for testability"
+    - "[ ] Define clear protocols for services"
+    - "[ ] Implement proper navigation handling"
+    - "[ ] Keep business logic out of views"
+
+  core_data:
+    - "[ ] Use viewContext only on main thread"
+    - "[ ] Use background contexts for heavy operations"
+    - "[ ] Enable automatic merging of changes"
+    - "[ ] Pass objectIDs across contexts, not objects"
+    - "[ ] Use batch operations for bulk updates"
+    - "[ ] Test data migrations before release"
+
+  concurrency:
+    - "[ ] Use async/await over completion handlers"
+    - "[ ] Handle task cancellation properly"
+    - "[ ] Use actors for shared mutable state"
+    - "[ ] Avoid data races with proper isolation"
+    - "[ ] Use TaskGroup for parallel operations"
+    - "[ ] Bridge legacy APIs with continuations"
+
+  testing:
+    - "[ ] Write unit tests for ViewModels"
+    - "[ ] Use mock dependencies in tests"
+    - "[ ] Test error handling paths"
+    - "[ ] Write UI tests for critical flows"
+    - "[ ] Test accessibility with VoiceOver"
+    - "[ ] Test on multiple device sizes"
+
+  accessibility:
+    - "[ ] Add accessibility labels to all interactive elements"
+    - "[ ] Support Dynamic Type"
+    - "[ ] Ensure proper color contrast"
+    - "[ ] Test with VoiceOver"
+    - "[ ] Support reduce motion preference"
+    - "[ ] Support bold text preference"
+
+  performance:
+    - "[ ] Profile with Instruments"
+    - "[ ] Lazy load images and heavy content"
+    - "[ ] Use proper caching strategies"
+    - "[ ] Avoid blocking main thread"
+    - "[ ] Optimize Core Data fetch requests"
+    - "[ ] Use appropriate image formats and sizes"
+
+  app_store_submission:
+    - "[ ] Complete App Privacy questionnaire accurately"
+    - "[ ] Provide demo account in review notes"
+    - "[ ] Test all IAP in sandbox"
+    - "[ ] Implement Restore Purchases"
+    - "[ ] Include privacy policy URL"
+    - "[ ] Add required usage description strings"
+    - "[ ] Remove all debug/test code"
+    - "[ ] Verify app works in airplane mode"
+    - "[ ] Check for memory leaks"
+    - "[ ] Archive and test production build"
+
+  security:
+    - "[ ] Store sensitive data in Keychain"
+    - "[ ] Use HTTPS for all network requests"
+    - "[ ] Validate server certificates"
+    - "[ ] Don't log sensitive information"
+    - "[ ] Implement proper authentication"
+    - "[ ] Handle token refresh securely"
+    - "[ ] Use biometric authentication where appropriate"
+
+# =============================================================================
+# QUICK REFERENCE
+# =============================================================================
+quick_reference:
+  property_wrappers:
+    "@State": "Local mutable state owned by view"
+    "@Binding": "Two-way reference to external state"
+    "@StateObject": "Create & own ObservableObject (use in creator view)"
+    "@ObservedObject": "Observe passed-in ObservableObject"
+    "@EnvironmentObject": "Shared object from environment"
+    "@Environment": "Read environment values"
+    "@AppStorage": "UserDefaults-backed storage"
+    "@SceneStorage": "Scene-specific storage"
+    "@FetchRequest": "Core Data fetch with auto-updates"
+    "@ScaledMetric": "Value that scales with Dynamic Type"
+  
+  swift_concurrency:
+    "async/await": "Asynchronous function execution"
+    "Task": "Unit of async work"
+    "TaskGroup": "Parallel task execution"
+    "actor": "Thread-safe state isolation"
+    "@MainActor": "Main thread isolation"
+    "AsyncSequence": "Asynchronous iteration"
+    "continuation": "Bridge callback to async"
+  
+  common_patterns:
+    "MVVM": "Model-View-ViewModel separation"
+    "Coordinator": "Navigation flow management"
+    "Repository": "Data source abstraction"
+    "Dependency Injection": "External dependency provision"
+    "Protocol-Oriented": "Behavior via protocols"

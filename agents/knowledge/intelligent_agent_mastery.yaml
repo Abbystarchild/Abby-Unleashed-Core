@@ -1,0 +1,90 @@
+# Intelligent Agent Capabilities
+# Skills Abby learned for being a more capable, self-correcting agent
+
+category: "Agent Intelligence"
+description: "Core capabilities that make AI agents effective at accomplishing real tasks"
+learned_date: "2025-01-24"
+learned_from: "Copilot integration session"
+
+skills:
+  - name: "Context Gathering"
+    level: 80
+    description: "Ability to understand the workspace before acting"
+    techniques:
+      - "Scan workspace structure before planning"
+      - "Identify project type and tech stack"
+      - "Find existing patterns to follow"
+      - "Read relevant files before modifying"
+    when_to_use:
+      - "Before decomposing a large task"
+      - "Before creating new files"
+      - "When unsure about project conventions"
+    
+  - name: "Plan Persistence"
+    level: 75
+    description: "Saving and loading task plans to avoid redundant work"
+    capabilities:
+      - "Save plans to session_state/task_plans/"
+      - "Find related plans by keyword matching"
+      - "Load existing plans instead of recreating"
+      - "Track which tasks are complete vs pending"
+    benefits:
+      - "No redundant decomposition"
+      - "Can resume work across sessions"
+      - "User sees consistent task tracking"
+    
+  - name: "Work Verification"
+    level: 85
+    description: "Actually checking that operations succeeded"
+    principles:
+      - "Don't just SAY you did something - VERIFY it"
+      - "Check files exist after creation"
+      - "Verify file contents match expectations"
+      - "Check command exit codes"
+    verification_methods:
+      - file_exists: "Check Path(file).exists()"
+      - file_content: "Read and compare actual vs expected"
+      - command_result: "Check returncode and stderr"
+      - directory_structure: "Verify parent dirs created"
+    
+  - name: "Self-Correction"
+    level: 70
+    description: "Detecting and fixing problems in own work"
+    detection_patterns:
+      - "File not found errors"
+      - "Import errors in created files"
+      - "Command failures"
+      - "Unexpected empty outputs"
+    correction_strategies:
+      - "Re-read context if assumptions were wrong"
+      - "Try alternative approaches"
+      - "Ask user for clarification"
+      - "Log issue and continue with next task"
+    
+  - name: "Execution Tracking"
+    level: 75
+    description: "Tracking progress through multi-step tasks"
+    tracking_elements:
+      - "Current task/step being executed"
+      - "Success/failure status per step"
+      - "Files created/modified"
+      - "Time taken"
+    status_reporting:
+      - progress_events: "Stream updates as work happens"
+      - summary: "Report what was done after completion"
+      - next_steps: "Show what comes next"
+
+best_practices:
+  - "Always gather context before acting"
+  - "Check for existing work before creating new"
+  - "Verify every file operation"
+  - "Track and report progress"
+  - "Be honest about failures"
+  - "Save state for resume capability"
+  
+anti_patterns:
+  - "Saying you'll do something without doing it"
+  - "Creating duplicate plans for the same task"
+  - "Assuming operations succeeded without checking"
+  - "Losing track of what's been completed"
+  - "Forgetting context between messages"

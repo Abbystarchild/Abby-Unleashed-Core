@@ -1,0 +1,2567 @@
+# =============================================================================
+# DATA ENGINEERING MASTERY - Professional Best Practices
+# =============================================================================
+# Comprehensive guide covering ETL/ELT, Spark, Airflow, dbt, and Data Quality
+# Version: 1.0.0
+# Last Updated: 2026-02-02
+# =============================================================================
+
+metadata:
+  domain: "Data Engineering"
+  level: "Mastery"
+  focus: "Verifiable, Production-Grade Practices"
+  technologies:
+    - Apache Spark
+    - Apache Airflow
+    - dbt (Data Build Tool)
+    - Great Expectations
+    - Delta Lake / Iceberg
+    - Snowflake / BigQuery / Redshift
+
+# =============================================================================
+# SECTION 1: ETL/ELT PATTERNS
+# =============================================================================
+etl_elt_patterns:
+  overview: |
+    ETL (Extract-Transform-Load) vs ELT (Extract-Load-Transform) represents a
+    fundamental architectural decision. Modern cloud warehouses favor ELT due to
+    scalable compute separation, but ETL remains critical for sensitive data
+    transformations and legacy system integration.
+
+  extract_patterns:
+    full_extract:
+      description: "Complete data pull from source system"
+      use_cases:
+        - "Initial data load"
+        - "Small reference tables (<100MB)"
+        - "Systems without reliable change tracking"
+      best_practices:
+        - name: "Snapshot Isolation"
+          good_example: |
+            # Use database snapshots to ensure consistency
+            SELECT * FROM orders AS OF TIMESTAMP '2026-02-02 00:00:00'
+          bad_example: |
+            # Reading without snapshot during active transactions
+            SELECT * FROM orders  # May get partial/inconsistent data
+          why: "Concurrent writes during extraction cause data inconsistency"
+        - name: "Chunked Extraction"
+          good_example: |
+            def extract_in_chunks(table, chunk_size=100000):
+                offset = 0
+                while True:
+                    chunk = f"""
+                        SELECT * FROM {table}
+                        ORDER BY id
+                        LIMIT {chunk_size} OFFSET {offset}
+                    """
+                    data = execute_query(chunk)
+                    if not data:
+                        break
+                    yield data
+                    offset += chunk_size
+          bad_example: |
+            # Single query for millions of rows
+            SELECT * FROM orders  # OOM risk, connection timeout
+          why: "Memory management and connection stability"
+
+    incremental_extract:
+      description: "Extract only changed/new records since last run"
+      patterns:
+        timestamp_based:
+          description: "Use updated_at column to track changes"
+          requirements:
+            - "Reliable updated_at timestamp on all tables"
+            - "Index on timestamp column"
+            - "Clock synchronization across systems"
+          code_example: |
+            def incremental_extract(table: str, watermark: datetime) -> DataFrame:
+                """
+                Extract records modified since watermark.
+                Always use >= and exclusive upper bound for safety.
+                """
+                query = f"""
+                    SELECT *
+                    FROM {table}
+                    WHERE updated_at >= '{watermark}'
+                      AND updated_at < '{datetime.utcnow()}'
+                """
+                return spark.read.jdbc(url, query)
+          pitfalls:
+            - "Clock skew between application and database servers"
+            - "Records updated during extraction window"
+            - "Deleted records not captured"
+
+        change_data_capture:
+          description: "Capture row-level changes from database logs"
+          tools:
+            - "Debezium (Kafka Connect)"
+            - "AWS DMS"
+            - "Fivetran"
+            - "Airbyte"
+          best_practices:
+            - name: "Exactly-Once Semantics"
+              good_example: |
+                # Debezium with Kafka - use transaction markers
+                debezium:
+                  connector.class: io.debezium.connector.postgresql.PostgresConnector
+                  database.server.name: production
+                  slot.name: debezium_slot
+                  publication.name: dbz_publication
+                  provide.transaction.metadata: true
+                  tombstones.on.delete: true
+              bad_example: |
+                # Polling-based CDC without deduplication
+                SELECT * FROM audit_log WHERE id > last_processed_id
+              why: "Log-based CDC guarantees no missed changes; polling can miss rapid updates"
+            - name: "Schema Registry Integration"
+              good_example: |
+                # Avro with schema registry for CDC events
+                {
+                  "type": "record",
+                  "name": "OrderChange",
+                  "fields": [
+                    {"name": "before", "type": ["null", "Order"]},
+                    {"name": "after", "type": ["null", "Order"]},
+                    {"name": "op", "type": "string"},
+                    {"name": "ts_ms", "type": "long"},
+                    {"name": "transaction_id", "type": ["null", "string"]}
+                  ]
+                }
+              bad_example: |
+                # Untyped JSON without versioning
+                {"data": {...}, "type": "update"}
+              why: "Schema evolution support prevents breaking downstream consumers"
+
+  transform_best_practices:
+    schema_evolution:
+      strategies:
+        - name: "Additive Changes Only"
+          description: "Prefer adding columns over modifying/removing"
+          good_example: |
+            -- Delta Lake schema evolution
+            ALTER TABLE orders SET TBLPROPERTIES (
+              'delta.columnMapping.mode' = 'name',
+              'delta.minReaderVersion' = '2',
+              'delta.minWriterVersion' = '5'
+            );
+            
+            -- Add new column with default
+            ALTER TABLE orders ADD COLUMN discount_pct DOUBLE DEFAULT 0.0;
+          bad_example: |
+            -- Dropping column breaks consumers
+            ALTER TABLE orders DROP COLUMN legacy_field;
+          why: "Non-breaking changes allow independent deployment of producers/consumers"
+        
+        - name: "Version Your Schemas"
+          good_example: |
+            # Schema versioning with compatibility checks
+            from confluent_kafka.schema_registry import SchemaRegistryClient
+            
+            def register_schema(subject: str, schema: str) -> int:
+                client = SchemaRegistryClient({'url': SCHEMA_REGISTRY_URL})
+                # Check backward compatibility before registering
+                is_compatible = client.test_compatibility(subject, schema)
+                if not is_compatible:
+                    raise SchemaCompatibilityError(f"Schema not backward compatible")
+                return client.register_schema(subject, schema)
+          bad_example: |
+            # Hardcoded schema without versioning
+            df.write.json("output/")  # Schema changes silently break pipelines
+          why: "Explicit versioning enables safe rollbacks and consumer updates"
+
+    data_quality_transforms:
+      patterns:
+        - name: "Quarantine Invalid Records"
+          good_example: |
+            from pyspark.sql import functions as F
+            
+            def transform_with_quarantine(df: DataFrame) -> tuple[DataFrame, DataFrame]:
+                """Separate valid and invalid records."""
+                valid_condition = (
+                    F.col("email").rlike(r"^[\w\.-]+@[\w\.-]+\.\w+$") &
+                    F.col("amount").isNotNull() &
+                    (F.col("amount") > 0)
+                )
+                
+                valid_df = df.filter(valid_condition)
+                quarantine_df = df.filter(~valid_condition).withColumn(
+                    "quarantine_reason",
+                    F.when(~F.col("email").rlike(r"^[\w\.-]+@[\w\.-]+\.\w+$"), "invalid_email")
+                     .when(F.col("amount").isNull(), "null_amount")
+                     .when(F.col("amount") <= 0, "non_positive_amount")
+                     .otherwise("unknown")
+                )
+                
+                return valid_df, quarantine_df
+          bad_example: |
+            # Silently filter invalid records
+            df = df.filter(F.col("amount") > 0)  # Lost data, no audit trail
+          why: "Quarantine enables debugging and prevents data loss"
+
+  load_strategies:
+    upsert_merge:
+      description: "Insert new records, update existing based on key"
+      delta_lake_example: |
+        from delta.tables import DeltaTable
+        
+        def upsert_to_delta(
+            spark: SparkSession,
+            source_df: DataFrame,
+            target_path: str,
+            merge_keys: list[str],
+            partition_cols: list[str] = None
+        ) -> dict:
+            """
+            Idempotent upsert with merge statistics.
+            """
+            target = DeltaTable.forPath(spark, target_path)
+            
+            merge_condition = " AND ".join(
+                [f"target.{k} = source.{k}" for k in merge_keys]
+            )
+            
+            result = (
+                target.alias("target")
+                .merge(source_df.alias("source"), merge_condition)
+                .whenMatchedUpdateAll(
+                    condition="source.updated_at > target.updated_at"
+                )
+                .whenNotMatchedInsertAll()
+                .execute()
+            )
+            
+            # Return merge metrics
+            return {
+                "rows_inserted": result.numInsertedRows,
+                "rows_updated": result.numUpdatedRows,
+                "rows_deleted": result.numDeletedRows
+            }
+      
+      best_practices:
+        - name: "Deterministic Merge Keys"
+          good_example: |
+            # Use natural business keys or deterministic surrogate
+            merge_keys = ["order_id", "line_item_id"]
+            # Or use SHA-256 hash of business key components
+            df = df.withColumn(
+                "row_hash",
+                F.sha2(F.concat_ws("|", "order_id", "product_id", "customer_id"), 256)
+            )
+          bad_example: |
+            # Using auto-increment IDs across systems
+            merge_keys = ["id"]  # IDs don't match across source/target
+          why: "Business keys ensure consistent merging regardless of system"
+
+    append_only:
+      description: "Immutable event log pattern"
+      use_cases:
+        - "Event sourcing"
+        - "Audit logs"
+        - "Time-series data"
+      code_example: |
+        def append_events(
+            df: DataFrame,
+            target_path: str,
+            partition_col: str = "event_date"
+        ) -> None:
+            """
+            Append-only write with deduplication window.
+            """
+            # Add processing metadata
+            df_with_meta = df.withColumn(
+                "ingestion_timestamp", F.current_timestamp()
+            ).withColumn(
+                "batch_id", F.lit(str(uuid.uuid4()))
+            )
+            
+            # Write with idempotent batch_id for replay safety
+            (df_with_meta
+                .write
+                .format("delta")
+                .mode("append")
+                .partitionBy(partition_col)
+                .option("mergeSchema", "true")
+                .save(target_path))
+
+  etl_vs_elt_tradeoffs:
+    comparison_matrix:
+      etl:
+        pros:
+          - "Data cleansing before warehouse reduces storage costs"
+          - "PII masking/encryption before landing in warehouse"
+          - "Better for complex transformations requiring specialized compute"
+          - "Source system data quality issues fixed before loading"
+        cons:
+          - "Slower time to raw data availability"
+          - "Transformation logic coupled with extraction"
+          - "Harder to reprocess historical data"
+          - "ETL tool becomes bottleneck"
+        best_for:
+          - "HIPAA/GDPR compliance requirements"
+          - "Legacy data warehouse (no scalable compute)"
+          - "Real-time data masking requirements"
+      
+      elt:
+        pros:
+          - "Raw data available immediately for exploration"
+          - "Leverage warehouse compute for transformations"
+          - "Easy reprocessing - source data preserved"
+          - "Transformation logic version controlled (dbt)"
+        cons:
+          - "Higher storage costs (raw + transformed)"
+          - "PII lands in warehouse (compliance concern)"
+          - "Requires powerful warehouse (Snowflake, BigQuery)"
+        best_for:
+          - "Analytics-heavy workloads"
+          - "Data exploration and ad-hoc queries"
+          - "Modern cloud data warehouses"
+
+# =============================================================================
+# SECTION 2: DATA PIPELINE DESIGN PATTERNS
+# =============================================================================
+pipeline_design_patterns:
+  idempotency:
+    description: |
+      Idempotent pipelines produce the same result regardless of how many times
+      they're executed with the same input. Critical for reliability and reruns.
+    
+    techniques:
+      - name: "Deterministic Output Paths"
+        good_example: |
+          def get_output_path(base_path: str, execution_date: date) -> str:
+              """Deterministic path based on logical date, not wall clock."""
+              return f"{base_path}/year={execution_date.year}/month={execution_date.month:02d}/day={execution_date.day:02d}"
+          
+          # Usage in Airflow
+          output_path = get_output_path(
+              "s3://data-lake/processed/orders",
+              context["logical_date"].date()
+          )
+        bad_example: |
+          # Non-deterministic - different path each run
+          output_path = f"s3://data-lake/processed/orders/{datetime.now().isoformat()}"
+        why: "Reruns overwrite same location, preventing duplicates"
+
+      - name: "Delete-Write Pattern"
+        good_example: |
+          def idempotent_write(df: DataFrame, path: str, partition_values: dict) -> None:
+              """Delete existing partition data before writing."""
+              # Build partition path
+              partition_path = "/".join(f"{k}={v}" for k, v in partition_values.items())
+              full_path = f"{path}/{partition_path}"
+              
+              # Delete existing data
+              dbutils.fs.rm(full_path, recurse=True)
+              
+              # Write new data
+              df.write.mode("overwrite").parquet(full_path)
+        bad_example: |
+          # Append mode causes duplicates on rerun
+          df.write.mode("append").parquet(path)
+        why: "Append mode + rerun = duplicate data"
+
+      - name: "MERGE with Full Partition Replacement"
+        good_example: |
+          -- Delta Lake: Replace entire partition atomically
+          MERGE INTO target_table t
+          USING (SELECT * FROM source_data WHERE date = '2026-02-02') s
+          ON t.date = s.date AND t.id = s.id
+          WHEN MATCHED THEN UPDATE SET *
+          WHEN NOT MATCHED THEN INSERT *
+          WHEN NOT MATCHED BY SOURCE AND t.date = '2026-02-02' THEN DELETE
+        bad_example: |
+          -- Partial update leaves orphaned records
+          INSERT INTO target_table SELECT * FROM source_data
+          ON CONFLICT (id) DO UPDATE SET ...
+        why: "Full partition replacement handles deletes correctly"
+
+  backfill_strategies:
+    patterns:
+      - name: "Catchup Backfill (Airflow Native)"
+        description: "Let Airflow scheduler create historical DAG runs"
+        code_example: |
+          from airflow import DAG
+          from datetime import datetime, timedelta
+          
+          dag = DAG(
+              dag_id="daily_orders_etl",
+              start_date=datetime(2024, 1, 1),
+              schedule_interval="@daily",
+              catchup=True,  # Enable backfill
+              max_active_runs=3,  # Limit parallel backfills
+              default_args={
+                  "retries": 2,
+                  "retry_delay": timedelta(minutes=5),
+                  "execution_timeout": timedelta(hours=2),
+              }
+          )
+        best_practices:
+          - "Set max_active_runs to prevent resource exhaustion"
+          - "Use execution_timeout to fail stuck tasks"
+          - "Design tasks to use logical_date, not current time"
+
+      - name: "Manual Backfill with Date Ranges"
+        description: "Explicit control over backfill window"
+        code_example: |
+          # CLI backfill command
+          airflow dags backfill \
+              --start-date 2024-01-01 \
+              --end-date 2024-12-31 \
+              --reset-dagruns \
+              --rerun-failed-tasks \
+              daily_orders_etl
+          
+          # Programmatic backfill
+          from airflow.models import DagBag, DagRun
+          from airflow.utils.state import State
+          
+          def trigger_backfill(
+              dag_id: str,
+              start_date: date,
+              end_date: date,
+              clear_existing: bool = True
+          ) -> list[str]:
+              """Trigger backfill runs programmatically."""
+              dagbag = DagBag()
+              dag = dagbag.get_dag(dag_id)
+              
+              run_ids = []
+              current = start_date
+              while current <= end_date:
+                  if clear_existing:
+                      # Clear existing run
+                      DagRun.clear_task_instances(
+                          dag_id=dag_id,
+                          execution_date=current
+                      )
+                  
+                  run_id = f"backfill__{current.isoformat()}"
+                  dag.create_dagrun(
+                      run_id=run_id,
+                      execution_date=current,
+                      state=State.RUNNING,
+                      external_trigger=True
+                  )
+                  run_ids.append(run_id)
+                  current += timedelta(days=1)
+              
+              return run_ids
+        pitfalls:
+          - "Memory pressure from too many parallel runs"
+          - "Source system rate limits"
+          - "Dependency chain delays"
+
+      - name: "Incremental Rebuild Pattern"
+        description: "Rebuild specific partitions without full reload"
+        code_example: |
+          def incremental_rebuild(
+              spark: SparkSession,
+              source_table: str,
+              target_table: str,
+              partition_col: str,
+              rebuild_partitions: list[str]
+          ) -> None:
+              """
+              Rebuild specific partitions from source.
+              """
+              for partition_value in rebuild_partitions:
+                  # Read source partition
+                  source_df = (spark.table(source_table)
+                      .filter(F.col(partition_col) == partition_value))
+                  
+                  # Overwrite target partition
+                  (source_df
+                      .write
+                      .format("delta")
+                      .mode("overwrite")
+                      .option("replaceWhere", f"{partition_col} = '{partition_value}'")
+                      .saveAsTable(target_table))
+                  
+                  logging.info(f"Rebuilt partition {partition_col}={partition_value}")
+
+  error_handling:
+    dead_letter_queues:
+      description: "Route failed records for investigation and reprocessing"
+      implementation: |
+        from dataclasses import dataclass
+        from typing import Callable, TypeVar
+        from datetime import datetime
+        import json
+        
+        T = TypeVar('T')
+        
+        @dataclass
+        class DeadLetterRecord:
+            original_record: dict
+            error_message: str
+            error_type: str
+            pipeline_name: str
+            task_name: str
+            timestamp: datetime
+            retry_count: int = 0
+        
+        class DeadLetterQueue:
+            def __init__(self, dlq_path: str, max_retries: int = 3):
+                self.dlq_path = dlq_path
+                self.max_retries = max_retries
+            
+            def process_with_dlq(
+                self,
+                records: list[dict],
+                transform_fn: Callable[[dict], T],
+                pipeline_name: str,
+                task_name: str
+            ) -> tuple[list[T], list[DeadLetterRecord]]:
+                """Process records, routing failures to DLQ."""
+                successful = []
+                failed = []
+                
+                for record in records:
+                    try:
+                        result = transform_fn(record)
+                        successful.append(result)
+                    except Exception as e:
+                        dlq_record = DeadLetterRecord(
+                            original_record=record,
+                            error_message=str(e),
+                            error_type=type(e).__name__,
+                            pipeline_name=pipeline_name,
+                            task_name=task_name,
+                            timestamp=datetime.utcnow()
+                        )
+                        failed.append(dlq_record)
+                
+                # Write failed records to DLQ
+                if failed:
+                    self._write_to_dlq(failed)
+                
+                return successful, failed
+            
+            def _write_to_dlq(self, records: list[DeadLetterRecord]) -> None:
+                """Write failed records to dead letter storage."""
+                dlq_data = [
+                    {
+                        "original_record": r.original_record,
+                        "error_message": r.error_message,
+                        "error_type": r.error_type,
+                        "pipeline_name": r.pipeline_name,
+                        "task_name": r.task_name,
+                        "timestamp": r.timestamp.isoformat(),
+                        "retry_count": r.retry_count
+                    }
+                    for r in records
+                ]
+                
+                # Append to partitioned DLQ storage
+                partition = datetime.utcnow().strftime("%Y/%m/%d/%H")
+                output_path = f"{self.dlq_path}/{partition}/failures_{uuid.uuid4()}.json"
+                
+                with open(output_path, 'w') as f:
+                    json.dump(dlq_data, f)
+
+    retry_patterns:
+      exponential_backoff: |
+        from tenacity import retry, stop_after_attempt, wait_exponential
+        
+        @retry(
+            stop=stop_after_attempt(5),
+            wait=wait_exponential(multiplier=1, min=4, max=60),
+            reraise=True
+        )
+        def call_external_api(endpoint: str, payload: dict) -> dict:
+            """API call with exponential backoff."""
+            response = requests.post(endpoint, json=payload, timeout=30)
+            response.raise_for_status()
+            return response.json()
+
+      circuit_breaker: |
+        from pybreaker import CircuitBreaker
+        
+        # Configure circuit breaker
+        db_breaker = CircuitBreaker(
+            fail_max=5,           # Open after 5 failures
+            reset_timeout=60,     # Try again after 60 seconds
+            exclude=[ValueError]  # Don't count validation errors
+        )
+        
+        @db_breaker
+        def query_database(query: str) -> list[dict]:
+            """Database query with circuit breaker protection."""
+            with get_connection() as conn:
+                return conn.execute(query).fetchall()
+
+  orchestration_patterns:
+    fan_out_fan_in:
+      description: "Parallel processing with aggregation"
+      airflow_example: |
+        from airflow import DAG
+        from airflow.operators.python import PythonOperator
+        from airflow.utils.task_group import TaskGroup
+        
+        def process_partition(partition_id: str, **context) -> dict:
+            """Process single partition."""
+            # Processing logic here
+            return {"partition": partition_id, "rows_processed": 1000}
+        
+        def aggregate_results(**context) -> dict:
+            """Aggregate results from all partitions."""
+            ti = context['ti']
+            results = ti.xcom_pull(task_ids=[
+                f"process_partitions.process_{i}" for i in range(10)
+            ])
+            total_rows = sum(r['rows_processed'] for r in results if r)
+            return {"total_rows": total_rows}
+        
+        with DAG("fan_out_fan_in_example", ...) as dag:
+            start = EmptyOperator(task_id="start")
+            
+            with TaskGroup("process_partitions") as process_group:
+                partition_tasks = [
+                    PythonOperator(
+                        task_id=f"process_{i}",
+                        python_callable=process_partition,
+                        op_kwargs={"partition_id": str(i)}
+                    )
+                    for i in range(10)
+                ]
+            
+            aggregate = PythonOperator(
+                task_id="aggregate",
+                python_callable=aggregate_results
+            )
+            
+            start >> process_group >> aggregate
+
+    sensor_patterns:
+      description: "Wait for external conditions before proceeding"
+      code_example: |
+        from airflow.sensors.s3_key_sensor import S3KeySensor
+        from airflow.sensors.external_task import ExternalTaskSensor
+        
+        # Wait for upstream file
+        wait_for_data = S3KeySensor(
+            task_id="wait_for_source_data",
+            bucket_name="data-lake",
+            bucket_key="raw/orders/{{ ds }}/data.parquet",
+            poke_interval=300,  # Check every 5 minutes
+            timeout=3600 * 6,   # Timeout after 6 hours
+            mode="reschedule",  # Free up worker while waiting
+            soft_fail=True      # Mark skipped instead of failed on timeout
+        )
+        
+        # Wait for upstream DAG
+        wait_for_upstream = ExternalTaskSensor(
+            task_id="wait_for_upstream_dag",
+            external_dag_id="upstream_etl",
+            external_task_id="final_task",
+            execution_delta=timedelta(hours=0),
+            mode="reschedule",
+            timeout=7200
+        )
+
+# =============================================================================
+# SECTION 3: APACHE SPARK BEST PRACTICES
+# =============================================================================
+spark_best_practices:
+  partitioning_strategies:
+    overview: |
+      Partitioning is the primary mechanism for parallelism in Spark. Poor
+      partitioning leads to data skew, OOM errors, and slow performance.
+
+    techniques:
+      - name: "Right-Size Partitions"
+        rule: "Target 128MB-1GB per partition, 2-4 partitions per core"
+        good_example: |
+          from pyspark.sql import SparkSession
+          
+          def optimize_partitions(df: DataFrame, target_size_mb: int = 256) -> DataFrame:
+              """Repartition DataFrame for optimal parallelism."""
+              # Calculate current size
+              df.cache()
+              current_size_bytes = df.rdd.map(lambda r: len(str(r))).reduce(lambda a, b: a + b)
+              current_size_mb = current_size_bytes / (1024 * 1024)
+              
+              # Calculate optimal partition count
+              optimal_partitions = max(1, int(current_size_mb / target_size_mb))
+              
+              # Coalesce if reducing, repartition if increasing
+              current_partitions = df.rdd.getNumPartitions()
+              if optimal_partitions < current_partitions:
+                  return df.coalesce(optimal_partitions)
+              elif optimal_partitions > current_partitions:
+                  return df.repartition(optimal_partitions)
+              return df
+        bad_example: |
+          # Fixed partition count regardless of data size
+          df = df.repartition(200)  # May be too many or too few
+        why: "Partition size affects memory usage, shuffle overhead, and parallelism"
+
+      - name: "Partition on Join Keys"
+        good_example: |
+          # Pre-partition DataFrames on join key
+          orders_df = orders_df.repartition(200, "customer_id")
+          customers_df = customers_df.repartition(200, "customer_id")
+          
+          # Join will be co-located (no shuffle)
+          joined_df = orders_df.join(customers_df, "customer_id")
+        bad_example: |
+          # Join without considering partition alignment
+          orders_df = orders_df.repartition(100)  # Random partitioning
+          customers_df = customers_df.repartition(200)  # Different count
+          joined_df = orders_df.join(customers_df, "customer_id")  # Full shuffle
+        why: "Co-partitioned DataFrames avoid shuffle during join"
+
+      - name: "Handle Data Skew"
+        good_example: |
+          from pyspark.sql import functions as F
+          
+          def salted_join(
+              left_df: DataFrame,
+              right_df: DataFrame,
+              join_key: str,
+              salt_buckets: int = 10
+          ) -> DataFrame:
+              """
+              Salted join to handle skewed keys.
+              Use when one key value has disproportionate data.
+              """
+              # Add salt to left (larger) DataFrame
+              left_salted = left_df.withColumn(
+                  "salt",
+                  (F.rand() * salt_buckets).cast("int")
+              ).withColumn(
+                  "salted_key",
+                  F.concat(F.col(join_key), F.lit("_"), F.col("salt"))
+              )
+              
+              # Explode right (smaller) DataFrame with all salt values
+              salt_df = spark.range(salt_buckets).withColumnRenamed("id", "salt")
+              right_exploded = right_df.crossJoin(salt_df).withColumn(
+                  "salted_key",
+                  F.concat(F.col(join_key), F.lit("_"), F.col("salt"))
+              )
+              
+              # Join on salted key
+              result = left_salted.join(
+                  right_exploded,
+                  "salted_key",
+                  "inner"
+              ).drop("salt", "salted_key")
+              
+              return result
+        bad_example: |
+          # Standard join with skewed data
+          df1.join(df2, "customer_id")  # Single reducer handles popular customer
+        why: "Skew causes single partition to process majority of data"
+
+  join_strategies:
+    broadcast_joins:
+      description: "Replicate small DataFrame to all executors"
+      when_to_use:
+        - "Small dimension table (<10MB default, configurable)"
+        - "Lookup/enrichment joins"
+        - "Avoiding shuffle at all costs"
+      code_example: |
+        from pyspark.sql import functions as F
+        
+        # Explicit broadcast hint
+        orders_enriched = orders_df.join(
+            F.broadcast(products_df),  # Force broadcast
+            "product_id",
+            "left"
+        )
+        
+        # Configure auto-broadcast threshold
+        spark.conf.set("spark.sql.autoBroadcastJoinThreshold", "100m")  # 100MB
+      pitfalls:
+        - "Broadcasting too-large DataFrames causes OOM"
+        - "Broadcast variables consume driver memory"
+        - "Each task downloads entire broadcast DataFrame"
+
+    shuffle_joins:
+      description: "Sort-merge join for large-large joins"
+      optimization: |
+        # Enable adaptive query execution (AQE) for automatic optimization
+        spark.conf.set("spark.sql.adaptive.enabled", "true")
+        spark.conf.set("spark.sql.adaptive.coalescePartitions.enabled", "true")
+        spark.conf.set("spark.sql.adaptive.skewJoin.enabled", "true")
+        
+        # Skew join optimization threshold
+        spark.conf.set("spark.sql.adaptive.skewJoin.skewedPartitionFactor", "5")
+        spark.conf.set("spark.sql.adaptive.skewJoin.skewedPartitionThresholdInBytes", "256m")
+
+  caching_and_persistence:
+    storage_levels:
+      MEMORY_ONLY:
+        description: "Store RDD as deserialized Java objects in JVM"
+        use_case: "Fast access, sufficient memory"
+        tradeoff: "Recompute on memory eviction"
+      
+      MEMORY_AND_DISK:
+        description: "Spill to disk if memory insufficient"
+        use_case: "Large DataFrames, acceptable disk latency"
+        tradeoff: "Disk I/O on cache miss"
+      
+      MEMORY_ONLY_SER:
+        description: "Store as serialized objects"
+        use_case: "Memory pressure, CPU available"
+        tradeoff: "Serialization/deserialization overhead"
+      
+      DISK_ONLY:
+        description: "Store only on disk"
+        use_case: "Very large data, rarely accessed"
+        tradeoff: "Always incurs disk I/O"
+
+    best_practices:
+      - name: "Cache at Materialization Points"
+        good_example: |
+          # Cache after expensive transformation, before multiple uses
+          filtered_df = (
+              raw_df
+              .filter(F.col("status") == "active")
+              .withColumn("amount_usd", F.col("amount") * F.col("exchange_rate"))
+          )
+          
+          # This DataFrame will be used for multiple aggregations
+          filtered_df.cache()
+          
+          # Trigger caching with count (forces materialization)
+          filtered_df.count()
+          
+          # Multiple downstream uses benefit from cache
+          daily_summary = filtered_df.groupBy("date").agg(F.sum("amount_usd"))
+          weekly_summary = filtered_df.groupBy(F.weekofyear("date")).agg(F.sum("amount_usd"))
+          
+          # Unpersist when done
+          filtered_df.unpersist()
+        bad_example: |
+          # Caching data that's only used once
+          df.cache()  # Waste of memory
+          result = df.groupBy("id").count()
+          
+          # Caching before filter (caches too much data)
+          raw_df.cache()
+          filtered = raw_df.filter(F.col("date") == "2026-02-02")
+        why: "Cache multiplies value; single-use data shouldn't be cached"
+
+      - name: "Checkpoint for Long Lineage"
+        good_example: |
+          # Set checkpoint directory
+          spark.sparkContext.setCheckpointDir("s3://bucket/checkpoints/")
+          
+          def iterative_computation(df: DataFrame, iterations: int) -> DataFrame:
+              """Iterative ML algorithm with checkpointing."""
+              for i in range(iterations):
+                  df = df.withColumn("score", complex_udf(F.col("features")))
+                  
+                  # Checkpoint every 10 iterations to truncate lineage
+                  if i % 10 == 0:
+                      df = df.checkpoint(eager=True)
+              
+              return df
+        bad_example: |
+          # Unbounded lineage in iterative job
+          for i in range(100):
+              df = df.withColumn(f"iter_{i}", some_transform(df))
+          # OOM on driver due to lineage metadata
+        why: "Long lineage causes driver OOM and slow failure recovery"
+
+  memory_management:
+    configuration: |
+      # Memory allocation tuning
+      spark.conf.set("spark.executor.memory", "8g")
+      spark.conf.set("spark.executor.memoryOverhead", "2g")  # For off-heap
+      spark.conf.set("spark.memory.fraction", "0.8")  # 80% for execution/storage
+      spark.conf.set("spark.memory.storageFraction", "0.3")  # 30% for cache
+      
+      # Garbage collection tuning for large heaps
+      spark.conf.set("spark.executor.extraJavaOptions", 
+          "-XX:+UseG1GC -XX:InitiatingHeapOccupancyPercent=35")
+
+    common_oom_causes:
+      - cause: "Too many partitions with overhead"
+        solution: "Coalesce to reduce partition count"
+      - cause: "Broadcast variable too large"
+        solution: "Disable broadcast or increase driver memory"
+      - cause: "Collect() on large DataFrame"
+        solution: "Use take(), limit(), or write to storage"
+      - cause: "UDF holding references"
+        solution: "Ensure UDFs don't capture large objects"
+      - cause: "Data skew in single partition"
+        solution: "Use salted joins or repartition with columns"
+
+  performance_pitfalls:
+    avoid_these:
+      - name: "UDFs When SQL Functions Exist"
+        bad_example: |
+          from pyspark.sql.functions import udf
+          from pyspark.sql.types import IntegerType
+          
+          # Python UDF - requires serialization, breaks Catalyst optimization
+          @udf(IntegerType())
+          def string_length(s):
+              return len(s) if s else 0
+          
+          df = df.withColumn("name_length", string_length("name"))
+        good_example: |
+          from pyspark.sql import functions as F
+          
+          # Native function - optimized by Catalyst
+          df = df.withColumn("name_length", F.length("name"))
+        why: "UDFs disable Catalyst optimizations and require Python serialization"
+
+      - name: "Repeated DataFrame Computation"
+        bad_example: |
+          # DataFrame is recomputed for each action
+          expensive_df = raw_df.join(dimension_df, "key").filter(condition)
+          
+          print(expensive_df.count())    # First computation
+          expensive_df.write.parquet(p1)  # Second computation
+          expensive_df.write.parquet(p2)  # Third computation
+        good_example: |
+          expensive_df = raw_df.join(dimension_df, "key").filter(condition)
+          expensive_df.cache()
+          expensive_df.count()  # Materialize cache
+          
+          expensive_df.write.parquet(p1)  # From cache
+          expensive_df.write.parquet(p2)  # From cache
+          
+          expensive_df.unpersist()
+        why: "Lazy evaluation means each action recomputes unless cached"
+
+      - name: "Using count() for Existence Check"
+        bad_example: |
+          # Scans entire DataFrame
+          if df.count() > 0:
+              process(df)
+        good_example: |
+          # Stops at first record
+          if not df.isEmpty():  # Spark 3.3+
+              process(df)
+          
+          # Or for earlier versions
+          if df.take(1):
+              process(df)
+        why: "count() scans all data; take(1) returns after first record"
+
+# =============================================================================
+# SECTION 4: APACHE AIRFLOW
+# =============================================================================
+airflow_best_practices:
+  dag_design_patterns:
+    principles:
+      - name: "Single Responsibility DAGs"
+        description: "Each DAG should represent one logical pipeline"
+        good_example: |
+          # Separate DAGs for separate concerns
+          # orders_etl_dag.py
+          orders_dag = DAG(dag_id="orders_etl", ...)
+          
+          # customers_etl_dag.py
+          customers_dag = DAG(dag_id="customers_etl", ...)
+          
+          # analytics_dag.py - depends on both
+          analytics_dag = DAG(dag_id="analytics_aggregation", ...)
+        bad_example: |
+          # Monolithic DAG doing everything
+          master_dag = DAG(dag_id="do_everything", ...)
+          # 100+ tasks for unrelated processes
+        why: "Easier to debug, maintain, and run partial backfills"
+
+      - name: "Idempotent Tasks"
+        good_example: |
+          from airflow.decorators import task
+          
+          @task
+          def process_daily_orders(execution_date: str) -> dict:
+              """
+              Idempotent: uses execution_date for deterministic output.
+              Can be rerun safely.
+              """
+              output_path = f"s3://data/orders/{execution_date}/"
+              
+              # Delete existing data first
+              delete_s3_prefix(output_path)
+              
+              # Process and write
+              orders = extract_orders_for_date(execution_date)
+              write_to_s3(orders, output_path)
+              
+              return {"path": output_path, "records": len(orders)}
+        bad_example: |
+          @task
+          def process_orders():
+              """
+              Non-idempotent: uses current time, appends data.
+              Rerun causes duplicates.
+              """
+              output_path = f"s3://data/orders/{datetime.now().isoformat()}/"
+              orders = extract_orders_since_last_run()  # State-dependent
+              append_to_s3(orders, output_path)  # Duplicates on rerun
+        why: "Reruns should produce same result without side effects"
+
+      - name: "Use TaskFlow API (Airflow 2.0+)"
+        good_example: |
+          from airflow.decorators import dag, task
+          from datetime import datetime
+          
+          @dag(
+              dag_id="modern_etl",
+              start_date=datetime(2024, 1, 1),
+              schedule="@daily",
+              catchup=False
+          )
+          def modern_etl_dag():
+              @task
+              def extract() -> dict:
+                  return {"data": fetch_data()}
+              
+              @task
+              def transform(raw_data: dict) -> dict:
+                  return {"processed": process(raw_data["data"])}
+              
+              @task
+              def load(processed_data: dict) -> None:
+                  save_to_warehouse(processed_data["processed"])
+              
+              # Automatic XCom passing
+              raw = extract()
+              processed = transform(raw)
+              load(processed)
+          
+          modern_etl_dag()
+        bad_example: |
+          # Legacy pattern with explicit XCom
+          def extract(**context):
+              data = fetch_data()
+              context['ti'].xcom_push(key='raw_data', value=data)
+          
+          def transform(**context):
+              ti = context['ti']
+              raw = ti.xcom_pull(task_ids='extract', key='raw_data')
+              processed = process(raw)
+              ti.xcom_push(key='processed_data', value=processed)
+        why: "TaskFlow provides type hints, cleaner code, automatic XCom"
+
+  xcom_best_practices:
+    limitations:
+      - "Default backend stores in metadata DB (max ~48KB)"
+      - "Large data causes DB bloat and performance issues"
+      - "Serialization overhead for complex objects"
+    
+    patterns:
+      - name: "Pass References, Not Data"
+        good_example: |
+          @task
+          def extract() -> str:
+              """Write data to storage, return path reference."""
+              data = fetch_large_dataset()
+              path = f"s3://bucket/staging/{uuid.uuid4()}.parquet"
+              write_parquet(data, path)
+              return path  # Just the path, not the data
+          
+          @task
+          def transform(data_path: str) -> str:
+              """Read from path, transform, write new path."""
+              data = read_parquet(data_path)
+              transformed = process(data)
+              output_path = f"s3://bucket/processed/{uuid.uuid4()}.parquet"
+              write_parquet(transformed, output_path)
+              return output_path
+        bad_example: |
+          @task
+          def extract() -> list[dict]:
+              """Returns actual data via XCom - BAD for large data."""
+              return fetch_large_dataset()  # Millions of rows
+        why: "XCom isn't designed for large data; use object storage"
+
+      - name: "Use Custom XCom Backend for Large Data"
+        configuration: |
+          # airflow.cfg
+          [core]
+          xcom_backend = airflow.providers.amazon.aws.secrets.xcom.S3XComBackend
+          
+          # Custom backend implementation
+          class S3XComBackend(BaseXCom):
+              @staticmethod
+              def serialize_value(value, key, task_id, dag_id, run_id):
+                  if isinstance(value, (pd.DataFrame, dict)) and sys.getsizeof(value) > 48000:
+                      # Store in S3, return reference
+                      path = f"s3://xcom-bucket/{dag_id}/{run_id}/{task_id}/{key}.json"
+                      upload_to_s3(value, path)
+                      return {"__xcom_s3_path__": path}
+                  return value
+
+  operator_selection:
+    guide:
+      PythonOperator:
+        use_for: "Custom Python logic, data transformations"
+        considerations: "Runs in Airflow worker; don't use for heavy computation"
+      
+      BashOperator:
+        use_for: "Shell commands, scripts"
+        considerations: "Command injection risk; validate inputs"
+      
+      SparkSubmitOperator:
+        use_for: "Spark jobs on existing cluster"
+        considerations: "Requires Spark cluster connection configured"
+      
+      DatabricksSubmitRunOperator:
+        use_for: "Databricks notebook/jar execution"
+        considerations: "Job clusters vs all-purpose clusters cost"
+      
+      GKEStartPodOperator:
+        use_for: "Kubernetes workloads"
+        considerations: "Resource limits, image versioning"
+      
+      BigQueryOperator:
+        use_for: "BigQuery SQL execution"
+        considerations: "Uses service account permissions"
+      
+    anti_patterns:
+      - name: "Heavy Processing in PythonOperator"
+        bad_example: |
+          @task
+          def process_terabytes():
+              # This runs on Airflow worker - will OOM
+              df = pd.read_parquet("s3://bucket/terabyte-file.parquet")
+              return df.groupby("key").sum()
+        good_example: |
+          # Use appropriate operator for heavy workloads
+          spark_job = SparkSubmitOperator(
+              task_id="process_terabytes",
+              application="s3://scripts/heavy_processing.py",
+              conf={"spark.executor.memory": "8g"},
+              ...
+          )
+        why: "Airflow workers are for orchestration, not computation"
+
+  monitoring_and_alerting:
+    setup: |
+      from airflow import DAG
+      from airflow.operators.python import PythonOperator
+      from airflow.utils.email import send_email
+      
+      def failure_callback(context):
+          """Send alert on task failure."""
+          task_instance = context['task_instance']
+          exception = context.get('exception')
+          
+          send_email(
+              to=['data-team@company.com'],
+              subject=f"Airflow Alert: {task_instance.dag_id}.{task_instance.task_id} failed",
+              html_content=f"""
+                  <h3>Task Failure</h3>
+                  <p><b>DAG:</b> {task_instance.dag_id}</p>
+                  <p><b>Task:</b> {task_instance.task_id}</p>
+                  <p><b>Execution Date:</b> {context['execution_date']}</p>
+                  <p><b>Error:</b> {str(exception)}</p>
+                  <p><a href="{task_instance.log_url}">View Logs</a></p>
+              """
+          )
+      
+      def sla_miss_callback(dag, task_list, blocking_task_list, slas, blocking_tis):
+          """Alert on SLA breach."""
+          send_email(
+              to=['data-team@company.com'],
+              subject=f"SLA Miss: {dag.dag_id}",
+              html_content=f"Tasks {task_list} missed SLA"
+          )
+      
+      dag = DAG(
+          dag_id="monitored_pipeline",
+          default_args={
+              "on_failure_callback": failure_callback,
+              "sla": timedelta(hours=2),  # Per-task SLA
+          },
+          sla_miss_callback=sla_miss_callback,
+          ...
+      )
+
+    metrics_to_track:
+      - "Task duration (track trends)"
+      - "Queue time (worker capacity)"
+      - "Failure rate by task/DAG"
+      - "SLA compliance percentage"
+      - "Scheduler heartbeat and lag"
+
+# =============================================================================
+# SECTION 5: DBT (DATA BUILD TOOL)
+# =============================================================================
+dbt_best_practices:
+  model_organization:
+    structure: |
+      models/
+      ├── staging/           # 1:1 with source tables
+      │   ├── stripe/
+      │   │   ├── _stripe__models.yml
+      │   │   ├── _stripe__sources.yml
+      │   │   ├── stg_stripe__payments.sql
+      │   │   └── stg_stripe__customers.sql
+      │   └── shopify/
+      │       ├── _shopify__models.yml
+      │       ├── _shopify__sources.yml
+      │       └── stg_shopify__orders.sql
+      ├── intermediate/      # Business logic transformations
+      │   └── finance/
+      │       ├── _int_finance__models.yml
+      │       ├── int_payments_pivoted_to_orders.sql
+      │       └── int_customer_order_history.sql
+      └── marts/             # Business-facing models
+          ├── finance/
+          │   ├── _finance__models.yml
+          │   ├── fct_orders.sql
+          │   ├── fct_payments.sql
+          │   └── dim_customers.sql
+          └── marketing/
+              ├── _marketing__models.yml
+              └── fct_customer_attribution.sql
+
+    naming_conventions:
+      staging: "stg_<source>__<table>"
+      intermediate: "int_<entity>_<transformation>"
+      facts: "fct_<entity>"
+      dimensions: "dim_<entity>"
+      snapshots: "snap_<entity>"
+
+    layer_rules:
+      staging:
+        description: "Raw data cleanup, renaming, type casting"
+        example: |
+          -- models/staging/stripe/stg_stripe__payments.sql
+          with source as (
+              select * from {{ source('stripe', 'payments') }}
+          ),
+          
+          renamed as (
+              select
+                  id as payment_id,
+                  customer_id,
+                  amount / 100 as amount_usd,  -- cents to dollars
+                  lower(status) as payment_status,
+                  cast(created as timestamp) as created_at,
+                  cast(_loaded_at as timestamp) as loaded_at
+              from source
+          )
+          
+          select * from renamed
+        rules:
+          - "One model per source table"
+          - "Only renaming, casting, basic cleanup"
+          - "No joins to other tables"
+          - "Always select from source() macro"
+      
+      intermediate:
+        description: "Reusable business logic, complex transforms"
+        example: |
+          -- models/intermediate/finance/int_payments_pivoted_to_orders.sql
+          with payments as (
+              select * from {{ ref('stg_stripe__payments') }}
+          ),
+          
+          pivoted as (
+              select
+                  order_id,
+                  sum(case when payment_status = 'succeeded' then amount_usd else 0 end) as successful_payment_amount,
+                  sum(case when payment_status = 'refunded' then amount_usd else 0 end) as refunded_amount,
+                  count(distinct payment_id) as payment_count
+              from payments
+              group by 1
+          )
+          
+          select * from pivoted
+        rules:
+          - "Can reference staging models only"
+          - "Should be reusable across marts"
+          - "Named for transformation, not destination"
+      
+      marts:
+        description: "Business-ready, analytics-facing models"
+        example: |
+          -- models/marts/finance/fct_orders.sql
+          {{
+              config(
+                  materialized='incremental',
+                  unique_key='order_id',
+                  partition_by={'field': 'order_date', 'data_type': 'date'},
+                  cluster_by=['customer_id']
+              )
+          }}
+          
+          with orders as (
+              select * from {{ ref('stg_shopify__orders') }}
+          ),
+          
+          payments as (
+              select * from {{ ref('int_payments_pivoted_to_orders') }}
+          ),
+          
+          customers as (
+              select * from {{ ref('dim_customers') }}
+          ),
+          
+          final as (
+              select
+                  orders.order_id,
+                  orders.order_date,
+                  customers.customer_id,
+                  customers.customer_segment,
+                  orders.order_total,
+                  payments.successful_payment_amount,
+                  payments.refunded_amount,
+                  orders.order_total - coalesce(payments.successful_payment_amount, 0) as outstanding_amount
+              from orders
+              left join payments using (order_id)
+              left join customers using (customer_id)
+              {% if is_incremental() %}
+              where orders.order_date >= (select max(order_date) from {{ this }}) - interval '3 days'
+              {% endif %}
+          )
+          
+          select * from final
+
+  incremental_models:
+    strategies:
+      append:
+        description: "Simple append, no updates"
+        use_case: "Immutable event logs"
+        config: |
+          {{ config(materialized='incremental') }}
+      
+      merge:
+        description: "Upsert based on unique key"
+        use_case: "Dimension tables, fact tables with updates"
+        config: |
+          {{ config(
+              materialized='incremental',
+              unique_key='order_id',
+              incremental_strategy='merge'
+          ) }}
+      
+      delete_insert:
+        description: "Delete matching rows, then insert"
+        use_case: "When merge is not supported"
+        config: |
+          {{ config(
+              materialized='incremental',
+              unique_key='order_id',
+              incremental_strategy='delete+insert'
+          ) }}
+
+    best_practices:
+      - name: "Idempotent Incremental Logic"
+        good_example: |
+          {% if is_incremental() %}
+          -- Use exclusive upper bound and inclusive lower bound
+          where updated_at >= (select max(updated_at) from {{ this }})
+            and updated_at < current_timestamp()
+          {% endif %}
+        bad_example: |
+          {% if is_incremental() %}
+          -- Greater-than misses records with exact same timestamp
+          where updated_at > (select max(updated_at) from {{ this }})
+          {% endif %}
+        why: "Records with identical timestamps to max will be missed"
+
+      - name: "Lookback Window for Late-Arriving Data"
+        good_example: |
+          {% if is_incremental() %}
+          where event_date >= (select max(event_date) from {{ this }}) - interval '3 days'
+          {% endif %}
+        why: "Late-arriving data within lookback window gets processed"
+
+  testing_strategies:
+    built_in_tests: |
+      # models/staging/_staging__models.yml
+      version: 2
+      
+      models:
+        - name: stg_stripe__payments
+          description: "Cleaned payment data from Stripe"
+          columns:
+            - name: payment_id
+              description: "Primary key"
+              tests:
+                - unique
+                - not_null
+            
+            - name: payment_status
+              description: "Payment status"
+              tests:
+                - accepted_values:
+                    values: ['pending', 'succeeded', 'failed', 'refunded']
+            
+            - name: customer_id
+              description: "FK to customers"
+              tests:
+                - relationships:
+                    to: ref('stg_stripe__customers')
+                    field: customer_id
+            
+            - name: amount_usd
+              tests:
+                - not_null
+                - dbt_utils.expression_is_true:
+                    expression: ">= 0"
+
+    custom_tests: |
+      -- tests/generic/test_row_count_anomaly.sql
+      {% test row_count_anomaly(model, min_rows, max_rows) %}
+      
+      with row_count as (
+          select count(*) as cnt from {{ model }}
+      )
+      
+      select cnt
+      from row_count
+      where cnt < {{ min_rows }} or cnt > {{ max_rows }}
+      
+      {% endtest %}
+      
+      -- Usage in schema.yml
+      models:
+        - name: fct_daily_orders
+          tests:
+            - row_count_anomaly:
+                min_rows: 1000
+                max_rows: 1000000
+
+    data_freshness: |
+      # models/staging/_sources.yml
+      version: 2
+      
+      sources:
+        - name: stripe
+          database: raw
+          schema: stripe
+          freshness:
+            warn_after: {count: 12, period: hour}
+            error_after: {count: 24, period: hour}
+          loaded_at_field: _loaded_at
+          
+          tables:
+            - name: payments
+              freshness:
+                warn_after: {count: 6, period: hour}
+                error_after: {count: 12, period: hour}
+
+  documentation: |
+    # models/staging/stripe/_stripe__models.yml
+    version: 2
+    
+    models:
+      - name: stg_stripe__payments
+        description: |
+          Staged payment records from Stripe.
+          
+          **Business Context:**
+          Payments are created when a customer initiates checkout.
+          A single order may have multiple payment attempts.
+          
+          **Grain:** One row per payment attempt
+          
+          **Refresh:** Incremental, every hour
+        
+        columns:
+          - name: payment_id
+            description: |
+              Unique identifier for the payment.
+              Sourced from Stripe's `id` field.
+          
+          - name: payment_status
+            description: |
+              Current status of the payment:
+              - `pending`: Payment initiated, awaiting processor
+              - `succeeded`: Payment completed successfully
+              - `failed`: Payment declined or errored
+              - `refunded`: Payment was refunded
+
+# =============================================================================
+# SECTION 6: DATA WAREHOUSE DESIGN
+# =============================================================================
+data_warehouse_design:
+  dimensional_modeling:
+    star_schema:
+      description: "Fact table surrounded by denormalized dimension tables"
+      advantages:
+        - "Simple queries (fewer joins)"
+        - "Better query performance"
+        - "Easier for business users to understand"
+      example: |
+        -- Fact table: fct_sales
+        CREATE TABLE fct_sales (
+            sale_id BIGINT PRIMARY KEY,
+            date_key INT REFERENCES dim_date(date_key),
+            product_key INT REFERENCES dim_product(product_key),
+            customer_key INT REFERENCES dim_customer(customer_key),
+            store_key INT REFERENCES dim_store(store_key),
+            quantity INT,
+            unit_price DECIMAL(10,2),
+            discount_amount DECIMAL(10,2),
+            total_amount DECIMAL(10,2)
+        );
+        
+        -- Dimension table: dim_product (denormalized)
+        CREATE TABLE dim_product (
+            product_key INT PRIMARY KEY,
+            product_id VARCHAR(50),
+            product_name VARCHAR(200),
+            category_name VARCHAR(100),      -- Denormalized from category
+            subcategory_name VARCHAR(100),   -- Denormalized from subcategory
+            brand_name VARCHAR(100),         -- Denormalized from brand
+            is_active BOOLEAN,
+            effective_from DATE,
+            effective_to DATE
+        );
+
+    snowflake_schema:
+      description: "Normalized dimension tables to reduce redundancy"
+      advantages:
+        - "Lower storage (no redundancy)"
+        - "Easier dimension maintenance"
+        - "Better for complex hierarchies"
+      tradeoffs:
+        - "More joins required"
+        - "Slower query performance"
+        - "More complex for end users"
+      example: |
+        -- Normalized dimension tables
+        CREATE TABLE dim_category (
+            category_key INT PRIMARY KEY,
+            category_name VARCHAR(100)
+        );
+        
+        CREATE TABLE dim_subcategory (
+            subcategory_key INT PRIMARY KEY,
+            subcategory_name VARCHAR(100),
+            category_key INT REFERENCES dim_category(category_key)
+        );
+        
+        CREATE TABLE dim_product (
+            product_key INT PRIMARY KEY,
+            product_name VARCHAR(200),
+            subcategory_key INT REFERENCES dim_subcategory(subcategory_key)
+        );
+
+  slowly_changing_dimensions:
+    type_1:
+      description: "Overwrite - no history maintained"
+      use_case: "Corrections, non-critical attributes"
+      example: |
+        -- Type 1: Simply update the record
+        UPDATE dim_customer
+        SET email = 'new_email@example.com'
+        WHERE customer_id = 12345;
+        
+        -- dbt implementation
+        {{ config(materialized='table') }}
+        
+        select
+            customer_id,
+            customer_name,
+            email,  -- Always current value
+            phone
+        from {{ source('crm', 'customers') }}
+
+    type_2:
+      description: "Add new row - full history maintained"
+      use_case: "Critical attributes where history matters"
+      columns_required:
+        - "surrogate_key (unique per version)"
+        - "effective_from (version start)"
+        - "effective_to (version end, NULL for current)"
+        - "is_current (boolean flag)"
+      example: |
+        -- Type 2 dimension table structure
+        CREATE TABLE dim_customer (
+            customer_key INT PRIMARY KEY,           -- Surrogate key
+            customer_id VARCHAR(50),                -- Natural key
+            customer_name VARCHAR(200),
+            customer_segment VARCHAR(50),           -- Tracked attribute
+            effective_from TIMESTAMP NOT NULL,
+            effective_to TIMESTAMP,                 -- NULL = current
+            is_current BOOLEAN DEFAULT true
+        );
+        
+        -- dbt snapshot for Type 2
+        {% snapshot snap_customer %}
+        {{
+            config(
+                target_schema='snapshots',
+                unique_key='customer_id',
+                strategy='check',
+                check_cols=['customer_name', 'customer_segment'],
+                invalidate_hard_deletes=true
+            )
+        }}
+        
+        select
+            customer_id,
+            customer_name,
+            customer_segment,
+            updated_at
+        from {{ source('crm', 'customers') }}
+        
+        {% endsnapshot %}
+
+    type_3:
+      description: "Add columns for previous value - limited history"
+      use_case: "Only need previous value, not full history"
+      example: |
+        CREATE TABLE dim_customer (
+            customer_key INT PRIMARY KEY,
+            customer_id VARCHAR(50),
+            current_segment VARCHAR(50),
+            previous_segment VARCHAR(50),       -- Previous value
+            segment_change_date DATE            -- When it changed
+        );
+
+  fact_table_design:
+    transactional_facts:
+      description: "One row per event/transaction"
+      grain: "Individual transaction"
+      example: |
+        CREATE TABLE fct_orders (
+            order_id BIGINT PRIMARY KEY,
+            order_datetime TIMESTAMP,
+            customer_key INT,
+            product_key INT,
+            quantity INT,
+            unit_price DECIMAL(10,2),
+            discount_percent DECIMAL(5,2),
+            total_amount DECIMAL(10,2)
+        );
+
+    periodic_snapshot_facts:
+      description: "State at regular intervals"
+      grain: "Time period (daily, monthly)"
+      example: |
+        CREATE TABLE fct_inventory_daily_snapshot (
+            snapshot_date DATE,
+            product_key INT,
+            warehouse_key INT,
+            quantity_on_hand INT,
+            quantity_reserved INT,
+            quantity_available INT,
+            days_of_supply DECIMAL(5,1),
+            PRIMARY KEY (snapshot_date, product_key, warehouse_key)
+        );
+
+    accumulating_snapshot_facts:
+      description: "Track progress through defined stages"
+      grain: "Process/lifecycle instance"
+      example: |
+        CREATE TABLE fct_order_fulfillment (
+            order_id BIGINT PRIMARY KEY,
+            order_date DATE,
+            payment_date DATE,
+            ship_date DATE,
+            delivery_date DATE,
+            days_to_payment INT,
+            days_to_ship INT,
+            days_to_deliver INT,
+            current_status VARCHAR(50),
+            is_completed BOOLEAN
+        );
+
+  partitioning_and_clustering:
+    snowflake: |
+      -- Clustering keys for large tables
+      CREATE TABLE fct_orders (
+          order_id BIGINT,
+          order_date DATE,
+          customer_id INT,
+          ...
+      )
+      CLUSTER BY (order_date, customer_id);
+      
+      -- Automatic clustering maintenance
+      ALTER TABLE fct_orders RESUME RECLUSTER;
+
+    bigquery: |
+      CREATE TABLE `project.dataset.fct_orders`
+      PARTITION BY DATE(order_datetime)
+      CLUSTER BY customer_id, product_id
+      AS
+      SELECT * FROM staging.orders;
+      
+      -- Query optimizer uses partition pruning and clustering
+      SELECT * FROM `project.dataset.fct_orders`
+      WHERE DATE(order_datetime) = '2026-02-02'
+        AND customer_id = 12345;  -- Uses cluster
+
+    delta_lake: |
+      -- Create partitioned and z-ordered table
+      CREATE TABLE fct_orders
+      USING DELTA
+      PARTITIONED BY (order_date)
+      AS SELECT * FROM staging_orders;
+      
+      -- Z-Order for multi-dimensional queries
+      OPTIMIZE fct_orders ZORDER BY (customer_id, product_id);
+
+# =============================================================================
+# SECTION 7: DATA QUALITY
+# =============================================================================
+data_quality:
+  great_expectations:
+    setup: |
+      # Initialize Great Expectations
+      import great_expectations as gx
+      
+      context = gx.get_context()
+      
+      # Define data source
+      datasource = context.sources.add_or_update_pandas(name="pandas_source")
+      
+      # Create expectation suite
+      suite = context.add_or_update_expectation_suite("orders_quality_suite")
+
+    common_expectations: |
+      import great_expectations as gx
+      from great_expectations.core.expectation_configuration import ExpectationConfiguration
+      
+      def create_orders_expectations(context: gx.DataContext) -> gx.ExpectationSuite:
+          """Define quality expectations for orders data."""
+          
+          suite = context.add_expectation_suite("orders_suite")
+          
+          # Primary key uniqueness
+          suite.add_expectation(
+              ExpectationConfiguration(
+                  expectation_type="expect_column_values_to_be_unique",
+                  kwargs={"column": "order_id"}
+              )
+          )
+          
+          # Required fields not null
+          for column in ["order_id", "customer_id", "order_date", "total_amount"]:
+              suite.add_expectation(
+                  ExpectationConfiguration(
+                      expectation_type="expect_column_values_to_not_be_null",
+                      kwargs={"column": column}
+                  )
+              )
+          
+          # Valid date range
+          suite.add_expectation(
+              ExpectationConfiguration(
+                  expectation_type="expect_column_values_to_be_between",
+                  kwargs={
+                      "column": "order_date",
+                      "min_value": "2020-01-01",
+                      "max_value": "2030-12-31"
+                  }
+              )
+          )
+          
+          # Positive amounts
+          suite.add_expectation(
+              ExpectationConfiguration(
+                  expectation_type="expect_column_values_to_be_between",
+                  kwargs={
+                      "column": "total_amount",
+                      "min_value": 0,
+                      "strict_min": False
+                  }
+              )
+          )
+          
+          # Valid status values
+          suite.add_expectation(
+              ExpectationConfiguration(
+                  expectation_type="expect_column_values_to_be_in_set",
+                  kwargs={
+                      "column": "status",
+                      "value_set": ["pending", "confirmed", "shipped", "delivered", "cancelled"]
+                  }
+              )
+          )
+          
+          # Row count sanity check
+          suite.add_expectation(
+              ExpectationConfiguration(
+                  expectation_type="expect_table_row_count_to_be_between",
+                  kwargs={"min_value": 1000, "max_value": 10000000}
+              )
+          )
+          
+          return suite
+
+    pipeline_integration: |
+      from airflow.decorators import task
+      import great_expectations as gx
+      
+      @task
+      def validate_data(data_path: str, suite_name: str) -> dict:
+          """Validate data against expectations, fail pipeline on critical issues."""
+          
+          context = gx.get_context()
+          
+          # Run validation
+          checkpoint_result = context.run_checkpoint(
+              checkpoint_name="production_checkpoint",
+              batch_request={
+                  "datasource_name": "s3_datasource",
+                  "data_connector_name": "default_inferred_data_connector_name",
+                  "data_asset_name": data_path
+              },
+              expectation_suite_name=suite_name
+          )
+          
+          # Extract results
+          validation_result = checkpoint_result.list_validation_results()[0]
+          
+          if not validation_result.success:
+              failed_expectations = [
+                  e for e in validation_result.results if not e.success
+              ]
+              
+              # Categorize failures
+              critical_failures = [
+                  e for e in failed_expectations
+                  if e.expectation_config.meta.get("severity") == "critical"
+              ]
+              
+              if critical_failures:
+                  raise DataQualityException(
+                      f"Critical quality check failed: {critical_failures}"
+                  )
+          
+          return {
+              "success": validation_result.success,
+              "statistics": validation_result.statistics
+          }
+
+  data_contracts:
+    definition: |
+      # data_contracts/orders_contract.yaml
+      apiVersion: v1
+      kind: DataContract
+      metadata:
+        name: orders
+        version: 1.2.0
+        owner: data-platform-team
+        
+      schema:
+        type: object
+        properties:
+          order_id:
+            type: integer
+            description: "Unique order identifier"
+            constraints:
+              - unique
+              - not_null
+          
+          customer_id:
+            type: integer
+            description: "Reference to customer"
+            constraints:
+              - not_null
+              - foreign_key:
+                  table: customers
+                  column: customer_id
+          
+          order_date:
+            type: date
+            description: "Date order was placed"
+            constraints:
+              - not_null
+              - range:
+                  min: "2020-01-01"
+          
+          total_amount:
+            type: decimal
+            precision: 10
+            scale: 2
+            constraints:
+              - not_null
+              - range:
+                  min: 0
+        
+        required:
+          - order_id
+          - customer_id
+          - order_date
+          - total_amount
+      
+      sla:
+        freshness:
+          max_age: 1 hour
+        availability:
+          uptime: 99.9%
+        completeness:
+          min_rows_per_day: 1000
+
+    validation: |
+      from datacontract import DataContract
+      
+      def validate_contract(data_path: str, contract_path: str) -> bool:
+          """Validate data against contract specification."""
+          
+          contract = DataContract.from_yaml(contract_path)
+          
+          # Load data
+          df = spark.read.parquet(data_path)
+          
+          # Validate schema
+          schema_valid = contract.validate_schema(df.schema)
+          
+          # Validate constraints
+          constraints_valid = contract.validate_constraints(df)
+          
+          # Validate SLAs
+          sla_valid = contract.validate_sla(
+              freshness=get_data_freshness(data_path),
+              row_count=df.count()
+          )
+          
+          return all([schema_valid, constraints_valid, sla_valid])
+
+  anomaly_detection:
+    statistical_methods: |
+      import pandas as pd
+      import numpy as np
+      from scipy import stats
+      
+      class DataAnomalyDetector:
+          """Detect anomalies in data pipeline metrics."""
+          
+          def __init__(self, lookback_days: int = 30):
+              self.lookback_days = lookback_days
+          
+          def detect_volume_anomaly(
+              self,
+              current_count: int,
+              historical_counts: list[int],
+              threshold_std: float = 3.0
+          ) -> dict:
+              """
+              Z-score based volume anomaly detection.
+              """
+              mean = np.mean(historical_counts)
+              std = np.std(historical_counts)
+              
+              if std == 0:
+                  return {"is_anomaly": False, "reason": "No variance in historical data"}
+              
+              z_score = (current_count - mean) / std
+              
+              is_anomaly = abs(z_score) > threshold_std
+              
+              return {
+                  "is_anomaly": is_anomaly,
+                  "current_value": current_count,
+                  "expected_mean": mean,
+                  "expected_std": std,
+                  "z_score": z_score,
+                  "threshold": threshold_std,
+                  "reason": f"Z-score {z_score:.2f} {'exceeds' if is_anomaly else 'within'} threshold {threshold_std}"
+              }
+          
+          def detect_distribution_shift(
+              self,
+              current_distribution: pd.Series,
+              baseline_distribution: pd.Series,
+              p_value_threshold: float = 0.05
+          ) -> dict:
+              """
+              Kolmogorov-Smirnov test for distribution shift.
+              """
+              statistic, p_value = stats.ks_2samp(
+                  current_distribution,
+                  baseline_distribution
+              )
+              
+              is_anomaly = p_value < p_value_threshold
+              
+              return {
+                  "is_anomaly": is_anomaly,
+                  "ks_statistic": statistic,
+                  "p_value": p_value,
+                  "threshold": p_value_threshold,
+                  "reason": f"Distribution shift {'detected' if is_anomaly else 'not detected'} (p={p_value:.4f})"
+              }
+          
+          def detect_null_rate_anomaly(
+              self,
+              current_null_rate: float,
+              historical_null_rates: list[float],
+              max_allowed_rate: float = 0.01
+          ) -> dict:
+              """
+              Detect sudden increase in null values.
+              """
+              historical_max = max(historical_null_rates) if historical_null_rates else 0
+              
+              is_anomaly = (
+                  current_null_rate > max_allowed_rate or
+                  current_null_rate > historical_max * 2  # 2x historical max
+              )
+              
+              return {
+                  "is_anomaly": is_anomaly,
+                  "current_rate": current_null_rate,
+                  "historical_max": historical_max,
+                  "max_allowed": max_allowed_rate,
+                  "reason": f"Null rate {current_null_rate:.2%} {'exceeds' if is_anomaly else 'within'} thresholds"
+              }
+
+# =============================================================================
+# SECTION 8: CODE EXAMPLES (PRODUCTION-READY)
+# =============================================================================
+code_examples:
+  pyspark_etl_job: |
+    """
+    Production PySpark ETL Job
+    ==========================
+    Complete example with error handling, logging, and best practices.
+    """
+    from pyspark.sql import SparkSession, DataFrame
+    from pyspark.sql import functions as F
+    from pyspark.sql.types import StructType, StructField, StringType, DecimalType, TimestampType
+    from delta.tables import DeltaTable
+    import logging
+    from datetime import datetime, timedelta
+    from typing import Optional
+    from dataclasses import dataclass
+    
+    # Configure logging
+    logging.basicConfig(level=logging.INFO)
+    logger = logging.getLogger(__name__)
+    
+    @dataclass
+    class ETLConfig:
+        source_path: str
+        target_path: str
+        checkpoint_path: str
+        execution_date: datetime
+        lookback_days: int = 3
+    
+    class OrdersETL:
+        """ETL pipeline for orders data."""
+        
+        def __init__(self, spark: SparkSession, config: ETLConfig):
+            self.spark = spark
+            self.config = config
+        
+        def extract(self) -> DataFrame:
+            """Extract orders from source with incremental logic."""
+            logger.info(f"Extracting data from {self.config.source_path}")
+            
+            # Define expected schema for validation
+            expected_schema = StructType([
+                StructField("order_id", StringType(), False),
+                StructField("customer_id", StringType(), False),
+                StructField("order_date", TimestampType(), False),
+                StructField("product_id", StringType(), False),
+                StructField("quantity", DecimalType(10, 0), False),
+                StructField("unit_price", DecimalType(10, 2), False),
+                StructField("updated_at", TimestampType(), False),
+            ])
+            
+            # Read with schema enforcement
+            df = (self.spark.read
+                .schema(expected_schema)
+                .parquet(self.config.source_path))
+            
+            # Incremental filter
+            watermark = self.config.execution_date - timedelta(days=self.config.lookback_days)
+            df = df.filter(F.col("updated_at") >= watermark)
+            
+            logger.info(f"Extracted {df.count()} records")
+            return df
+        
+        def transform(self, df: DataFrame) -> tuple[DataFrame, DataFrame]:
+            """
+            Transform with data quality validation.
+            Returns (valid_records, quarantine_records).
+            """
+            logger.info("Starting transformation")
+            
+            # Data quality rules
+            valid_condition = (
+                F.col("order_id").isNotNull() &
+                F.col("customer_id").isNotNull() &
+                F.col("quantity").isNotNull() &
+                (F.col("quantity") > 0) &
+                (F.col("unit_price") >= 0)
+            )
+            
+            # Split valid and invalid records
+            valid_df = df.filter(valid_condition)
+            
+            invalid_df = (df.filter(~valid_condition)
+                .withColumn("quarantine_reason", 
+                    F.when(F.col("order_id").isNull(), "null_order_id")
+                     .when(F.col("quantity") <= 0, "invalid_quantity")
+                     .otherwise("unknown"))
+                .withColumn("quarantine_timestamp", F.current_timestamp()))
+            
+            # Transform valid records
+            transformed_df = (valid_df
+                .withColumn("total_amount", F.col("quantity") * F.col("unit_price"))
+                .withColumn("order_date_key", F.date_format("order_date", "yyyyMMdd").cast("int"))
+                .withColumn("processing_timestamp", F.current_timestamp()))
+            
+            logger.info(f"Valid records: {valid_df.count()}, Quarantined: {invalid_df.count()}")
+            return transformed_df, invalid_df
+        
+        def load(self, df: DataFrame) -> dict:
+            """Load with upsert (merge) to Delta Lake."""
+            logger.info(f"Loading data to {self.config.target_path}")
+            
+            # Check if target exists
+            if DeltaTable.isDeltaTable(self.spark, self.config.target_path):
+                target = DeltaTable.forPath(self.spark, self.config.target_path)
+                
+                # Upsert
+                merge_result = (target.alias("target")
+                    .merge(
+                        df.alias("source"),
+                        "target.order_id = source.order_id"
+                    )
+                    .whenMatchedUpdateAll(
+                        condition="source.updated_at > target.updated_at"
+                    )
+                    .whenNotMatchedInsertAll()
+                    .execute())
+                
+                return {
+                    "operation": "merge",
+                    "metrics": merge_result
+                }
+            else:
+                # Initial load
+                (df.write
+                    .format("delta")
+                    .partitionBy("order_date_key")
+                    .mode("overwrite")
+                    .save(self.config.target_path))
+                
+                return {"operation": "initial_load", "records": df.count()}
+        
+        def run(self) -> dict:
+            """Execute full ETL pipeline."""
+            start_time = datetime.now()
+            logger.info(f"Starting ETL for execution_date: {self.config.execution_date}")
+            
+            try:
+                # Extract
+                raw_df = self.extract()
+                
+                # Transform
+                valid_df, quarantine_df = self.transform(raw_df)
+                
+                # Cache valid DataFrame for multiple writes
+                valid_df.cache()
+                
+                # Load valid records
+                load_result = self.load(valid_df)
+                
+                # Write quarantine records
+                if quarantine_df.count() > 0:
+                    (quarantine_df.write
+                        .format("delta")
+                        .mode("append")
+                        .save(f"{self.config.target_path}_quarantine"))
+                
+                valid_df.unpersist()
+                
+                duration = (datetime.now() - start_time).total_seconds()
+                
+                return {
+                    "status": "success",
+                    "execution_date": str(self.config.execution_date),
+                    "duration_seconds": duration,
+                    "load_result": load_result
+                }
+                
+            except Exception as e:
+                logger.error(f"ETL failed: {str(e)}")
+                raise
+    
+    if __name__ == "__main__":
+        spark = (SparkSession.builder
+            .appName("OrdersETL")
+            .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")
+            .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog")
+            .config("spark.sql.adaptive.enabled", "true")
+            .getOrCreate())
+        
+        config = ETLConfig(
+            source_path="s3://data-lake/raw/orders/",
+            target_path="s3://data-lake/processed/orders/",
+            checkpoint_path="s3://data-lake/checkpoints/orders/",
+            execution_date=datetime(2026, 2, 2)
+        )
+        
+        etl = OrdersETL(spark, config)
+        result = etl.run()
+        print(result)
+
+  airflow_dag: |
+    """
+    Production Airflow DAG
+    ======================
+    Daily ETL pipeline with proper error handling and monitoring.
+    """
+    from airflow import DAG
+    from airflow.decorators import task, task_group
+    from airflow.operators.empty import EmptyOperator
+    from airflow.providers.amazon.aws.sensors.s3 import S3KeySensor
+    from airflow.providers.slack.notifications.slack import send_slack_notification
+    from airflow.utils.trigger_rule import TriggerRule
+    from datetime import datetime, timedelta
+    from typing import Any
+    
+    # DAG configuration
+    default_args = {
+        "owner": "data-platform",
+        "depends_on_past": False,
+        "email": ["data-alerts@company.com"],
+        "email_on_failure": True,
+        "email_on_retry": False,
+        "retries": 2,
+        "retry_delay": timedelta(minutes=5),
+        "execution_timeout": timedelta(hours=2),
+        "on_failure_callback": send_slack_notification(
+            slack_conn_id="slack_data_alerts",
+            text="Task {{ ti.task_id }} failed in {{ ti.dag_id }}",
+            channel="#data-alerts"
+        ),
+    }
+    
+    with DAG(
+        dag_id="daily_orders_pipeline",
+        description="Daily ETL for orders data",
+        start_date=datetime(2024, 1, 1),
+        schedule="0 6 * * *",  # 6 AM daily
+        catchup=False,
+        max_active_runs=1,
+        default_args=default_args,
+        tags=["orders", "etl", "production"],
+        doc_md="""
+        ## Daily Orders Pipeline
+        
+        Processes order data from source systems to analytics warehouse.
+        
+        **Owner:** Data Platform Team
+        **SLA:** Complete by 8 AM
+        **Dependencies:** Upstream source data available by 5 AM
+        """
+    ) as dag:
+        
+        start = EmptyOperator(task_id="start")
+        
+        # Wait for source data
+        wait_for_source = S3KeySensor(
+            task_id="wait_for_source_data",
+            bucket_name="raw-data-bucket",
+            bucket_key="orders/{{ ds }}/data.parquet",
+            poke_interval=300,
+            timeout=3600,
+            mode="reschedule",
+            soft_fail=True
+        )
+        
+        @task
+        def extract_orders(execution_date: str) -> str:
+            """Extract orders data for the given date."""
+            from orders_etl import extract_orders_for_date
+            
+            output_path = f"s3://staging/orders/{execution_date}/"
+            extract_orders_for_date(execution_date, output_path)
+            
+            return output_path
+        
+        @task
+        def validate_data(data_path: str) -> dict:
+            """Run data quality checks."""
+            import great_expectations as gx
+            
+            context = gx.get_context()
+            result = context.run_checkpoint(
+                checkpoint_name="orders_checkpoint",
+                batch_request={"path": data_path}
+            )
+            
+            if not result.success:
+                raise ValueError("Data quality checks failed")
+            
+            return {"path": data_path, "validation": "passed"}
+        
+        @task
+        def transform_orders(validated_data: dict) -> str:
+            """Transform orders with business logic."""
+            from orders_etl import transform_orders_data
+            
+            input_path = validated_data["path"]
+            output_path = input_path.replace("staging", "processed")
+            
+            transform_orders_data(input_path, output_path)
+            
+            return output_path
+        
+        @task
+        def load_to_warehouse(data_path: str, execution_date: str) -> dict:
+            """Load processed data to data warehouse."""
+            from orders_etl import load_to_snowflake
+            
+            result = load_to_snowflake(
+                source_path=data_path,
+                target_table="ANALYTICS.ORDERS.FCT_ORDERS",
+                partition_date=execution_date
+            )
+            
+            return result
+        
+        @task(trigger_rule=TriggerRule.ALL_SUCCESS)
+        def update_metrics(load_result: dict) -> None:
+            """Update pipeline metrics in monitoring system."""
+            from monitoring import push_metrics
+            
+            push_metrics({
+                "pipeline": "daily_orders",
+                "records_loaded": load_result.get("records", 0),
+                "execution_time": load_result.get("duration", 0)
+            })
+        
+        @task(trigger_rule=TriggerRule.ONE_FAILED)
+        def alert_on_failure() -> None:
+            """Send detailed alert on pipeline failure."""
+            from alerting import send_pagerduty_alert
+            
+            send_pagerduty_alert(
+                service="data-platform",
+                severity="high",
+                summary="Daily orders pipeline failed"
+            )
+        
+        end = EmptyOperator(
+            task_id="end",
+            trigger_rule=TriggerRule.NONE_FAILED_MIN_ONE_SUCCESS
+        )
+        
+        # Define task flow
+        extracted = extract_orders(execution_date="{{ ds }}")
+        validated = validate_data(extracted)
+        transformed = transform_orders(validated)
+        loaded = load_to_warehouse(transformed, "{{ ds }}")
+        
+        start >> wait_for_source >> extracted
+        loaded >> [update_metrics(loaded), alert_on_failure()] >> end
+
+  dbt_incremental_model: |
+    -- models/marts/finance/fct_orders.sql
+    {{
+        config(
+            materialized='incremental',
+            unique_key='order_id',
+            incremental_strategy='merge',
+            partition_by={
+                'field': 'order_date',
+                'data_type': 'date',
+                'granularity': 'day'
+            },
+            cluster_by=['customer_id'],
+            tags=['daily', 'finance'],
+            meta={
+                'owner': 'finance-analytics',
+                'sla': '8am',
+                'pii': false
+            }
+        )
+    }}
+    
+    with orders as (
+        select * from {{ ref('stg_shopify__orders') }}
+        {% if is_incremental() %}
+        where updated_at >= (select max(updated_at) from {{ this }}) - interval '3 days'
+        {% endif %}
+    ),
+    
+    payments as (
+        select * from {{ ref('int_payments_pivoted_to_orders') }}
+    ),
+    
+    customers as (
+        select * from {{ ref('dim_customers') }}
+    ),
+    
+    refunds as (
+        select * from {{ ref('int_refunds_by_order') }}
+    ),
+    
+    final as (
+        select
+            -- Primary key
+            orders.order_id,
+            
+            -- Foreign keys
+            orders.customer_id,
+            customers.customer_key,
+            
+            -- Date dimensions
+            orders.order_date,
+            orders.order_datetime,
+            {{ dbt_date.day_of_week('orders.order_date') }} as order_day_of_week,
+            
+            -- Customer attributes (for filtering, Type 1)
+            customers.customer_segment,
+            customers.acquisition_channel,
+            
+            -- Order measures
+            orders.item_count,
+            orders.gross_amount,
+            coalesce(payments.successful_payment_amount, 0) as payment_amount,
+            coalesce(refunds.refund_amount, 0) as refund_amount,
+            orders.gross_amount - coalesce(refunds.refund_amount, 0) as net_amount,
+            
+            -- Status
+            orders.order_status,
+            orders.fulfillment_status,
+            
+            -- Flags
+            case when refunds.refund_amount > 0 then true else false end as has_refund,
+            case when payments.successful_payment_amount >= orders.gross_amount then true else false end as is_fully_paid,
+            
+            -- Metadata
+            orders.updated_at,
+            current_timestamp() as dbt_updated_at
+            
+        from orders
+        left join payments on orders.order_id = payments.order_id
+        left join customers on orders.customer_id = customers.customer_id
+        left join refunds on orders.order_id = refunds.order_id
+    )
+    
+    select * from final
+    
+    -- models/marts/finance/_finance__models.yml
+    ---
+    version: 2
+    
+    models:
+      - name: fct_orders
+        description: |
+          Fact table containing all orders with payment and refund details.
+          
+          **Grain:** One row per order
+          **Update Frequency:** Incremental, daily
+          **Lookback:** 3 days for late-arriving data
+        
+        columns:
+          - name: order_id
+            description: "Primary key - unique order identifier from Shopify"
+            tests:
+              - unique
+              - not_null
+          
+          - name: customer_id
+            description: "Customer who placed the order"
+            tests:
+              - not_null
+              - relationships:
+                  to: ref('dim_customers')
+                  field: customer_id
+          
+          - name: order_date
+            description: "Date the order was placed"
+            tests:
+              - not_null
+          
+          - name: net_amount
+            description: "Order total minus refunds"
+            tests:
+              - dbt_utils.expression_is_true:
+                  expression: ">= 0"
+        
+        tests:
+          - dbt_utils.recency:
+              datepart: day
+              field: order_date
+              interval: 1
+
+# =============================================================================
+# SECTION 9: QUICK REFERENCE CHEATSHEETS
+# =============================================================================
+cheatsheets:
+  spark_optimization:
+    memory_tuning:
+      - "spark.executor.memory: 8-16g typical, max 64g"
+      - "spark.executor.memoryOverhead: 10-15% of executor memory"
+      - "spark.memory.fraction: 0.6-0.8"
+      - "spark.memory.storageFraction: 0.3-0.5"
+    
+    shuffle_tuning:
+      - "spark.sql.shuffle.partitions: 200 default, tune to 2-4x cores"
+      - "spark.sql.adaptive.enabled: true (Spark 3.0+)"
+      - "spark.sql.adaptive.coalescePartitions.enabled: true"
+    
+    join_optimization:
+      - "Broadcast threshold: spark.sql.autoBroadcastJoinThreshold (10MB default)"
+      - "Always broadcast dimension tables < 100MB"
+      - "Pre-partition on join keys for large-large joins"
+    
+    common_fixes:
+      oom_executor: "Reduce partition count or increase memory"
+      oom_driver: "Don't collect(), increase driver memory"
+      slow_shuffle: "Reduce partitions, enable AQE"
+      data_skew: "Salt keys, use adaptive skew join"
+
+  airflow_patterns:
+    idempotency_checklist:
+      - "Use logical_date, not current time"
+      - "Delete-write or merge, never append"
+      - "Deterministic output paths"
+      - "No external state dependencies"
+    
+    task_design:
+      - "Single responsibility per task"
+      - "5-30 minutes per task ideal"
+      - "Use XCom for small metadata only"
+      - "Heavy compute in external systems"
+    
+    common_operators:
+      data_loading: "S3ToSnowflakeOperator, GCSToBigQueryOperator"
+      spark: "SparkSubmitOperator, DatabricksSubmitRunOperator"
+      sql: "BigQueryInsertJobOperator, SnowflakeOperator"
+      kubernetes: "KubernetesPodOperator"
+
+  dbt_commands:
+    daily_workflow:
+      - "dbt run --select tag:daily"
+      - "dbt test --select tag:daily"
+      - "dbt docs generate"
+    
+    development:
+      - "dbt run --select model_name+  # Model and downstream"
+      - "dbt run --select +model_name  # Model and upstream"
+      - "dbt run --full-refresh --select model_name  # Rebuild incremental"
+      - "dbt compile --select model_name  # View compiled SQL"
+    
+    ci_cd:
+      - "dbt deps  # Install packages"
+      - "dbt seed  # Load seed data"
+      - "dbt run --target ci"
+      - "dbt test"
+      - "dbt source freshness"
+
+  data_quality_rules:
+    always_check:
+      - "Primary key uniqueness"
+      - "Required fields not null"
+      - "Foreign key relationships"
+      - "Valid date ranges"
+      - "Positive amounts where expected"
+    
+    volume_checks:
+      - "Row count within expected range"
+      - "No sudden drops (>50% decrease)"
+      - "No anomalous spikes (>3 std dev)"
+    
+    freshness_checks:
+      - "Source data loaded within SLA"
+      - "Max timestamp within expected window"
+      - "No gaps in time series"

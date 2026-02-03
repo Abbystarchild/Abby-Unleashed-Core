@@ -3,6 +3,7 @@ Main Abby Unleashed Orchestrator
 """
 import logging
 import os
+import re
 import yaml
 from typing import Dict, Any, Optional, List
 from dotenv import load_dotenv
@@ -16,6 +17,8 @@ from agents.task_planner import TaskPlanner
 from agents.task_runner import TaskRunner
 from agents.action_executor import get_executor
 from parallel_thinker import ParallelThinker, create_parallel_thinker
+from intelligent_agent import get_intelligent_agent, IntelligentAgent
+from task_executor import get_task_executor, TaskExecutor
 
 
 # Load environment variables
@@ -127,6 +130,280 @@ class AbbyUnleashed:
         """Handle task progress updates"""
         self.progress_log.append({"message": message, "data": data})
         logger.info(f"Progress: {message}")
+    
+    def _is_overwhelming_task(self, task: str) -> bool:
+        """
+        Check if a task is too complex to handle in one go.
+        
+        Signs of an overwhelming task:
+        - Very long description (1000+ chars)
+        - Multiple numbered steps or bullet points
+        - Multiple different features/pages mentioned
+        - Words like "complete app", "full project", "production ready"
+        """
+        task_lower = task.lower()
+        
+        # Length check
+        if len(task) > 1500:
+            return True
+        
+        # Count numbered items
+        numbered = len(re.findall(r'(?:^|\n)\s*\d+[\.\):]', task))
+        if numbered >= 5:
+            return True
+        
+        # Count bullet points
+        bullets = len(re.findall(r'(?:^|\n)\s*[-•*]\s+', task))
+        if bullets >= 5:
+            return True
+        
+        # Check for "build entire app" patterns
+        overwhelming_patterns = [
+            r'complete\s+(?:app|application|project)',
+            r'production\s+ready',
+            r'fully?\s+(?:fleshed|completed|functional)',
+            r'from\s+scratch',
+            r'entire\s+(?:app|system|project)',
+            r'work\s+on\s+both\s+(?:ios|apple)\s+and\s+android',
+        ]
+        if any(re.search(pattern, task_lower) for pattern in overwhelming_patterns):
+            return True
+        
+        # Count distinct pages/screens mentioned
+        pages = set(re.findall(r'(\w+)\s+(?:page|screen|view)', task_lower))
+        if len(pages) >= 4:
+            return True
+        
+        return False
+    
+    def _execute_with_decomposition(self, task: str, context: Dict) -> Dict[str, Any]:
+        """
+        Handle overwhelming tasks by decomposing them into subtasks.
+        
+        This is Abby's key ability to not get overwhelmed - she breaks
+        down big requests and tackles them systematically.
+        
+        NOW IMPROVED: Uses intelligent agent to:
+        1. Check for existing plans before creating new ones
+        2. Gather context about the workspace before decomposing
+        3. Track execution progress
+        """
+        from task_decomposer import get_task_decomposer
+        
+        # Get intelligent agent for context gathering and plan management
+        workspace = context.get("workspace", os.getcwd())
+        agent = get_intelligent_agent(workspace)
+        
+        # First, check if we already have a plan for this task
+        existing_plan_id = agent._find_related_plans(task)
+        
+        if existing_plan_id:
+            # Load existing plan instead of creating a new one
+            try:
+                existing_plan = agent.load_plan(existing_plan_id)
+                if existing_plan:
+                    logger.info(f"Found existing plan: {existing_plan_id}")
+                    
+                    # Get status of existing plan
+                    decomposer = get_task_decomposer(self.ollama_client)
+                    decomposer.active_plan = existing_plan
+                    
+                    status = decomposer.get_status_report()
+                    next_tasks = existing_plan.get_next_tasks(max_parallel=3)
+                    
+                    response_parts = [
+                        "🔄 **I found my previous plan for this request!**\n",
+                        status,
+                        "\n**Ready to continue with:**"
+                    ]
+                    
+                    for i, subtask in enumerate(next_tasks, 1):
+                        status_icon = "⏳" if subtask.status == "pending" else "▶️"
+                        response_parts.append(f"  {status_icon} {i}. [{subtask.category.upper()}] {subtask.title}")
+                    
+                    response_parts.append(f"\n📁 Using plan: `{existing_plan.id}`")
+                    response_parts.append("\nShould I continue with the next task?")
+                    
+                    return {
+                        "status": "plan_loaded",
+                        "output": "\n".join(response_parts),
+                        "plan_id": existing_plan.id,
+                        "total_tasks": existing_plan.total_tasks,
+                        "next_tasks": [{"id": t.id, "title": t.title, "category": t.category} for t in next_tasks]
+                    }
+            except Exception as e:
+                logger.warning(f"Could not load existing plan: {e}")
+        
+        # Gather context about the workspace before decomposing
+        logger.info("Gathering workspace context before decomposition...")
+        workspace_context = agent.gather_context(task)
+        
+        # Decompose the task with context
+        decomposer = get_task_decomposer(self.ollama_client)
+        
+        # Add workspace context to help with better decomposition
+        enhanced_context = {**context, "workspace_info": workspace_context}
+        plan = decomposer.decompose(task, enhanced_context)
+        
+        # Save plan through intelligent agent for future reference
+        agent.save_plan(plan)
+        
+        # Update progress tracking
+        self.task_progress["total_steps"] = plan.total_tasks
+        
+        # Get status report
+        status = decomposer.get_status_report()
+        
+        # Get next actionable tasks
+        next_tasks = plan.get_next_tasks(max_parallel=3)
+        
+        # Format response
+        response_parts = [
+            "🎯 **I've broken down your request into manageable tasks!**\n",
+            status,
+            "\n**Ready to start with:**"
+        ]
+        
+        for i, subtask in enumerate(next_tasks, 1):
+            response_parts.append(f"  {i}. [{subtask.category.upper()}] {subtask.title}")
+        
+        response_parts.append(f"\n📁 Plan saved as: `{plan.id}`")
+        response_parts.append("\nShould I proceed with the first task, or would you like to review/modify the plan?")
+        
+        return {
+            "status": "plan_created",
+            "output": "\n".join(response_parts),
+            "plan_id": plan.id,
+            "total_tasks": plan.total_tasks,
+            "next_tasks": [{"id": t.id, "title": t.title, "category": t.category} for t in next_tasks]
+        }
+    
+    def execute_planned_task(
+        self, 
+        plan_id: str, 
+        task_id: str = None,
+        context: Dict[str, Any] = None
+    ) -> Dict[str, Any]:
+        """
+        Execute a specific task from a plan with verification.
+        
+        This method:
+        1. Loads the plan
+        2. Gets the task to execute (or picks the next one)
+        3. Executes with verification
+        4. Updates task status in the plan
+        5. Returns detailed results
+        
+        Args:
+            plan_id: The plan ID to work from
+            task_id: Optional specific task ID (if not provided, picks next)
+            context: Optional context dict
+            
+        Returns:
+            Result dictionary with execution details
+        """
+        context = context or {}
+        workspace = context.get("workspace", os.getcwd())
+        
+        # Get the intelligent agent and task executor
+        agent = get_intelligent_agent(workspace)
+        executor = get_task_executor(workspace, self.ollama_client)
+        
+        # Load the plan
+        plan = agent.load_plan(plan_id)
+        if not plan:
+            return {
+                "status": "error",
+                "error": f"Plan not found: {plan_id}",
+                "output": f"❌ Could not find plan: {plan_id}"
+            }
+        
+        # Get the task to execute
+        if task_id:
+            task = next((t for t in plan.tasks if t.id == task_id), None)
+            if not task:
+                return {
+                    "status": "error",
+                    "error": f"Task not found: {task_id}",
+                    "output": f"❌ Could not find task {task_id} in plan {plan_id}"
+                }
+        else:
+            # Get next task
+            next_tasks = plan.get_next_tasks(max_parallel=1)
+            if not next_tasks:
+                return {
+                    "status": "completed",
+                    "output": f"✅ All tasks in plan {plan_id} are complete!",
+                    "plan_complete": True
+                }
+            task = next_tasks[0]
+        
+        # Track execution start
+        self.progress_log.append({
+            "message": f"Starting task: {task.title}",
+            "task_id": task.id
+        })
+        
+        # Execute the task with verification
+        execution_log = []
+        final_result = None
+        
+        for event in executor.execute_task(task, plan):
+            execution_log.append(event)
+            
+            # Track progress
+            if event["type"] == "thinking":
+                self.progress_log.append({"message": event["message"]})
+            elif event["type"] == "step_success":
+                self.progress_log.append({
+                    "message": f"✅ {event['action']}: {event.get('target', '')}",
+                    "success": True
+                })
+            elif event["type"] == "step_failed":
+                self.progress_log.append({
+                    "message": f"❌ {event['action']}: {event.get('error', '')}",
+                    "success": False
+                })
+            elif event["type"] == "complete":
+                final_result = event
+        
+        # Build response
+        if final_result and final_result.get("success"):
+            response_parts = [
+                f"✅ **Completed: {task.title}**",
+                f"",
+                final_result.get("summary", ""),
+            ]
+            
+            if final_result.get("verified"):
+                response_parts.append("\n✓ All operations verified")
+            
+            # Show what's next
+            next_tasks = plan.get_next_tasks(max_parallel=3)
+            if next_tasks:
+                response_parts.append("\n**Next up:**")
+                for i, t in enumerate(next_tasks, 1):
+                    response_parts.append(f"  {i}. {t.title}")
+            else:
+                response_parts.append("\n🎉 **All tasks complete!**")
+            
+            return {
+                "status": "completed",
+                "output": "\n".join(response_parts),
+                "task_id": task.id,
+                "verified": final_result.get("verified", False),
+                "plan_id": plan_id,
+                "next_tasks": [{"id": t.id, "title": t.title} for t in next_tasks]
+            }
+        else:
+            error_msg = final_result.get("summary", "Unknown error") if final_result else "Execution failed"
+            return {
+                "status": "failed",
+                "output": f"❌ **Failed: {task.title}**\n\n{error_msg}",
+                "task_id": task.id,
+                "plan_id": plan_id,
+                "error": error_msg
+            }
     
     def _is_coding_task(self, task: str) -> bool:
         """Check if a task is coding-related"""
@@ -350,6 +627,11 @@ class AbbyUnleashed:
         self.progress_log = []
         
         try:
+            # Check if this is an overwhelming task that needs decomposition
+            if self._is_overwhelming_task(task):
+                logger.info("Overwhelming task detected - using task decomposer")
+                return self._execute_with_decomposition(task, context)
+            
             # Determine if this needs ACTION or just conversation
             needs_action = self._needs_execution(task, context)
             

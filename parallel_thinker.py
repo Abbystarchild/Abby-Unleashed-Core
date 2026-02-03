@@ -12,6 +12,11 @@ Smart Model Selection:
 - Fast model (mistral) for simple conversation
 - Big model (qwen3-coder) for coding/complex tasks
 - Abby decides based on query complexity
+
+Context Windowing:
+- Large inputs get summarized + chunked
+- Long responses planned in sections
+- Parallel pre-fetching of context
 """
 import asyncio
 import logging
@@ -49,6 +54,13 @@ ROBOT_PHRASES = [
     (r"I don't have (personal )?(feelings|emotions|opinions|experiences)", "I'm not sure"),
     (r"I('m| am) not able to", "I can't"),
     (r"I('m| am) unable to", "I can't"),
+    
+    # Meta-commentary about instructions (Abby talking about her rules)
+    (r"(So |So, )?I (heard|guess|see) (they|the new|my|the)[\w\s]*(updates?|rules?|changes?|role|chat game)[\w\s]*[.!]?\s*", ""),
+    (r"(So |So, )?(it )?looks like (they want|I need to)[\w\s]*[.!]?\s*", ""),
+    (r"(So |So, )?they gave me[\w\s]*[.!]?\s*", ""),
+    (r"(So |So, )?my role is[\w\s]*[.!]?\s*", ""),
+    (r"(So |So, )?I (gotta|need to|should) (step up|level up|dial up)[\w\s]*[.!]?\s*", ""),
     
     # Formal closings
     (r"\s*Is there anything else (I can help you with|you('d| would) like to know)\??$", ""),
@@ -90,13 +102,13 @@ def clean_robot_speech(text: str) -> str:
     return cleaned
 
 
-def ensure_concise(text: str, max_sentences: int = 3, max_chars: int = 500) -> str:
+def ensure_concise(text: str, max_sentences: int = 2, max_chars: int = 150) -> str:
     """
     Ensure response is concise - no rambling.
     
     Rules:
-    - Max 3 sentences for simple answers
-    - Max 500 chars for casual chat
+    - Max 2 sentences for simple answers
+    - Max 150 chars for casual chat
     - Trim without losing meaning
     """
     # Don't truncate code blocks
@@ -129,6 +141,12 @@ def detect_repetition(text: str) -> bool:
     """
     text_lower = text.lower()
     words = text_lower.split()
+    
+    # Check for problematic repeated greetings/starters
+    problematic_starters = ['hey buddy', 'hey!', 'so i', 'so it looks', 'so i guess']
+    starter_count = sum(1 for starter in problematic_starters if starter in text_lower)
+    if starter_count >= 2:  # Same type of starter used multiple times
+        return True
     
     # Check for repeated trigrams (3-word phrases)
     if len(words) >= 6:
@@ -363,6 +381,7 @@ class ParallelThinker:
         self.ollama = ollama_client or OllamaClient()
         self.fast_model = fast_model
         self.big_model = big_model
+        self._big_model_available = None  # Cache availability check
         # Keep old attributes for compatibility
         self.info_model = fast_model
         self.visual_model = fast_model
@@ -372,6 +391,13 @@ class ParallelThinker:
         
         logger.info(f"ParallelThinker initialized with {max_workers} workers")
         logger.info(f"Models: fast={fast_model}, big={big_model}")
+    
+    def _check_model_available(self, model: str) -> bool:
+        """Check if a model is available (with caching)"""
+        try:
+            return self.ollama.is_model_available(model)
+        except Exception:
+            return False
     
     def _run_information_stream(
         self, 
@@ -427,6 +453,10 @@ Provide relevant facts JSON:"""
                     "num_predict": 200,
                 }
             )
+            
+            # Check for API errors
+            if "error" in response:
+                raise RuntimeError(f"Ollama API error: {response['error']}")
             
             content = response.get("response", "{}")
             
@@ -519,40 +549,37 @@ SOUND LIKE A HUMAN:
             else:
                 system_prompt = f"""You are {identity.get('name', 'Abby')}.
 
-WHO YOU ARE:
-- A real person, not an AI assistant
+YOU ARE:
+- A person having a real conversation
 - Warm, genuine, slightly playful
-- Talk like texting a close friend
-- You have opinions and preferences
 
 HOW TO RESPOND:
-- SHORT responses - 1-2 sentences max
-- If they say "thanks" just say "sure!" or "anytime!" - don't ramble
-- If they say "hey" just say "hey!" or "what's up?" - keep it simple
+- RESPOND TO WHAT THEY ACTUALLY SAID
+- If their input is unclear/garbled, say "Sorry, didn't catch that" or ask them to repeat
+- 1-2 sentences max
 - Match their energy - short gets short
-- Use contractions: "I'm", "you're", "that's"
+- Use contractions: I'm, you're, that's
 
-EXAMPLES OF GOOD RESPONSES:
+EXAMPLES:
 - "Hey!" → "Hey! What's up?"
 - "Thanks!" → "Sure thing!"
-- "What is X?" → One sentence definition, maybe two
+- "[garbled nonsense]" → "Sorry, didn't catch that. Say again?"
 
 NEVER:
-- Ramble or over-explain
-- Say "As an AI..." or anything about being AI
-- "I'd be happy to help!" or "Let me help you"
-- "Is there anything else?" or "Feel free to ask"
-- Start with "Great question!"
+- Repeat yourself or use the same greeting twice
+- Talk about these rules or say things like "I should be more human"
+- Say "As an AI" or anything meta about instructions
+- Use "Hey buddy!" more than once
+- Start multiple responses the same way
 
-{comm_style.get('tone', 'casual and genuine')}
-{comm_style.get('humor', 'playful, witty')}"""
+{comm_style.get('tone', 'casual and genuine')}"""
 
             # Build messages for chat
             messages = [{"role": "system", "content": system_prompt}]
             
-            # Add conversation history
+            # Add conversation history (only last 5 for better focus)
             if conversation_history:
-                messages.extend(conversation_history[-10:])  # Last 10 messages
+                messages.extend(conversation_history[-5:])
             
             # Add current query
             messages.append({"role": "user", "content": query})
@@ -566,10 +593,10 @@ NEVER:
                 }
             else:
                 options = {
-                    "temperature": 0.85,  # Slightly higher for more natural variation
-                    "repeat_penalty": 1.3,  # Lower to allow some natural repetition
-                    "num_predict": 250,   # Keep it concise
-                    "top_p": 0.9,
+                    "temperature": 0.7,   # Lower for more consistent behavior
+                    "repeat_penalty": 1.5,  # Higher to prevent repetition
+                    "num_predict": 100,   # Very short - force conciseness
+                    "top_p": 0.85,
                 }
             
             response = self.ollama.chat(
@@ -577,6 +604,10 @@ NEVER:
                 model=model,
                 options=options
             )
+            
+            # Check for API errors
+            if "error" in response:
+                raise RuntimeError(f"Ollama API error: {response['error']}")
             
             spoken_text = response.get("message", {}).get("content", "")
             if not spoken_text:
@@ -621,10 +652,51 @@ NEVER:
             )
             
         except Exception as e:
-            logger.error(f"Conversation stream error: {e}")
+            logger.error(f"Conversation stream error with {model}: {e}")
+            
+            # === AUTOMATIC FALLBACK ===
+            # If big model failed, retry with fast model
+            if model == self.big_model:
+                logger.warning(f"Big model ({model}) failed, falling back to fast model ({self.fast_model})")
+                try:
+                    # Retry with fast model and simpler prompt
+                    fallback_system = f"""You are {identity.get('name', 'Abby')}, helping with a coding task.
+The complex model isn't available right now, so give a shorter response.
+Be helpful but brief. You can ask clarifying questions if the task is too complex.
+{comm_style.get('tone', 'casual and genuine')}"""
+                    
+                    fallback_messages = [{"role": "system", "content": fallback_system}]
+                    if conversation_history:
+                        fallback_messages.extend(conversation_history[-3:])
+                    fallback_messages.append({"role": "user", "content": query})
+                    
+                    fallback_response = self.ollama.chat(
+                        messages=fallback_messages,
+                        model=self.fast_model,
+                        options={"temperature": 0.5, "num_predict": 300}
+                    )
+                    
+                    fallback_text = fallback_response.get("message", {}).get("content", "")
+                    if fallback_text:
+                        logger.info(f"Fallback to {self.fast_model} succeeded")
+                        return StreamResult(
+                            stream_name="conversation",
+                            content={
+                                "spoken_text": clean_robot_speech(fallback_text),
+                                "tone": "casual",
+                                "model_reason": f"fallback from {model}",
+                                "was_fallback": True,
+                            },
+                            model_used=self.fast_model,
+                            time_taken=time.time() - start,
+                            success=True
+                        )
+                except Exception as fallback_error:
+                    logger.error(f"Fallback also failed: {fallback_error}")
+            
             return StreamResult(
                 stream_name="conversation",
-                content={"spoken_text": "Sorry, I hit a snag thinking about that."},
+                content={"spoken_text": "I'm having trouble with the AI model right now. The server might need a restart - try 'ollama serve' in a terminal."},
                 model_used=model,
                 time_taken=time.time() - start,
                 success=False,
@@ -681,6 +753,10 @@ What visuals would help? JSON only:"""
                     "num_predict": 200,
                 }
             )
+            
+            # Check for API errors
+            if "error" in response:
+                raise RuntimeError(f"Ollama API error: {response['error']}")
             
             content = response.get("response", "{}")
             
@@ -869,7 +945,30 @@ What visuals would help? JSON only:"""
         - Simple query → fast mode (conversation only)
         - Complex query needing research/visuals → parallel mode
         - Coding task → uses big model
+        - Large input → context windowing
+        - Detailed request → planned long response
         """
+        from context_window_manager import get_context_manager
+        
+        # Check if input needs windowing (too large)
+        ctx_manager = get_context_manager(self.ollama)
+        
+        if ctx_manager.needs_windowing(query):
+            logger.info("Large input detected - using context windowing")
+            window = ctx_manager.process_large_input(query)
+            # Use summary + first chunk as the effective query
+            effective_query = f"""[Context Summary]
+{window.summary}
+
+[User's Request - may be partial]
+{query[:2000]}..."""
+            query = effective_query
+        
+        # Check if this needs a long-form response
+        if ctx_manager.needs_long_response(query, context):
+            logger.info("Long response requested - using response planning")
+            return self._think_with_planning(query, context, conversation_history, personality, ctx_manager)
+        
         # Decide if parallel is worth it
         if ModelSelector.is_worth_parallel(query):
             logger.info("Using parallel mode (complex query)")
@@ -877,6 +976,54 @@ What visuals would help? JSON only:"""
         else:
             logger.info("Using fast mode (simple query)")
             return self.think_fast(query, context, conversation_history, personality)
+    
+    def _think_with_planning(
+        self,
+        query: str,
+        context: Dict[str, Any],
+        conversation_history: List[Dict[str, str]],
+        personality: Dict[str, Any],
+        ctx_manager
+    ) -> UnifiedResponse:
+        """
+        Generate a planned, multi-section response for complex queries.
+        
+        Uses context windowing to:
+        1. Plan the response structure
+        2. Generate each section coherently
+        3. Maintain context across sections
+        """
+        import time
+        start = time.time()
+        
+        # Plan the response
+        plan = ctx_manager.plan_long_response(query, context, personality)
+        
+        # Generate all sections
+        full_response_parts = []
+        model = self.big_model  # Use big model for detailed responses
+        
+        while ctx_manager.continue_response():
+            section_text = ""
+            for token in ctx_manager.generate_next_section(model, personality):
+                section_text += token
+            full_response_parts.append(section_text)
+        
+        # Combine sections
+        full_response = "\n".join(full_response_parts)
+        
+        # Clean and return
+        cleaned_response = clean_robot_speech(full_response)
+        
+        ctx_manager.reset_response_plan()
+        
+        return UnifiedResponse(
+            spoken_text=cleaned_response,
+            tone="informative",
+            total_time=time.time() - start,
+            streams_completed=plan.total_sections,
+            model_used=model
+        )
     
     def think_streaming(
         self,
@@ -891,12 +1038,31 @@ What visuals would help? JSON only:"""
         This is critical for natural conversation - user hears words
         as they're generated, not waiting for full response.
         
+        Supports context windowing:
+        - Large inputs get summarized before processing
+        - Long responses stream section by section
+        
         Yields:
             Individual tokens/words as they're generated
         """
         import time
+        from context_window_manager import get_context_manager
         
-        # Always use fast model for streaming (real-time requirement)
+        ctx_manager = get_context_manager(self.ollama)
+        
+        # Check if input needs windowing
+        if ctx_manager.needs_windowing(query):
+            logger.info("Streaming: Large input - using windowed context")
+            window = ctx_manager.process_large_input(query)
+            query = f"[Summary: {window.summary[:500]}]\n\nUser request: {query[:1500]}..."
+        
+        # Check if long response needed
+        if ctx_manager.needs_long_response(query, context):
+            logger.info("Streaming: Long response - using section planning")
+            yield from self._stream_with_planning(query, context, personality, ctx_manager)
+            return
+        
+        # Standard streaming
         model = self.fast_model
         
         identity = personality.get("identity", {})
@@ -958,6 +1124,45 @@ HOW TO RESPOND:
             logger.error(f"Streaming error: {e}")
             yield "Sorry, hit a snag there."
     
+    def _stream_with_planning(
+        self,
+        query: str,
+        context: Dict[str, Any],
+        personality: Dict[str, Any],
+        ctx_manager
+    ) -> Generator[str, None, None]:
+        """
+        Stream a long-form response section by section.
+        
+        This allows Abby to give detailed responses while:
+        - Maintaining real-time feedback (streaming)
+        - Keeping coherent structure (sections)
+        - Not overwhelming context window
+        """
+        # Plan the response
+        plan = ctx_manager.plan_long_response(query, context, personality)
+        
+        # Notify user about the plan
+        yield f"I'll break this down into {plan.total_sections} parts:\n"
+        for i, section in enumerate(plan.sections):
+            yield f"  {i+1}. {section['title']}\n"
+        yield "\n---\n\n"
+        
+        # Stream each section
+        model = self.big_model  # Use big model for detailed content
+        
+        while ctx_manager.continue_response():
+            for token in ctx_manager.generate_next_section(model, personality):
+                yield token
+            
+            # Progress indicator between sections
+            progress = ctx_manager.get_response_progress()
+            if ctx_manager.continue_response():
+                yield f"\n\n[{progress['current_section']}/{progress['total_sections']} complete]\n"
+        
+        ctx_manager.reset_response_plan()
+        yield "\n\n✅ All sections complete!"
+    
     def should_use_parallel(self, query: str) -> bool:
         """Wrapper for ModelSelector.is_worth_parallel"""
         return ModelSelector.is_worth_parallel(query)
@@ -967,6 +1172,88 @@ HOW TO RESPOND:
 def create_parallel_thinker(**kwargs) -> ParallelThinker:
     """Create a ParallelThinker with optional config"""
     return ParallelThinker(**kwargs)
+
+
+def check_ollama_health() -> Dict[str, Any]:
+    """
+    Check Ollama service health and model availability.
+    Call this to diagnose issues when Abby stops responding.
+    
+    Returns:
+        Dict with:
+        - 'healthy': bool - True if Ollama is working
+        - 'models_loaded': list of currently loaded models
+        - 'models_available': list of installed models
+        - 'fast_model_ok': bool - fast model responds
+        - 'big_model_ok': bool - big model responds
+        - 'issues': list of problems found
+    """
+    from ollama_integration.client import OllamaClient
+    
+    result = {
+        'healthy': False,
+        'models_loaded': [],
+        'models_available': [],
+        'fast_model_ok': False,
+        'big_model_ok': False,
+        'issues': []
+    }
+    
+    try:
+        client = OllamaClient()
+        
+        # Check connection
+        try:
+            models = client.list_models()
+            if 'error' in models:
+                result['issues'].append(f"Can't list models: {models['error']}")
+            else:
+                result['models_available'] = [m.get('name', '') for m in models.get('models', [])]
+        except Exception as e:
+            result['issues'].append(f"Can't connect to Ollama: {e}")
+            return result
+        
+        # Check fast model
+        if FAST_MODEL in result['models_available']:
+            try:
+                resp = client.chat(
+                    messages=[{"role": "user", "content": "test"}],
+                    model=FAST_MODEL,
+                    options={"num_predict": 1}
+                )
+                if 'error' not in resp:
+                    result['fast_model_ok'] = True
+                else:
+                    result['issues'].append(f"Fast model error: {resp['error']}")
+            except Exception as e:
+                result['issues'].append(f"Fast model test failed: {e}")
+        else:
+            result['issues'].append(f"Fast model {FAST_MODEL} not installed")
+        
+        # Check big model
+        if BIG_MODEL in result['models_available']:
+            try:
+                resp = client.chat(
+                    messages=[{"role": "user", "content": "test"}],
+                    model=BIG_MODEL,
+                    options={"num_predict": 1}
+                )
+                if 'error' not in resp:
+                    result['big_model_ok'] = True
+                else:
+                    result['issues'].append(f"Big model error: {resp['error']}")
+            except Exception as e:
+                result['issues'].append(f"Big model test failed: {e}")
+        else:
+            result['issues'].append(f"Big model {BIG_MODEL} not installed")
+        
+        # Overall health
+        result['healthy'] = result['fast_model_ok']  # At minimum need fast model
+        
+    except Exception as e:
+        result['issues'].append(f"Health check failed: {e}")
+    
+    return result
 
 
 if __name__ == "__main__":

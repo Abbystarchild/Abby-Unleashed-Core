@@ -1,0 +1,670 @@
+# UI/UX Design Mastery
+# Comprehensive design theory and practice for building exceptional interfaces
+# Version: 1.0.0
+# Last Updated: 2026-02-02
+
+metadata:
+  skill_name: "UI/UX Design Mastery"
+  category: "design"
+  purpose: "Master visual design theory and interface design for production apps"
+  relevance:
+    - "Mobile app development"
+    - "Dating app interfaces"
+    - "Accessibility design"
+    - "Design systems"
+
+# ============================================================
+# SECTION 1: VISUAL DESIGN FUNDAMENTALS
+# ============================================================
+visual_design_fundamentals:
+  
+  color_theory:
+    primary_concepts:
+      - name: "Color Wheel Relationships"
+        types:
+          complementary: "Opposite colors (high contrast, energetic)"
+          analogous: "Adjacent colors (harmonious, cohesive)"
+          triadic: "Three equidistant colors (vibrant, balanced)"
+          split_complementary: "Base + two adjacent to complement (softer contrast)"
+          tetradic: "Four colors (two complementary pairs)"
+        
+      - name: "Color Psychology"
+        meanings:
+          red: "Passion, urgency, love, danger - SafeConnect: emergency alerts"
+          orange: "Energy, enthusiasm, warmth - gamification rewards"
+          yellow: "Optimism, happiness, caution - warnings"
+          green: "Safety, growth, success - verification badges"
+          blue: "Trust, stability, calm - primary UI elements"
+          purple: "Luxury, creativity, romance - SafeConnect primary"
+          pink: "Romance, compassion, femininity - dating context"
+          gold: "Premium, success, achievement - badges/rewards"
+          
+      - name: "Accessibility Color Rules"
+        contrast_ratios:
+          WCAG_AA_normal: "4.5:1 minimum for body text"
+          WCAG_AA_large: "3:1 for large text (18pt+ or 14pt bold)"
+          WCAG_AAA: "7:1 for enhanced accessibility"
+        tools:
+          - "WebAIM Contrast Checker"
+          - "Stark for Figma"
+          - "Material Design Color Tool"
+        common_mistakes:
+          - "Light gray text on white backgrounds"
+          - "Color as only indicator (colorblind users)"
+          - "Insufficient contrast in dark mode"
+          
+      - name: "Color Palette Construction"
+        structure:
+          primary: "Brand identity, main actions"
+          secondary: "Supporting actions, accents"
+          background: "Canvas colors (2-3 shades)"
+          surface: "Card/component backgrounds"
+          error: "Error states (typically red)"
+          success: "Success states (typically green)"
+          warning: "Warning states (typically yellow/orange)"
+          on_colors: "Text/icons on each background"
+        example_safeconnect: |
+          primary: "#4A148C"      // Deep Purple - trust, luxury
+          primary_variant: "#7B1FA2"
+          secondary: "#FFD700"   // Gold - premium, success
+          background: "#121212"  // Dark mode primary
+          surface: "#1E1E1E"
+          error: "#DC143C"       // Crimson - alerts
+          on_primary: "#FFFFFF"
+          on_background: "#E0E0E0"
+
+  typography:
+    hierarchy_system:
+      - name: "Type Scale"
+        material_design_3:
+          display_large: "57sp - Hero text"
+          display_medium: "45sp - Major headings"
+          display_small: "36sp - Section titles"
+          headline_large: "32sp - Page titles"
+          headline_medium: "28sp - Card headers"
+          headline_small: "24sp - Section headers"
+          title_large: "22sp - List titles"
+          title_medium: "16sp - Component titles"
+          title_small: "14sp - Captions"
+          body_large: "16sp - Primary content"
+          body_medium: "14sp - Secondary content"
+          body_small: "12sp - Tertiary content"
+          label_large: "14sp - Buttons"
+          label_medium: "12sp - Chips"
+          label_small: "11sp - Overlines"
+          
+      - name: "Font Pairing Rules"
+        guidelines:
+          - "Maximum 2-3 font families per project"
+          - "Pair serif headers with sans-serif body"
+          - "Use same font family with different weights"
+          - "Ensure contrast between fonts"
+        safe_pairings:
+          - ["Playfair Display", "Source Sans Pro"]
+          - ["Montserrat", "Open Sans"]
+          - ["Roboto", "Roboto Slab"]
+          - ["Inter", "Inter"] # Weight variation only
+          
+      - name: "Line Height & Spacing"
+        rules:
+          line_height: "1.4-1.6 for body text"
+          paragraph_spacing: "0.5-1em between paragraphs"
+          letter_spacing: "Tight for large text, looser for small"
+        example: |
+          // Jetpack Compose
+          Text(
+              text = "Body text",
+              style = TextStyle(
+                  fontSize = 16.sp,
+                  lineHeight = 24.sp,  // 1.5 ratio
+                  letterSpacing = 0.5.sp
+              )
+          )
+
+  layout_principles:
+    spacing_systems:
+      - name: "8-Point Grid"
+        rule: "All spacing in multiples of 8dp"
+        values: [8, 16, 24, 32, 40, 48, 56, 64]
+        benefits:
+          - "Consistent rhythm"
+          - "Works well with screen densities"
+          - "Easy mental math"
+        exceptions: "4dp for tight UI (icons, dividers)"
+        
+      - name: "Content Hierarchy"
+        techniques:
+          - "Size (larger = more important)"
+          - "Weight (bolder = more important)"
+          - "Color (brighter/contrasting = attention)"
+          - "Position (top/left = primary in LTR)"
+          - "Whitespace (more space = more importance)"
+          
+      - name: "Gestalt Principles"
+        proximity: "Related items close together"
+        similarity: "Similar items = related function"
+        continuity: "Eye follows lines/curves"
+        closure: "Brain completes incomplete shapes"
+        figure_ground: "Distinguish foreground from background"
+        common_fate: "Items moving together = related"
+
+  design_patterns:
+    mobile_navigation:
+      - name: "Bottom Navigation"
+        when: "3-5 top-level destinations"
+        rules:
+          - "Always visible"
+          - "Icon + label for clarity"
+          - "Active state clearly distinguished"
+          - "No nested menus in bottom nav"
+          
+      - name: "Tab Navigation"
+        when: "Related content categories"
+        rules:
+          - "2-5 tabs maximum"
+          - "Swipeable when content allows"
+          - "Sticky at top of content"
+          
+      - name: "Drawer Navigation"
+        when: "6+ destinations or secondary features"
+        rules:
+          - "Hamburger icon for toggle"
+          - "Group related items"
+          - "Show current location"
+
+    card_patterns:
+      - name: "Profile Cards (Dating)"
+        essential_elements:
+          - "Hero photo (face visible)"
+          - "Name and age"
+          - "Distance/location"
+          - "Key compatibility indicators"
+          - "Action buttons (like/pass)"
+        optional_elements:
+          - "Bio snippet"
+          - "Common interests"
+          - "Verification badge"
+          - "Last active indicator"
+        example: |
+          // Tinder-style card
+          Card(
+              modifier = Modifier
+                  .fillMaxWidth()
+                  .aspectRatio(0.75f)  // Portrait orientation
+          ) {
+              Box {
+                  // Photo stack
+                  AsyncImage(url = profile.photos.first())
+                  
+                  // Gradient overlay for text legibility
+                  Box(
+                      modifier = Modifier
+                          .align(Alignment.BottomCenter)
+                          .background(
+                              Brush.verticalGradient(
+                                  colors = listOf(
+                                      Color.Transparent,
+                                      Color.Black.copy(alpha = 0.7f)
+                                  )
+                              )
+                          )
+                  )
+                  
+                  // Info overlay
+                  Column(
+                      modifier = Modifier
+                          .align(Alignment.BottomStart)
+                          .padding(16.dp)
+                  ) {
+                      Row(verticalAlignment = CenterVertically) {
+                          Text("${profile.name}, ${profile.age}")
+                          if (profile.isVerified) {
+                              Icon(Icons.Default.Verified)
+                          }
+                      }
+                      Text("${profile.distance} miles away")
+                  }
+              }
+          }
+
+# ============================================================
+# SECTION 2: INTERACTION DESIGN
+# ============================================================
+interaction_design:
+  
+  touch_targets:
+    minimum_sizes:
+      material_design: "48dp x 48dp"
+      apple_hig: "44pt x 44pt"
+      wcag_2.1: "44px x 44px"
+    spacing: "8dp between targets minimum"
+    thumb_zones:
+      easy_reach: "Bottom center of screen"
+      ok_reach: "Bottom corners"
+      hard_reach: "Top of screen"
+    recommendation: "Place primary actions in easy reach zone"
+
+  gesture_design:
+    common_gestures:
+      tap: "Select, activate, toggle"
+      double_tap: "Zoom, like"
+      long_press: "Context menu, select mode"
+      swipe_horizontal: "Navigate, dismiss, reveal actions"
+      swipe_vertical: "Scroll, refresh"
+      pinch: "Zoom in/out"
+      drag: "Move, reorder"
+    dating_app_specific:
+      swipe_right: "Like / approve"
+      swipe_left: "Pass / reject"
+      swipe_up: "Super like / special action"
+      double_tap_photo: "Like photo"
+    rules:
+      - "Provide visual feedback immediately"
+      - "Make gesture direction match mental model"
+      - "Don't require precision for frequent gestures"
+      - "Always provide button alternatives"
+
+  feedback_patterns:
+    visual:
+      - "Ripple effects on touch"
+      - "Color change on state change"
+      - "Progress indicators"
+      - "Success/error states"
+    haptic:
+      light: "Selection, toggle"
+      medium: "Important action confirmed"
+      heavy: "Error, warning"
+      success: "Match notification!"
+    audio:
+      - "Match sound (celebratory)"
+      - "Message received"
+      - "Error alert"
+    timing:
+      instant: "< 100ms for feedback"
+      fast: "< 300ms for simple operations"
+      acceptable: "< 1s with spinner"
+      slow: "> 1s needs progress indicator"
+
+  animation_principles:
+    duration_guidelines:
+      micro_interactions: "100-200ms"
+      transitions: "200-400ms"
+      complex_animations: "400-600ms"
+      max_duration: "1000ms (users lose patience)"
+    easing_curves:
+      standard: "Ease-in-out for most transitions"
+      decelerate: "Elements entering (ease-out)"
+      accelerate: "Elements exiting (ease-in)"
+      spring: "Playful, organic movement"
+    animation_purpose:
+      - "Direct attention"
+      - "Show relationships"
+      - "Provide feedback"
+      - "Express brand personality"
+      - "Guide user flow"
+    example_match_animation: |
+      // Match celebration animation
+      val scale = remember { Animatable(0f) }
+      val rotation = remember { Animatable(0f) }
+      
+      LaunchedEffect(isMatch) {
+          if (isMatch) {
+              // Spring scale for bounce effect
+              scale.animateTo(
+                  targetValue = 1f,
+                  animationSpec = spring(
+                      dampingRatio = 0.4f,
+                      stiffness = 300f
+                  )
+              )
+              // Subtle rotation
+              rotation.animateTo(
+                  targetValue = 360f,
+                  animationSpec = tween(500)
+              )
+          }
+      }
+      
+      Icon(
+          imageVector = Icons.Filled.Favorite,
+          modifier = Modifier
+              .scale(scale.value)
+              .rotate(rotation.value)
+      )
+
+# ============================================================
+# SECTION 3: DESIGN SYSTEMS
+# ============================================================
+design_systems:
+
+  component_architecture:
+    atomic_design:
+      atoms: "Buttons, inputs, labels, icons"
+      molecules: "Search bars, form fields, nav items"
+      organisms: "Headers, cards, forms"
+      templates: "Page layouts"
+      pages: "Complete screens"
+    
+    component_anatomy:
+      example_button:
+        container: "Background shape"
+        label: "Text"
+        icon: "Optional leading/trailing"
+        state_layer: "Hover/press overlay"
+      variants:
+        - "filled (primary)"
+        - "outlined (secondary)"
+        - "text (tertiary)"
+        - "elevated"
+        - "tonal"
+      states:
+        - "enabled"
+        - "hovered"
+        - "focused"
+        - "pressed"
+        - "disabled"
+        - "loading"
+
+  design_tokens:
+    definition: "Named design decisions (colors, spacing, etc.)"
+    structure: |
+      // tokens.kt
+      object SafeConnectTokens {
+          // Color tokens
+          val primaryColor = Color(0xFF4A148C)
+          val onPrimaryColor = Color.White
+          val errorColor = Color(0xFFDC143C)
+          
+          // Spacing tokens
+          val spacingXs = 4.dp
+          val spacingSm = 8.dp
+          val spacingMd = 16.dp
+          val spacingLg = 24.dp
+          val spacingXl = 32.dp
+          
+          // Shape tokens
+          val cornerRadiusSm = 4.dp
+          val cornerRadiusMd = 8.dp
+          val cornerRadiusLg = 16.dp
+          val cornerRadiusFull = 9999.dp
+          
+          // Typography tokens
+          val fontFamily = FontFamily(Font(R.font.inter))
+          val bodyFontSize = 16.sp
+          val headlineFontSize = 24.sp
+      }
+    benefits:
+      - "Single source of truth"
+      - "Easy theme changes"
+      - "Consistent design"
+      - "Easier handoff to developers"
+
+  theming:
+    light_dark_mode:
+      implementation: |
+        // Theme.kt
+        private val DarkColorScheme = darkColorScheme(
+            primary = Purple80,
+            secondary = Gold80,
+            background = Color(0xFF121212),
+            surface = Color(0xFF1E1E1E),
+            onPrimary = Color.White,
+            onBackground = Color(0xFFE0E0E0)
+        )
+        
+        private val LightColorScheme = lightColorScheme(
+            primary = Purple40,
+            secondary = Gold40,
+            background = Color(0xFFFFFBFE),
+            surface = Color(0xFFFFFBFE),
+            onPrimary = Color.White,
+            onBackground = Color(0xFF1C1B1F)
+        )
+        
+        @Composable
+        fun SafeConnectTheme(
+            darkTheme: Boolean = isSystemInDarkTheme(),
+            content: @Composable () -> Unit
+        ) {
+            val colorScheme = if (darkTheme) DarkColorScheme else LightColorScheme
+            
+            MaterialTheme(
+                colorScheme = colorScheme,
+                typography = SafeConnectTypography,
+                content = content
+            )
+        }
+    
+    dynamic_color:
+      android_12_plus: |
+        val dynamicColor = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+        val colorScheme = when {
+            dynamicColor && darkTheme -> dynamicDarkColorScheme(context)
+            dynamicColor && !darkTheme -> dynamicLightColorScheme(context)
+            darkTheme -> DarkColorScheme
+            else -> LightColorScheme
+        }
+
+# ============================================================
+# SECTION 4: DATING APP SPECIFIC DESIGN
+# ============================================================
+dating_app_design:
+
+  profile_presentation:
+    photo_guidelines:
+      primary_photo:
+        - "Face clearly visible"
+        - "Good lighting"
+        - "Recent (within 6 months)"
+        - "Solo shot (no confusion about who)"
+      photo_order:
+        - "Face close-up"
+        - "Full body"
+        - "Activity/hobby"
+        - "Social (with friends)"
+        - "Travel/location"
+      photo_display:
+        - "Tappable photo dots indicator"
+        - "Swipe between photos"
+        - "Smooth transitions"
+        - "Zoom capability"
+    
+    profile_information:
+      above_the_fold:
+        - "Name, age"
+        - "Photos"
+        - "Location/distance"
+        - "Verification badge"
+      expandable:
+        - "Bio/about"
+        - "Prompts/answers"
+        - "Interests"
+        - "Looking for"
+        - "Safety information"
+
+  swipe_interface:
+    card_stack:
+      depth: "Show 2-3 cards depth"
+      scale: "85% for second card, 70% for third"
+      offset: "8dp vertical offset per card"
+    swipe_feedback:
+      left_swipe: "Red X overlay, sad animation"
+      right_swipe: "Green heart overlay, happy animation"
+      super_like: "Star burst, special color"
+    buttons:
+      pass: "X icon, left side"
+      super_like: "Star icon, center (optional)"
+      like: "Heart icon, right side"
+      rewind: "Arrow back, premium feature"
+    code_example: |
+      @Composable
+      fun SwipeableCard(
+          profile: Profile,
+          onSwipeLeft: () -> Unit,
+          onSwipeRight: () -> Unit,
+          onSuperLike: () -> Unit
+      ) {
+          var offset by remember { mutableStateOf(0f) }
+          val swipeThreshold = 150f
+          
+          val overlayAlpha = (abs(offset) / swipeThreshold).coerceIn(0f, 1f)
+          val overlayColor = if (offset > 0) Color.Green else Color.Red
+          
+          Box(
+              modifier = Modifier
+                  .offset { IntOffset(offset.toInt(), 0) }
+                  .pointerInput(Unit) {
+                      detectDragGestures(
+                          onDragEnd = {
+                              when {
+                                  offset > swipeThreshold -> onSwipeRight()
+                                  offset < -swipeThreshold -> onSwipeLeft()
+                              }
+                              offset = 0f
+                          },
+                          onDrag = { change, dragAmount ->
+                              offset += dragAmount.x
+                          }
+                      )
+                  }
+          ) {
+              ProfileCard(profile)
+              
+              // Like/Pass overlay
+              Box(
+                  modifier = Modifier
+                      .fillMaxSize()
+                      .background(overlayColor.copy(alpha = overlayAlpha * 0.3f))
+              )
+          }
+      }
+
+  match_experience:
+    match_moment:
+      visual:
+        - "Full-screen celebration"
+        - "Both profile photos"
+        - "Animation (confetti, hearts)"
+        - "Sound effect"
+      actions:
+        - "Send message"
+        - "Keep swiping"
+        - "Share with friend"
+    match_notification:
+      - "Push notification"
+      - "Badge on matches tab"
+      - "Preview in notification"
+
+  chat_design:
+    message_bubbles:
+      sent: "Right-aligned, brand color"
+      received: "Left-aligned, surface color"
+      system: "Centered, muted"
+    features:
+      - "Read receipts"
+      - "Typing indicator"
+      - "Photo sharing"
+      - "Voice notes"
+      - "GIFs/stickers"
+      - "Video call button"
+    safety_features:
+      - "Report user (accessible but not prominent)"
+      - "Block user"
+      - "Screenshot detection warning"
+      - "Share date plans"
+
+  safety_ux:
+    verification_badges:
+      levels:
+        basic: "Email verified"
+        photo: "Photo verified (real-time selfie match)"
+        id: "ID verified"
+        background: "Background check complete"
+      display:
+        - "Clear badge icons"
+        - "Tooltip explaining level"
+        - "Progress indicator to next level"
+    
+    safe_date_features:
+      check_in:
+        - "Pre-date itinerary sharing"
+        - "Location sharing toggle"
+        - "Timed check-ins"
+        - "Emergency button"
+      post_date:
+        - "Anonymous feedback"
+        - "Safety rating (optional)"
+        - "Report concerning behavior"
+    
+    trust_indicators:
+      - "Response rate"
+      - "Member since"
+      - "Mutual connections"
+      - "Verification completeness"
+      - "Community vouches"
+
+# ============================================================
+# SECTION 5: ACCESSIBILITY
+# ============================================================
+accessibility:
+
+  core_requirements:
+    visual:
+      - "Color contrast ratios (4.5:1 min)"
+      - "Don't use color alone for meaning"
+      - "Scalable text (sp units)"
+      - "Focus indicators"
+    motor:
+      - "Large touch targets (48dp)"
+      - "Adequate spacing"
+      - "No time-limited actions"
+      - "Alternative to gestures"
+    cognitive:
+      - "Clear language"
+      - "Consistent navigation"
+      - "Error prevention"
+      - "Confirmation dialogs"
+
+  screen_reader_support:
+    content_descriptions: |
+      // Always provide content descriptions
+      Image(
+          painter = painterResource(R.drawable.profile),
+          contentDescription = "Profile photo of ${user.name}"
+      )
+      
+      IconButton(
+          onClick = { onLike() },
+          modifier = Modifier.semantics {
+              contentDescription = "Like ${user.name}'s profile"
+          }
+      ) {
+          Icon(Icons.Default.Favorite, null)
+      }
+    
+    custom_actions: |
+      Modifier.semantics {
+          customActions = listOf(
+              CustomAccessibilityAction("Super like") { onSuperLike(); true },
+              CustomAccessibilityAction("View profile") { onViewProfile(); true }
+          )
+      }
+    
+    state_announcements: |
+      // Announce important state changes
+      LaunchedEffect(isMatch) {
+          if (isMatch) {
+              announceForAccessibility("It's a match with ${user.name}!")
+          }
+      }
+
+  testing:
+    tools:
+      - "TalkBack (Android)"
+      - "Accessibility Scanner"
+      - "Espresso Accessibility checks"
+    manual_checks:
+      - "Navigate entire app with screen reader"
+      - "Test with 200% font size"
+      - "Test with high contrast mode"
+      - "Test with switch control"

