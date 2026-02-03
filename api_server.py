@@ -410,6 +410,48 @@ def clear_logs():
         return jsonify({'error': str(e)}), 500
 
 
+# ============== AGENT ACTIVITY API ==============
+
+# Global agent activity tracker
+agent_activity = {
+    'active': False,
+    'current_task': None,
+    'agents': [],
+    'started_at': None
+}
+
+def update_agent_activity(active: bool, task_info: dict = None, agents: list = None):
+    """Update the global agent activity state"""
+    global agent_activity
+    agent_activity['active'] = active
+    agent_activity['current_task'] = task_info
+    agent_activity['agents'] = agents or []
+    if active:
+        agent_activity['started_at'] = datetime.now().isoformat()
+
+@app.route('/api/agent-activity', methods=['GET'])
+def get_agent_activity():
+    """Get current agent activity for the GUI preview"""
+    try:
+        return jsonify(agent_activity)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/agent-activity', methods=['POST'])
+def set_agent_activity():
+    """Update agent activity (called by task executor)"""
+    try:
+        data = request.get_json()
+        update_agent_activity(
+            active=data.get('active', False),
+            task_info=data.get('current_task'),
+            agents=data.get('agents', [])
+        )
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 # ============== NGROK TUNNEL API ==============
 
 @app.route('/api/ngrok/status', methods=['GET'])

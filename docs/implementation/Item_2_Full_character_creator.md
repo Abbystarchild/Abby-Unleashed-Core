@@ -1,23 +1,20 @@
 **Implementation Plan: Pixel Art Character Creator**
 
 **Key Steps:**
-1. Create base character sprite sheet with modular components
-2. Build UI panel for customization options
-3. Implement component swapping system
-4. Add color palette selector
-5. Save/load character data
+1. Create pixel art asset pipeline with customizable layers
+2. Build UI panel for selecting hair, face, clothing, accessories
+3. Implement layer blending system for avatar composition
+4. Add color palette customization
+5. Save/load character data to JSON
 
-**Files:**
+**Files Needed:**
 - `CharacterCreator.js` - Main logic
-- `SpriteManager.js` - Asset handling
-- `UIController.js` - Interface management
-- `character.json` - Save data structure
-- Pixel art sprite assets
+- `AvatarRenderer.js` - Pixel rendering system
+- `AssetManager.js` - Asset loading
+- `UIPanel.js` - Customization interface
+- `CharacterData.json` - Save files
 
 **Dependencies:**
-- Phaser 3 (or similar game engine)
-- Color picker library
-- LocalStorage API
-- JSON parsing utilities
-
-**Timeline:** 2-3 weeks for basic version, 1 week
+- Canvas API for rendering
+- JSON parsing for data storage
+- Optional: Pixi.js for advanced pixel

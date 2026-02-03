@@ -168,5 +168,25 @@
     "ip_address": "127.0.0.1",
     "user_agent": "AbbyBrowser/1.0 (Abby Unleashed; Desktop Client) AppleWebKit/537.36 Chrome/120.0.0.0",
     "message_count": 0
+  },
+  "bc98e3ede83a46b6": {
+    "user_id": "organic_abby",
+    "display_name": "Abby",
+    "device_info": "Windows PC",
+    "connected_at": "2026-02-03T08:33:27.646572",
+    "last_activity": "2026-02-03T08:42:56.842545",
+    "ip_address": "127.0.0.1",
+    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36 Edg/144.0.0.0",
+    "message_count": 2
+  },
+  "c0e8354790fb57a5": {
+    "user_id": "organic_abby",
+    "display_name": "Abby",
+    "device_info": "Windows PC",
+    "connected_at": "2026-02-03T10:42:10.055431",
+    "last_activity": "2026-02-03T10:48:40.933999",
+    "ip_address": "127.0.0.1",
+    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36 Edg/144.0.0.0",
+    "message_count": 1
   }
 }

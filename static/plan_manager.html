@@ -46,6 +46,30 @@
             margin-bottom: 20px;
         }
         
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+        
+        .back-btn {
+            background: var(--bg-card);
+            border: none;
+            color: var(--text-primary);
+            padding: 8px 16px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        
+        .back-btn:hover {
+            background: var(--accent);
+        }
+        
         h1 {
             font-size: 1.8rem;
             display: flex;
@@ -479,12 +503,209 @@
             from { transform: translateX(100%); opacity: 0; }
             to { transform: translateX(0); opacity: 1; }
         }
+        
+        /* ============ AGENT ACTIVITY PREVIEW ============ */
+        .agent-preview {
+            background: var(--bg-secondary);
+            border-radius: 12px;
+            padding: 15px;
+            margin-bottom: 20px;
+            min-height: 200px;
+            max-height: 350px;
+            overflow-y: auto;
+        }
+        
+        .agent-preview-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid var(--bg-card);
+        }
+        
+        .agent-preview-title {
+            font-size: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .agent-preview-title .pulse {
+            width: 10px;
+            height: 10px;
+            background: var(--success);
+            border-radius: 50%;
+            animation: pulse 1.5s infinite;
+        }
+        
+        .agent-preview-title .pulse.idle {
+            background: #666;
+            animation: none;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.5; transform: scale(1.2); }
+        }
+        
+        .agent-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+            gap: 12px;
+        }
+        
+        .agent-card {
+            background: var(--bg-card);
+            border-radius: 10px;
+            padding: 12px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .agent-card:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 8px 20px rgba(0,0,0,0.3);
+        }
+        
+        .agent-card.expanded {
+            grid-column: span 2;
+            grid-row: span 2;
+        }
+        
+        .agent-avatar {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.2rem;
+            margin-bottom: 8px;
+        }
+        
+        .agent-avatar.analyzer { background: linear-gradient(135deg, #667eea, #764ba2); }
+        .agent-avatar.designer { background: linear-gradient(135deg, #f093fb, #f5576c); }
+        .agent-avatar.coder { background: linear-gradient(135deg, #4facfe, #00f2fe); }
+        .agent-avatar.tester { background: linear-gradient(135deg, #43e97b, #38f9d7); }
+        .agent-avatar.reviewer { background: linear-gradient(135deg, #fa709a, #fee140); }
+        .agent-avatar.coordinator { background: linear-gradient(135deg, #a8edea, #fed6e3); color: #333; }
+        
+        .agent-name {
+            font-weight: bold;
+            font-size: 0.85rem;
+            margin-bottom: 4px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        
+        .agent-status {
+            font-size: 0.7rem;
+            color: var(--text-secondary);
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+        
+        .agent-status .dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+        }
+        
+        .agent-status .dot.working { background: var(--success); animation: pulse 1s infinite; }
+        .agent-status .dot.thinking { background: var(--warning); animation: pulse 0.5s infinite; }
+        .agent-status .dot.idle { background: #666; }
+        
+        .agent-details {
+            display: none;
+            margin-top: 10px;
+            padding-top: 10px;
+            border-top: 1px solid var(--bg-primary);
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+        }
+        
+        .agent-card.expanded .agent-details {
+            display: block;
+        }
+        
+        .agent-task {
+            background: var(--bg-primary);
+            padding: 8px;
+            border-radius: 6px;
+            margin-top: 6px;
+            font-size: 0.7rem;
+        }
+        
+        .agent-progress {
+            height: 4px;
+            background: var(--bg-primary);
+            border-radius: 2px;
+            margin-top: 8px;
+            overflow: hidden;
+        }
+        
+        .agent-progress-bar {
+            height: 100%;
+            background: var(--success);
+            transition: width 0.3s ease;
+        }
+        
+        .agent-preview-empty {
+            text-align: center;
+            padding: 40px 20px;
+            color: var(--text-secondary);
+        }
+        
+        .agent-preview-empty .emoji {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            opacity: 0.5;
+        }
+        
+        .current-task-banner {
+            background: linear-gradient(135deg, var(--bg-card), rgba(233, 69, 96, 0.1));
+            border: 1px solid var(--accent);
+            border-radius: 8px;
+            padding: 12px 15px;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        
+        .current-task-banner .task-icon {
+            font-size: 1.5rem;
+        }
+        
+        .current-task-banner .task-info {
+            flex: 1;
+        }
+        
+        .current-task-banner .task-title {
+            font-weight: bold;
+            font-size: 0.9rem;
+        }
+        
+        .current-task-banner .task-plan {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+        }
     </style>
 </head>
 <body>
     <div class="container">
         <header>
-            <h1><span class="emoji">📋</span> Abby's Plan Manager</h1>
+            <div class="header-left">
+                <button class="back-btn" onclick="window.location.href='/'">
+                    ← Back to Chat
+                </button>
+                <h1><span class="emoji">📋</span> Abby's Plan Manager</h1>
+            </div>
             <div class="stats">
                 <div class="stat">
                     <div class="stat-value" id="stat-active">0</div>
@@ -500,6 +721,24 @@
                 </div>
             </div>
         </header>
+        
+        <!-- Agent Activity Preview -->
+        <div class="agent-preview" id="agent-preview">
+            <div class="agent-preview-header">
+                <div class="agent-preview-title">
+                    <span class="pulse idle" id="activity-pulse"></span>
+                    <span>Agent Activity</span>
+                </div>
+                <span id="agent-count" style="font-size: 0.8rem; color: var(--text-secondary);">0 active</span>
+            </div>
+            <div id="agent-preview-content">
+                <div class="agent-preview-empty">
+                    <div class="emoji">😴</div>
+                    <p>No active tasks</p>
+                    <p style="font-size: 0.8rem; margin-top: 5px;">Agents are waiting for work</p>
+                </div>
+            </div>
+        </div>
         
         <div class="main-content">
             <aside class="sidebar">
@@ -630,13 +869,125 @@
     <script>
         let allPlans = [];
         let selectedPlanId = null;
+        let expandedAgentId = null;
+        
+        // Playful agent names and personalities
+        const agentProfiles = {
+            analyzer: { name: 'Ada Analyzer', emoji: '🔍', role: 'Requirements Specialist' },
+            designer: { name: 'Dexter Designer', emoji: '🎨', role: 'Architecture Artist' },
+            coder: { name: 'Cody Coder', emoji: '💻', role: 'Code Craftsman' },
+            frontend: { name: 'Fiona Frontend', emoji: '🖼️', role: 'UI Wizard' },
+            backend: { name: 'Benny Backend', emoji: '⚙️', role: 'Server Sage' },
+            tester: { name: 'Tina Tester', emoji: '🧪', role: 'Quality Guardian' },
+            reviewer: { name: 'Rex Reviewer', emoji: '📝', role: 'Code Critic' },
+            coordinator: { name: 'Abby', emoji: '👑', role: 'Lead Coordinator' }
+        };
         
         // Load plans on start
         document.addEventListener('DOMContentLoaded', () => {
             refreshPlans();
+            refreshAgentActivity();
             // Auto-refresh every 10 seconds
             setInterval(refreshPlans, 10000);
+            // Refresh agent activity more frequently
+            setInterval(refreshAgentActivity, 3000);
         });
+        
+        async function refreshAgentActivity() {
+            try {
+                const response = await fetch('/api/agent-activity');
+                const data = await response.json();
+                renderAgentActivity(data);
+            } catch (error) {
+                // API might not exist yet, show idle state
+                renderAgentActivity({ active: false, agents: [], current_task: null });
+            }
+        }
+        
+        function renderAgentActivity(data) {
+            const container = document.getElementById('agent-preview-content');
+            const pulse = document.getElementById('activity-pulse');
+            const countEl = document.getElementById('agent-count');
+            
+            if (!data.active || !data.agents || data.agents.length === 0) {
+                pulse.classList.add('idle');
+                pulse.classList.remove('pulse');
+                countEl.textContent = '0 active';
+                container.innerHTML = `
+                    <div class="agent-preview-empty">
+                        <div class="emoji">😴</div>
+                        <p>No active tasks</p>
+                        <p style="font-size: 0.8rem; margin-top: 5px;">Agents are waiting for work</p>
+                    </div>
+                `;
+                return;
+            }
+            
+            pulse.classList.remove('idle');
+            countEl.textContent = `${data.agents.length} active`;
+            
+            let html = '';
+            
+            // Current task banner
+            if (data.current_task) {
+                html += `
+                    <div class="current-task-banner">
+                        <div class="task-icon">🎯</div>
+                        <div class="task-info">
+                            <div class="task-title">${escapeHtml(data.current_task.title)}</div>
+                            <div class="task-plan">Plan: ${data.current_task.plan_id || 'Unknown'}</div>
+                        </div>
+                    </div>
+                `;
+            }
+            
+            // Agent grid
+            html += '<div class="agent-grid">';
+            
+            data.agents.forEach(agent => {
+                const profile = agentProfiles[agent.type] || agentProfiles.coder;
+                const isExpanded = expandedAgentId === agent.id;
+                const statusClass = agent.status === 'working' ? 'working' : 
+                                   agent.status === 'thinking' ? 'thinking' : 'idle';
+                
+                html += `
+                    <div class="agent-card ${isExpanded ? 'expanded' : ''}" 
+                         onclick="toggleAgentCard('${agent.id}')"
+                         data-agent-id="${agent.id}">
+                        <div class="agent-avatar ${agent.type}">${profile.emoji}</div>
+                        <div class="agent-name">${profile.name}</div>
+                        <div class="agent-status">
+                            <span class="dot ${statusClass}"></span>
+                            ${agent.status || 'working'}
+                        </div>
+                        <div class="agent-progress">
+                            <div class="agent-progress-bar" style="width: ${agent.progress || 50}%"></div>
+                        </div>
+                        <div class="agent-details">
+                            <div><strong>Role:</strong> ${profile.role}</div>
+                            <div class="agent-task">
+                                <strong>Working on:</strong><br>
+                                ${escapeHtml(agent.task || 'Processing...')}
+                            </div>
+                            ${agent.output ? `
+                                <div class="agent-task" style="margin-top: 6px;">
+                                    <strong>Output:</strong><br>
+                                    ${escapeHtml(agent.output.substring(0, 150))}...
+                                </div>
+                            ` : ''}
+                        </div>
+                    </div>
+                `;
+            });
+            
+            html += '</div>';
+            container.innerHTML = html;
+        }
+        
+        function toggleAgentCard(agentId) {
+            expandedAgentId = expandedAgentId === agentId ? null : agentId;
+            refreshAgentActivity();
+        }
         
         async function refreshPlans() {
             try {

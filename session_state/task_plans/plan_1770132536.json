@@ -116,11 +116,13 @@
       "error": null,
       "notes": [],
       "files_to_create": [],
-      "files_to_modify": []
+      "files_to_modify": [],
+      "context": "page already exists but we need google maps integration for full features. finish this system and associated pages",
+      "user_context": "page already exists but we need google maps integration for full features. finish this system and associated pages"
     },
     {
       "id": "task_008",
-      "title": "Implement Discovery Page",
+      "title": "Implement NEW Discovery Page",
       "description": "Build the discovery page/screen with required functionality",
       "category": "frontend",
       "priority": 2,
@@ -133,7 +135,9 @@
       "error": null,
       "notes": [],
       "files_to_create": [],
-      "files_to_modify": []
+      "files_to_modify": [],
+      "context": "There is already a discovery page, I want that removed and you to create the new one in the style and function I mentioned.",
+      "user_context": "There is already a discovery page, I want that removed and you to create the new one in the style and function I mentioned."
     },
     {
       "id": "task_009",
@@ -150,7 +154,9 @@
       "error": null,
       "notes": [],
       "files_to_create": [],
-      "files_to_modify": []
+      "files_to_modify": [],
+      "context": "There is already a matches page just make sure it all works as intended. such as you can unmatch or request a game or adventure or chat with a match.",
+      "user_context": "There is already a matches page just make sure it all works as intended. such as you can unmatch or request a game or adventure or chat with a match."
     },
     {
       "id": "task_010",
@@ -167,7 +173,9 @@
       "error": null,
       "notes": [],
       "files_to_create": [],
-      "files_to_modify": []
+      "files_to_modify": [],
+      "context": "we just need to wire everything up we already have a login page.",
+      "user_context": "we just need to wire everything up we already have a login page."
     },
     {
       "id": "task_011",
@@ -191,5 +199,6 @@
   "completed_tasks": 0,
   "total_tasks": 11,
   "current_phase": "planning",
-  "notes": []
+  "notes": [],
+  "updated_at": "2026-02-03T08:40:49.581223"
 }

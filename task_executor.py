@@ -16,6 +16,7 @@ import re
 import json
 import logging
 import subprocess
+import requests
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, Any, List, Optional, Tuple, Generator
@@ -65,6 +66,86 @@ class TaskExecutor:
         self.workspace = Path(workspace) if workspace else Path.cwd()
         self.ollama = ollama_client
         self.execution_history: List[TaskExecutionResult] = []
+        self.api_base = "http://localhost:8080"
+    
+    def _report_activity(self, active: bool, task_info: dict = None, agents: list = None):
+        """Report agent activity to the GUI"""
+        try:
+            requests.post(f"{self.api_base}/api/agent-activity", json={
+                'active': active,
+                'current_task': task_info,
+                'agents': agents or []
+            }, timeout=1)
+        except:
+            pass  # Don't let reporting failures affect execution
+    
+    def _get_agents_for_task(self, task, phase: str, progress: int = 50) -> list:
+        """Generate active agents based on task type and phase"""
+        agents = []
+        
+        # Coordinator (Abby) is always present
+        agents.append({
+            'id': 'abby',
+            'type': 'coordinator',
+            'status': 'working',
+            'task': f'Coordinating: {task.title[:40]}...',
+            'progress': progress
+        })
+        
+        # Add specialists based on category and phase
+        category = getattr(task, 'category', 'general').lower()
+        
+        if phase == 'analyzing':
+            agents.append({
+                'id': 'analyzer',
+                'type': 'analyzer',
+                'status': 'thinking',
+                'task': 'Analyzing requirements and existing code',
+                'progress': progress
+            })
+        elif phase == 'designing':
+            agents.append({
+                'id': 'designer',
+                'type': 'designer',
+                'status': 'working',
+                'task': 'Designing architecture and structure',
+                'progress': progress
+            })
+        elif phase == 'coding':
+            if category in ['frontend', 'ui']:
+                agents.append({
+                    'id': 'frontend',
+                    'type': 'frontend',
+                    'status': 'working',
+                    'task': 'Building UI components',
+                    'progress': progress
+                })
+            elif category in ['backend', 'api']:
+                agents.append({
+                    'id': 'backend',
+                    'type': 'backend',
+                    'status': 'working',
+                    'task': 'Implementing server logic',
+                    'progress': progress
+                })
+            else:
+                agents.append({
+                    'id': 'coder',
+                    'type': 'coder',
+                    'status': 'working',
+                    'task': f'Writing code for {task.title[:30]}',
+                    'progress': progress
+                })
+        elif phase == 'verifying':
+            agents.append({
+                'id': 'tester',
+                'type': 'tester',
+                'status': 'thinking',
+                'task': 'Verifying changes and testing',
+                'progress': progress
+            })
+        
+        return agents
         
     def execute_task(self, task, plan = None) -> Generator[Dict, None, TaskExecutionResult]:
         """
@@ -75,17 +156,28 @@ class TaskExecutor:
         start_time = datetime.now()
         result = TaskExecutionResult(task_id=task.id, success=False)
         
+        # Report task start to GUI
+        task_info = {'title': task.title, 'plan_id': plan.id if plan else None}
+        self._report_activity(True, task_info, self._get_agents_for_task(task, 'analyzing', 10))
+        
         yield {"type": "start", "task_id": task.id, "title": task.title}
         
         try:
             # 1. UNDERSTAND - Analyze what needs to be done
             yield {"type": "thinking", "message": f"Analyzing: {task.title}"}
+            self._report_activity(True, task_info, self._get_agents_for_task(task, 'analyzing', 20))
             
             actions = self._plan_actions(task)
             yield {"type": "planned", "actions": len(actions), "details": [a["action"] for a in actions]}
             
+            # Report designing phase
+            self._report_activity(True, task_info, self._get_agents_for_task(task, 'designing', 30))
+            
             # 2. DO - Execute each action
             for i, action in enumerate(actions):
+                progress = 30 + int((i / max(len(actions), 1)) * 50)
+                self._report_activity(True, task_info, self._get_agents_for_task(task, 'coding', progress))
+                
                 yield {"type": "executing", "step": i + 1, "total": len(actions), "action": action["action"]}
                 
                 step = self._execute_action(action)
@@ -104,6 +196,7 @@ class TaskExecutor:
             
             # 3. VERIFY - Check that everything worked
             yield {"type": "thinking", "message": "Verifying work..."}
+            self._report_activity(True, task_info, self._get_agents_for_task(task, 'verifying', 90))
             
             all_verified = all(s.verified for s in result.steps if s.action != "verify")
             result.verified = all_verified
@@ -116,12 +209,16 @@ class TaskExecutor:
             result.summary = self._generate_summary(task, result)
             result.duration_seconds = (datetime.now() - start_time).total_seconds()
             
+            # Report completion
+            self._report_activity(False)
+            
             yield {"type": "complete", "success": result.success, "verified": result.verified, "summary": result.summary}
             
         except Exception as e:
             logger.error(f"Task execution error: {e}")
             result.success = False
             result.summary = f"Error: {str(e)}"
+            self._report_activity(False)  # Clear activity on error
             yield {"type": "error", "message": str(e)}
         
         # Update plan if provided
