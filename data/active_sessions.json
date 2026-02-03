@@ -98,5 +98,45 @@
     "ip_address": "127.0.0.1",
     "user_agent": "AbbyBrowser/1.0 (Abby Unleashed; Desktop Client) AppleWebKit/537.36 Chrome/120.0.0.0",
     "message_count": 0
+  },
+  "1d02a790635469b1": {
+    "user_id": "unknown",
+    "display_name": "Unknown User",
+    "device_info": "unknown device",
+    "connected_at": "2026-02-03T08:13:38.601608",
+    "last_activity": "2026-02-03T08:13:38.601608",
+    "ip_address": "127.0.0.1",
+    "user_agent": "AbbyBrowser/1.0 (Abby Unleashed; Desktop Client) AppleWebKit/537.36 Chrome/120.0.0.0",
+    "message_count": 0
+  },
+  "888318867621f081": {
+    "user_id": "unknown",
+    "display_name": "Unknown User",
+    "device_info": "unknown device",
+    "connected_at": "2026-02-03T08:15:20.879632",
+    "last_activity": "2026-02-03T08:15:20.879632",
+    "ip_address": "127.0.0.1",
+    "user_agent": "AbbyBrowser/1.0 (Abby Unleashed; Desktop Client) AppleWebKit/537.36 Chrome/120.0.0.0",
+    "message_count": 0
+  },
+  "5d1c393ef55b026b": {
+    "user_id": "unknown",
+    "display_name": "Unknown User",
+    "device_info": "unknown device",
+    "connected_at": "2026-02-03T08:15:51.933032",
+    "last_activity": "2026-02-03T08:15:51.933032",
+    "ip_address": "127.0.0.1",
+    "user_agent": "AbbyBrowser/1.0 (Abby Unleashed; Desktop Client) AppleWebKit/537.36 Chrome/120.0.0.0",
+    "message_count": 0
+  },
+  "acbf238d51076d01": {
+    "user_id": "unknown",
+    "display_name": "Unknown User",
+    "device_info": "unknown device",
+    "connected_at": "2026-02-03T08:17:40.519835",
+    "last_activity": "2026-02-03T08:17:40.519835",
+    "ip_address": "127.0.0.1",
+    "user_agent": "AbbyBrowser/1.0 (Abby Unleashed; Desktop Client) AppleWebKit/537.36 Chrome/120.0.0.0",
+    "message_count": 0
   }
 }

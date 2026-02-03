@@ -393,6 +393,12 @@ etc."""
                 "content": user_input
             })
             
+            # Check for plan continuation commands
+            if self._is_continue_command(user_input):
+                logger.info("Continue command detected - resuming plan")
+                yield from self._handle_continue_command(user_input, context)
+                return
+            
             # Check for overwhelming task first - needs special handling
             if is_overwhelming_task(user_input):
                 logger.info("Overwhelming task detected in streaming - using decomposition")
@@ -741,6 +747,133 @@ Respond briefly about this step only. If it requires action, do it. Keep respons
                 time.sleep(0.5)
         
         self._emit_event('text', f"\n\n✅ All {len(self.task_steps)} steps complete!")
+    
+    def _is_continue_command(self, user_input: str) -> bool:
+        """Check if user is asking to continue with a plan"""
+        user_lower = user_input.lower().strip()
+        
+        # Direct continue commands
+        continue_patterns = [
+            'continue',
+            'start',
+            'proceed',
+            'go ahead',
+            'next task',
+            'next step',
+            'keep going',
+            'do it',
+            'lets go',
+            "let's go",
+            'work on task',
+            'start task',
+            'begin task',
+        ]
+        
+        # Check for any continue pattern
+        for pattern in continue_patterns:
+            if pattern in user_lower:
+                return True
+                
+        # Check for task number references like "task 1" or "#1"
+        if re.search(r'task\s*\d+|#\s*\d+|number\s*\d+', user_lower):
+            return True
+            
+        return False
+    
+    def _handle_continue_command(self, user_input: str, context: Dict) -> Generator[StreamEvent, None, None]:
+        """Handle request to continue with plan execution"""
+        try:
+            from task_decomposer import TaskDecomposer
+            from intelligent_agent import get_intelligent_agent
+            from task_executor import get_task_executor
+            
+            agent = get_intelligent_agent()
+            
+            # Check if we have a current plan
+            plan = getattr(self, 'current_plan', None)
+            
+            if not plan and agent.active_plan_id:
+                # Try to load the active plan
+                plan = agent.load_plan(agent.active_plan_id)
+            
+            if not plan:
+                # Check for any recent plans
+                existing = agent._find_related_plans("SafeConnect dating app")
+                if existing and existing[0]['similarity'] > 0.5:
+                    plan = agent.load_plan(existing[0]['id'])
+            
+            if not plan:
+                self._emit_event('text', "I don't have an active plan. Tell me what you'd like to build!")
+                yield from self._drain_events()
+                return
+            
+            # Parse which task user wants
+            user_lower = user_input.lower()
+            task_num_match = re.search(r'(?:task\s*|#\s*|number\s*)(\d+)', user_lower)
+            
+            target_task = None
+            if task_num_match:
+                task_num = int(task_num_match.group(1))
+                if 1 <= task_num <= len(plan.tasks):
+                    target_task = plan.tasks[task_num - 1]
+            
+            if not target_task:
+                # Get next available task
+                next_tasks = plan.get_next_tasks(max_parallel=1)
+                if next_tasks:
+                    target_task = next_tasks[0]
+                else:
+                    self._emit_event('text', "🎉 All tasks in the plan are complete! Want to start something new?")
+                    yield from self._drain_events()
+                    return
+            
+            # Now execute the task with verification
+            self._emit_event('thinking', f'Starting work on: {target_task.title}')
+            yield from self._drain_events()
+            
+            # Get the task executor
+            workspace = context.get('workspace')
+            executor = get_task_executor(workspace, self.abby.ollama_client if self.abby else None)
+            
+            # Execute with streaming progress
+            execution_events = []
+            for event in executor.execute_task(target_task, plan):
+                execution_events.append(event)
+                
+                if event['type'] == 'thinking':
+                    self._emit_event('thinking', event['message'])
+                elif event['type'] == 'step_success':
+                    self._emit_event('text', f"✅ {event['action']}: {event.get('target', '')[:50]}\n")
+                elif event['type'] == 'step_failed':
+                    self._emit_event('text', f"❌ {event['action']}: {event.get('error', '')[:100]}\n")
+                elif event['type'] == 'complete':
+                    if event.get('success'):
+                        self._emit_event('text', f"\n{event.get('summary', 'Task completed!')}\n")
+                    else:
+                        self._emit_event('text', f"\n⚠️ Task had issues: {event.get('summary', '')}\n")
+                
+                yield from self._drain_events()
+            
+            # Show what's next
+            next_tasks = plan.get_next_tasks(max_parallel=3)
+            if next_tasks:
+                self._emit_event('text', "\n**Next tasks:**\n")
+                for i, t in enumerate(next_tasks, 1):
+                    self._emit_event('text', f"  {i}. {t.title}\n")
+                self._emit_event('text', "\nSay 'continue' for the next task!\n")
+            else:
+                self._emit_event('text', "\n🎉 **All tasks complete!** Great work!\n")
+            
+            yield from self._drain_events()
+            
+            self._set_state(ThinkingState.WAITING)
+            self._emit_event('done', 'Task execution complete')
+            
+        except Exception as e:
+            logger.error(f"Error handling continue command: {e}")
+            self._emit_event('error', f"Error: {e}")
+        
+        yield from self._drain_events()
     
     def get_status(self) -> Dict[str, Any]:
         """Get current conversation status"""
