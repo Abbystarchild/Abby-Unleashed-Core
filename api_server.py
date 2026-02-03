@@ -22,6 +22,7 @@ load_dotenv()
 from cli import AbbyUnleashed
 from presence.user_tracker import get_user_tracker, UserTracker
 from skills_display import get_skills_manager
+from plan_routes import plan_routes as plans_bp
 
 logger = logging.getLogger(__name__)
 
@@ -253,6 +254,9 @@ CORS(app, resources={
     }
 })
 
+# Register Plan Manager API Blueprint
+app.register_blueprint(plans_bp)
+
 # Global Abby instance
 abby: Optional[AbbyUnleashed] = None
 abby_lock = threading.Lock()
@@ -287,6 +291,12 @@ def index():
     # If mobile and ngrok is now running, we could redirect
     # But better to let the client decide via JS
     return send_from_directory('web', 'index.html')
+
+
+@app.route('/plans')
+def plan_manager():
+    """Serve Plan Manager GUI"""
+    return send_from_directory('static', 'plan_manager.html')
 
 
 @app.route('/api/mobile-redirect', methods=['GET'])
@@ -385,7 +395,7 @@ def get_logs():
     try:
         return jsonify({
             'logs': log_buffer.get_logs(),
-            'count': len(log_buffer.logs)
+            'count': len(log_buffer.buffer)
         })
     except Exception as e:
         return jsonify({'error': str(e)}), 500

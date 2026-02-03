@@ -1,0 +1,1009 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Abby's Plan Manager</title>
+    <style>
+        :root {
+            --bg-primary: #1a1a2e;
+            --bg-secondary: #16213e;
+            --bg-card: #0f3460;
+            --text-primary: #eee;
+            --text-secondary: #aaa;
+            --accent: #e94560;
+            --accent-hover: #ff6b6b;
+            --success: #4ecdc4;
+            --warning: #ffa726;
+            --paused: #9c27b0;
+        }
+        
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 20px 0;
+            border-bottom: 1px solid var(--bg-card);
+            margin-bottom: 20px;
+        }
+        
+        h1 {
+            font-size: 1.8rem;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        h1 .emoji {
+            font-size: 2rem;
+        }
+        
+        .stats {
+            display: flex;
+            gap: 20px;
+        }
+        
+        .stat {
+            text-align: center;
+            padding: 10px 20px;
+            background: var(--bg-secondary);
+            border-radius: 8px;
+        }
+        
+        .stat-value {
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: var(--accent);
+        }
+        
+        .stat-label {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+        }
+        
+        .main-content {
+            display: grid;
+            grid-template-columns: 350px 1fr;
+            gap: 20px;
+        }
+        
+        .sidebar {
+            background: var(--bg-secondary);
+            border-radius: 12px;
+            padding: 15px;
+            height: fit-content;
+            max-height: calc(100vh - 150px);
+            overflow-y: auto;
+        }
+        
+        .sidebar h2 {
+            font-size: 1.1rem;
+            margin-bottom: 15px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .plan-list {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        
+        .plan-card {
+            background: var(--bg-card);
+            border-radius: 8px;
+            padding: 12px;
+            cursor: pointer;
+            transition: all 0.2s;
+            border: 2px solid transparent;
+        }
+        
+        .plan-card:hover {
+            border-color: var(--accent);
+        }
+        
+        .plan-card.active {
+            border-color: var(--success);
+        }
+        
+        .plan-card.selected {
+            border-color: var(--accent);
+            background: rgba(233, 69, 96, 0.1);
+        }
+        
+        .plan-card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 8px;
+        }
+        
+        .plan-name {
+            font-weight: bold;
+            font-size: 0.95rem;
+            flex: 1;
+        }
+        
+        .plan-status {
+            font-size: 0.7rem;
+            padding: 2px 8px;
+            border-radius: 10px;
+            text-transform: uppercase;
+        }
+        
+        .status-active { background: var(--success); color: #000; }
+        .status-queued { background: var(--warning); color: #000; }
+        .status-paused { background: var(--paused); color: #fff; }
+        .status-completed { background: #666; }
+        .status-archived { background: #444; }
+        
+        .plan-progress {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-top: 8px;
+        }
+        
+        .progress-bar {
+            flex: 1;
+            height: 6px;
+            background: var(--bg-primary);
+            border-radius: 3px;
+            overflow: hidden;
+        }
+        
+        .progress-fill {
+            height: 100%;
+            background: var(--success);
+            transition: width 0.3s;
+        }
+        
+        .progress-text {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            min-width: 50px;
+            text-align: right;
+        }
+        
+        .detail-panel {
+            background: var(--bg-secondary);
+            border-radius: 12px;
+            padding: 20px;
+        }
+        
+        .detail-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 1px solid var(--bg-card);
+        }
+        
+        .detail-title {
+            font-size: 1.3rem;
+        }
+        
+        .detail-actions {
+            display: flex;
+            gap: 10px;
+        }
+        
+        .btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            transition: all 0.2s;
+        }
+        
+        .btn-primary {
+            background: var(--accent);
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            background: var(--accent-hover);
+        }
+        
+        .btn-secondary {
+            background: var(--bg-card);
+            color: var(--text-primary);
+        }
+        
+        .btn-secondary:hover {
+            background: #1a4a7a;
+        }
+        
+        .btn-danger {
+            background: #c0392b;
+            color: white;
+        }
+        
+        .btn-danger:hover {
+            background: #e74c3c;
+        }
+        
+        .btn-success {
+            background: var(--success);
+            color: #000;
+        }
+        
+        .btn-icon {
+            padding: 8px;
+            min-width: 36px;
+        }
+        
+        .section {
+            margin-bottom: 20px;
+        }
+        
+        .section-title {
+            font-size: 1rem;
+            margin-bottom: 10px;
+            color: var(--text-secondary);
+        }
+        
+        .task-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        
+        .task-item {
+            background: var(--bg-card);
+            border-radius: 8px;
+            padding: 12px;
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+        }
+        
+        .task-checkbox {
+            width: 20px;
+            height: 20px;
+            margin-top: 2px;
+        }
+        
+        .task-content {
+            flex: 1;
+        }
+        
+        .task-title {
+            font-weight: 500;
+            margin-bottom: 4px;
+        }
+        
+        .task-description {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+        }
+        
+        .task-meta {
+            display: flex;
+            gap: 10px;
+            margin-top: 6px;
+            font-size: 0.75rem;
+        }
+        
+        .task-tag {
+            padding: 2px 8px;
+            border-radius: 4px;
+            background: var(--bg-primary);
+        }
+        
+        .task-actions {
+            display: flex;
+            gap: 5px;
+        }
+        
+        .task-actions .btn {
+            padding: 4px 8px;
+            font-size: 0.8rem;
+        }
+        
+        .task-completed {
+            opacity: 0.6;
+        }
+        
+        .task-completed .task-title {
+            text-decoration: line-through;
+        }
+        
+        .notes-area {
+            width: 100%;
+            min-height: 100px;
+            background: var(--bg-card);
+            border: 1px solid var(--bg-primary);
+            border-radius: 8px;
+            padding: 12px;
+            color: var(--text-primary);
+            font-family: inherit;
+            resize: vertical;
+        }
+        
+        .notes-area:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+        
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: var(--text-secondary);
+        }
+        
+        .empty-state .emoji {
+            font-size: 3rem;
+            margin-bottom: 15px;
+        }
+        
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.7);
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+        
+        .modal.show {
+            display: flex;
+        }
+        
+        .modal-content {
+            background: var(--bg-secondary);
+            border-radius: 12px;
+            padding: 25px;
+            width: 90%;
+            max-width: 500px;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+        
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        
+        .modal-close {
+            background: none;
+            border: none;
+            color: var(--text-secondary);
+            font-size: 1.5rem;
+            cursor: pointer;
+        }
+        
+        .form-group {
+            margin-bottom: 15px;
+        }
+        
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            color: var(--text-secondary);
+        }
+        
+        .form-group input,
+        .form-group textarea,
+        .form-group select {
+            width: 100%;
+            padding: 10px;
+            background: var(--bg-card);
+            border: 1px solid var(--bg-primary);
+            border-radius: 6px;
+            color: var(--text-primary);
+        }
+        
+        .form-group input:focus,
+        .form-group textarea:focus,
+        .form-group select:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+        
+        .priority-selector {
+            display: flex;
+            gap: 5px;
+        }
+        
+        .priority-btn {
+            flex: 1;
+            padding: 8px;
+            background: var(--bg-card);
+            border: 2px solid transparent;
+            border-radius: 6px;
+            color: var(--text-primary);
+            cursor: pointer;
+        }
+        
+        .priority-btn.selected {
+            border-color: var(--accent);
+            background: rgba(233, 69, 96, 0.2);
+        }
+        
+        .refresh-indicator {
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+        
+        .toast {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            padding: 15px 20px;
+            background: var(--success);
+            color: #000;
+            border-radius: 8px;
+            display: none;
+            z-index: 1001;
+        }
+        
+        .toast.show {
+            display: block;
+            animation: slideIn 0.3s ease;
+        }
+        
+        @keyframes slideIn {
+            from { transform: translateX(100%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1><span class="emoji">📋</span> Abby's Plan Manager</h1>
+            <div class="stats">
+                <div class="stat">
+                    <div class="stat-value" id="stat-active">0</div>
+                    <div class="stat-label">Active</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-value" id="stat-queued">0</div>
+                    <div class="stat-label">Queued</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-value" id="stat-completed">0</div>
+                    <div class="stat-label">Completed</div>
+                </div>
+            </div>
+        </header>
+        
+        <div class="main-content">
+            <aside class="sidebar">
+                <h2>
+                    Plans
+                    <button class="btn btn-icon btn-secondary" onclick="refreshPlans()" title="Refresh">
+                        🔄
+                    </button>
+                </h2>
+                <div class="plan-list" id="plan-list">
+                    <!-- Plans will be loaded here -->
+                </div>
+            </aside>
+            
+            <main class="detail-panel" id="detail-panel">
+                <div class="empty-state">
+                    <div class="emoji">📝</div>
+                    <p>Select a plan to view and edit</p>
+                </div>
+            </main>
+        </div>
+    </div>
+    
+    <!-- Edit Task Modal -->
+    <div class="modal" id="task-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Edit Task</h3>
+                <button class="modal-close" onclick="closeTaskModal()">×</button>
+            </div>
+            <form id="task-form" onsubmit="saveTask(event)">
+                <input type="hidden" id="task-plan-id">
+                <input type="hidden" id="task-id">
+                
+                <div class="form-group">
+                    <label>Title</label>
+                    <input type="text" id="task-title" required>
+                </div>
+                
+                <div class="form-group">
+                    <label>Description</label>
+                    <textarea id="task-description" rows="3"></textarea>
+                </div>
+                
+                <div class="form-group">
+                    <label>Additional Context (for Abby)</label>
+                    <textarea id="task-context" rows="4" placeholder="Add any extra details, links, or instructions..."></textarea>
+                </div>
+                
+                <div class="form-group">
+                    <label>Category</label>
+                    <select id="task-category">
+                        <option value="analysis">Analysis</option>
+                        <option value="design">Design</option>
+                        <option value="frontend">Frontend</option>
+                        <option value="backend">Backend</option>
+                        <option value="testing">Testing</option>
+                        <option value="general">General</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label>Status</label>
+                    <select id="task-status">
+                        <option value="pending">Pending</option>
+                        <option value="in_progress">In Progress</option>
+                        <option value="completed">Completed</option>
+                        <option value="blocked">Blocked</option>
+                    </select>
+                </div>
+                
+                <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                    <button type="button" class="btn btn-secondary" onclick="closeTaskModal()">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Save Changes</button>
+                </div>
+            </form>
+        </div>
+    </div>
+    
+    <!-- Add Task Modal -->
+    <div class="modal" id="add-task-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Add New Task</h3>
+                <button class="modal-close" onclick="closeAddTaskModal()">×</button>
+            </div>
+            <form id="add-task-form" onsubmit="addTask(event)">
+                <input type="hidden" id="add-task-plan-id">
+                
+                <div class="form-group">
+                    <label>Title</label>
+                    <input type="text" id="add-task-title" required placeholder="What needs to be done?">
+                </div>
+                
+                <div class="form-group">
+                    <label>Description</label>
+                    <textarea id="add-task-description" rows="3" placeholder="More details about the task..."></textarea>
+                </div>
+                
+                <div class="form-group">
+                    <label>Context for Abby</label>
+                    <textarea id="add-task-context" rows="4" placeholder="Any special instructions, links, or context..."></textarea>
+                </div>
+                
+                <div class="form-group">
+                    <label>Category</label>
+                    <select id="add-task-category">
+                        <option value="general">General</option>
+                        <option value="analysis">Analysis</option>
+                        <option value="design">Design</option>
+                        <option value="frontend">Frontend</option>
+                        <option value="backend">Backend</option>
+                        <option value="testing">Testing</option>
+                    </select>
+                </div>
+                
+                <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                    <button type="button" class="btn btn-secondary" onclick="closeAddTaskModal()">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Add Task</button>
+                </div>
+            </form>
+        </div>
+    </div>
+    
+    <!-- Toast notification -->
+    <div class="toast" id="toast"></div>
+    
+    <script>
+        let allPlans = [];
+        let selectedPlanId = null;
+        
+        // Load plans on start
+        document.addEventListener('DOMContentLoaded', () => {
+            refreshPlans();
+            // Auto-refresh every 10 seconds
+            setInterval(refreshPlans, 10000);
+        });
+        
+        async function refreshPlans() {
+            try {
+                const response = await fetch('/api/plans/');
+                const data = await response.json();
+                allPlans = data.plans || [];
+                renderPlanList();
+                updateStats();
+                
+                if (selectedPlanId) {
+                    loadPlanDetail(selectedPlanId);
+                }
+            } catch (error) {
+                console.error('Error loading plans:', error);
+            }
+        }
+        
+        function renderPlanList() {
+            const container = document.getElementById('plan-list');
+            
+            if (allPlans.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <p>No plans yet</p>
+                    </div>
+                `;
+                return;
+            }
+            
+            container.innerHTML = allPlans.map(plan => {
+                const progress = plan.total_tasks > 0 
+                    ? Math.round((plan.completed_tasks / plan.total_tasks) * 100) 
+                    : 0;
+                
+                return `
+                    <div class="plan-card ${plan.id === selectedPlanId ? 'selected' : ''} ${plan.status === 'active' ? 'active' : ''}"
+                         onclick="loadPlanDetail('${plan.id}')">
+                        <div class="plan-card-header">
+                            <span class="plan-name">${escapeHtml(plan.name || plan.id)}</span>
+                            <span class="plan-status status-${plan.status}">${plan.status}</span>
+                        </div>
+                        <div class="plan-progress">
+                            <div class="progress-bar">
+                                <div class="progress-fill" style="width: ${progress}%"></div>
+                            </div>
+                            <span class="progress-text">${plan.completed_tasks}/${plan.total_tasks}</span>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+        
+        function updateStats() {
+            const active = allPlans.filter(p => p.status === 'active').length;
+            const queued = allPlans.filter(p => p.status === 'queued').length;
+            const completed = allPlans.filter(p => p.status === 'completed').length;
+            
+            document.getElementById('stat-active').textContent = active;
+            document.getElementById('stat-queued').textContent = queued;
+            document.getElementById('stat-completed').textContent = completed;
+        }
+        
+        async function loadPlanDetail(planId) {
+            selectedPlanId = planId;
+            renderPlanList();
+            
+            try {
+                const response = await fetch(`/api/plans/${planId}`);
+                const plan = await response.json();
+                
+                renderPlanDetail(plan);
+            } catch (error) {
+                console.error('Error loading plan:', error);
+            }
+        }
+        
+        function renderPlanDetail(plan) {
+            const container = document.getElementById('detail-panel');
+            const meta = plan._metadata || {};
+            
+            const tasks = plan.tasks || [];
+            const completedTasks = tasks.filter(t => t.status === 'completed');
+            const pendingTasks = tasks.filter(t => t.status !== 'completed');
+            
+            container.innerHTML = `
+                <div class="detail-header">
+                    <div>
+                        <h2 class="detail-title">${escapeHtml(plan.summary || plan.id)}</h2>
+                        <p style="color: var(--text-secondary); margin-top: 5px; font-size: 0.9rem;">
+                            ${escapeHtml((plan.original_request || '').substring(0, 150))}...
+                        </p>
+                    </div>
+                    <div class="detail-actions">
+                        ${meta.status === 'paused' 
+                            ? `<button class="btn btn-success" onclick="resumePlan('${plan.id}')">▶️ Resume</button>`
+                            : `<button class="btn btn-secondary" onclick="pausePlan('${plan.id}')">⏸️ Pause</button>`
+                        }
+                        <button class="btn btn-secondary" onclick="archivePlan('${plan.id}')">📦 Archive</button>
+                        <button class="btn btn-danger" onclick="deletePlan('${plan.id}')">🗑️ Delete</button>
+                    </div>
+                </div>
+                
+                <div class="section">
+                    <div class="section-title">Your Notes</div>
+                    <textarea class="notes-area" 
+                              placeholder="Add notes, context, or instructions for Abby..."
+                              onblur="saveNotes('${plan.id}', this.value)">${escapeHtml(meta.user_notes || '')}</textarea>
+                </div>
+                
+                <div class="section">
+                    <div class="section-title" style="display: flex; justify-content: space-between; align-items: center;">
+                        <span>Tasks (${completedTasks.length}/${tasks.length} complete)</span>
+                        <button class="btn btn-primary" onclick="openAddTaskModal('${plan.id}')">+ Add Task</button>
+                    </div>
+                    <div class="task-list">
+                        ${pendingTasks.map(task => renderTask(plan.id, task)).join('')}
+                        ${completedTasks.length > 0 ? `
+                            <details style="margin-top: 10px;">
+                                <summary style="cursor: pointer; color: var(--text-secondary);">
+                                    ✅ Completed (${completedTasks.length})
+                                </summary>
+                                <div class="task-list" style="margin-top: 10px;">
+                                    ${completedTasks.map(task => renderTask(plan.id, task)).join('')}
+                                </div>
+                            </details>
+                        ` : ''}
+                    </div>
+                </div>
+            `;
+        }
+        
+        function renderTask(planId, task) {
+            const isCompleted = task.status === 'completed';
+            
+            return `
+                <div class="task-item ${isCompleted ? 'task-completed' : ''}">
+                    <input type="checkbox" class="task-checkbox" 
+                           ${isCompleted ? 'checked' : ''}
+                           onchange="toggleTaskStatus('${planId}', '${task.id}', this.checked)">
+                    <div class="task-content">
+                        <div class="task-title">${escapeHtml(task.title)}</div>
+                        <div class="task-description">${escapeHtml(task.description || '')}</div>
+                        ${task.user_context ? `
+                            <div class="task-description" style="color: var(--accent); margin-top: 4px;">
+                                📝 ${escapeHtml(task.user_context.substring(0, 100))}...
+                            </div>
+                        ` : ''}
+                        <div class="task-meta">
+                            <span class="task-tag">${task.category || 'general'}</span>
+                            ${task.dependencies?.length ? `<span>Depends on: ${task.dependencies.join(', ')}</span>` : ''}
+                        </div>
+                    </div>
+                    <div class="task-actions">
+                        <button class="btn btn-secondary" onclick="editTask('${planId}', '${task.id}')" title="Edit">✏️</button>
+                        <button class="btn btn-danger" onclick="removeTask('${planId}', '${task.id}')" title="Remove">🗑️</button>
+                    </div>
+                </div>
+            `;
+        }
+        
+        // Plan actions
+        async function pausePlan(planId) {
+            await updatePlanStatus(planId, 'paused');
+        }
+        
+        async function resumePlan(planId) {
+            await updatePlanStatus(planId, 'queued');
+        }
+        
+        async function archivePlan(planId) {
+            await updatePlanStatus(planId, 'archived');
+        }
+        
+        async function updatePlanStatus(planId, status) {
+            try {
+                await fetch(`/api/plans/${planId}/status`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ status })
+                });
+                showToast(`Plan ${status}`);
+                refreshPlans();
+            } catch (error) {
+                console.error('Error updating status:', error);
+            }
+        }
+        
+        async function deletePlan(planId) {
+            if (!confirm('Delete this plan? This cannot be undone.')) return;
+            
+            try {
+                await fetch(`/api/plans/${planId}`, { method: 'DELETE' });
+                showToast('Plan deleted');
+                selectedPlanId = null;
+                document.getElementById('detail-panel').innerHTML = `
+                    <div class="empty-state">
+                        <div class="emoji">📝</div>
+                        <p>Select a plan to view and edit</p>
+                    </div>
+                `;
+                refreshPlans();
+            } catch (error) {
+                console.error('Error deleting plan:', error);
+            }
+        }
+        
+        async function saveNotes(planId, notes) {
+            try {
+                await fetch(`/api/plans/${planId}/notes`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ notes })
+                });
+                showToast('Notes saved');
+            } catch (error) {
+                console.error('Error saving notes:', error);
+            }
+        }
+        
+        // Task actions
+        async function toggleTaskStatus(planId, taskId, completed) {
+            const status = completed ? 'completed' : 'pending';
+            try {
+                await fetch(`/api/plans/${planId}/tasks/${taskId}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ status })
+                });
+                refreshPlans();
+            } catch (error) {
+                console.error('Error updating task:', error);
+            }
+        }
+        
+        function editTask(planId, taskId) {
+            // Find the task
+            const plan = allPlans.find(p => p.id === planId);
+            if (!plan) return;
+            
+            // Load full plan to get task details
+            fetch(`/api/plans/${planId}`)
+                .then(r => r.json())
+                .then(fullPlan => {
+                    const task = fullPlan.tasks.find(t => t.id === taskId);
+                    if (!task) return;
+                    
+                    document.getElementById('task-plan-id').value = planId;
+                    document.getElementById('task-id').value = taskId;
+                    document.getElementById('task-title').value = task.title || '';
+                    document.getElementById('task-description').value = task.description || '';
+                    document.getElementById('task-context').value = task.user_context || '';
+                    document.getElementById('task-category').value = task.category || 'general';
+                    document.getElementById('task-status').value = task.status || 'pending';
+                    
+                    document.getElementById('task-modal').classList.add('show');
+                });
+        }
+        
+        function closeTaskModal() {
+            document.getElementById('task-modal').classList.remove('show');
+        }
+        
+        async function saveTask(event) {
+            event.preventDefault();
+            
+            const planId = document.getElementById('task-plan-id').value;
+            const taskId = document.getElementById('task-id').value;
+            
+            const updates = {
+                title: document.getElementById('task-title').value,
+                description: document.getElementById('task-description').value,
+                context: document.getElementById('task-context').value,
+                category: document.getElementById('task-category').value,
+                status: document.getElementById('task-status').value,
+            };
+            
+            try {
+                await fetch(`/api/plans/${planId}/tasks/${taskId}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(updates)
+                });
+                
+                // Also add context separately if provided
+                if (updates.context) {
+                    await fetch(`/api/plans/${planId}/tasks/${taskId}/context`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ context: updates.context })
+                    });
+                }
+                
+                closeTaskModal();
+                showToast('Task updated');
+                refreshPlans();
+            } catch (error) {
+                console.error('Error saving task:', error);
+            }
+        }
+        
+        async function removeTask(planId, taskId) {
+            if (!confirm('Remove this task?')) return;
+            
+            try {
+                await fetch(`/api/plans/${planId}/tasks/${taskId}`, { method: 'DELETE' });
+                showToast('Task removed');
+                refreshPlans();
+            } catch (error) {
+                console.error('Error removing task:', error);
+            }
+        }
+        
+        function openAddTaskModal(planId) {
+            document.getElementById('add-task-plan-id').value = planId;
+            document.getElementById('add-task-title').value = '';
+            document.getElementById('add-task-description').value = '';
+            document.getElementById('add-task-context').value = '';
+            document.getElementById('add-task-category').value = 'general';
+            document.getElementById('add-task-modal').classList.add('show');
+        }
+        
+        function closeAddTaskModal() {
+            document.getElementById('add-task-modal').classList.remove('show');
+        }
+        
+        async function addTask(event) {
+            event.preventDefault();
+            
+            const planId = document.getElementById('add-task-plan-id').value;
+            
+            const taskData = {
+                title: document.getElementById('add-task-title').value,
+                description: document.getElementById('add-task-description').value,
+                context: document.getElementById('add-task-context').value,
+                category: document.getElementById('add-task-category').value,
+            };
+            
+            try {
+                await fetch(`/api/plans/${planId}/tasks`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(taskData)
+                });
+                
+                closeAddTaskModal();
+                showToast('Task added');
+                refreshPlans();
+            } catch (error) {
+                console.error('Error adding task:', error);
+            }
+        }
+        
+        // Utils
+        function escapeHtml(str) {
+            if (!str) return '';
+            return str.replace(/&/g, '&amp;')
+                      .replace(/</g, '&lt;')
+                      .replace(/>/g, '&gt;')
+                      .replace(/"/g, '&quot;');
+        }
+        
+        function showToast(message) {
+            const toast = document.getElementById('toast');
+            toast.textContent = message;
+            toast.classList.add('show');
+            setTimeout(() => toast.classList.remove('show'), 3000);
+        }
+    </script>
+</body>
+</html>

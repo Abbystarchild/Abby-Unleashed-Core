@@ -148,5 +148,25 @@
     "ip_address": "127.0.0.1",
     "user_agent": "AbbyBrowser/1.0 (Abby Unleashed; Desktop Client) AppleWebKit/537.36 Chrome/120.0.0.0",
     "message_count": 0
+  },
+  "a61bf69474422781": {
+    "user_id": "unknown",
+    "display_name": "Unknown User",
+    "device_info": "unknown device",
+    "connected_at": "2026-02-03T08:29:40.278734",
+    "last_activity": "2026-02-03T08:29:40.278734",
+    "ip_address": "127.0.0.1",
+    "user_agent": "AbbyBrowser/1.0 (Abby Unleashed; Desktop Client) AppleWebKit/537.36 Chrome/120.0.0.0",
+    "message_count": 0
+  },
+  "3f33f8fb0c4c62bd": {
+    "user_id": "unknown",
+    "display_name": "Unknown User",
+    "device_info": "unknown device",
+    "connected_at": "2026-02-03T08:30:13.636408",
+    "last_activity": "2026-02-03T08:30:13.636408",
+    "ip_address": "127.0.0.1",
+    "user_agent": "AbbyBrowser/1.0 (Abby Unleashed; Desktop Client) AppleWebKit/537.36 Chrome/120.0.0.0",
+    "message_count": 0
   }
 }
