@@ -12,6 +12,7 @@ and VERIFIES it worked.
 """
 
 import os
+import re
 import json
 import logging
 import subprocess
@@ -187,8 +188,24 @@ class TaskExecutor:
                 "description": task.description,
             })
         
-        # If no specific actions determined, add a placeholder
-        if not actions:
+        # Design tasks - use AI to generate design documents
+        if task.category == "design" and not actions:
+            actions.append({
+                "action": "generate_design",
+                "target": task.title,
+                "description": task.description,
+            })
+        
+        # If no specific actions determined and we have Ollama, use AI for code generation
+        if not actions and self.ollama:
+            actions.append({
+                "action": "ai_generate",
+                "target": task.title,
+                "description": task.description,
+                "category": task.category,
+            })
+        elif not actions:
+            # Fallback to manual only if no AI available
             actions.append({
                 "action": "manual",
                 "target": task.title,
@@ -235,6 +252,12 @@ class TaskExecutor:
                 step.success = True
                 step.verified = False
                 step.actual_result = "Manual task noted"
+            
+            elif action["action"] == "generate_design":
+                step = self._generate_design(action)
+            
+            elif action["action"] == "ai_generate":
+                step = self._ai_generate_code(action)
                 
         except Exception as e:
             step.success = False
@@ -475,6 +498,157 @@ interface {name}Api {{
     // TODO: Define API endpoints
 }}
 '''
+    
+    def _generate_design(self, action: Dict) -> ExecutionStep:
+        """Generate a design document using AI"""
+        step = ExecutionStep(
+            action="generate_design",
+            target=action.get("target", "design"),
+        )
+        
+        try:
+            if not self.ollama:
+                step.success = True
+                step.verified = False
+                step.actual_result = "Design task noted (no AI available)"
+                return step
+            
+            # Generate design using AI
+            prompt = f"""Create a brief technical design for: {action.get('description', action.get('target'))}
+
+Include:
+1. Key components/modules
+2. Data flow
+3. Technology choices
+
+Keep it concise (under 200 words)."""
+
+            response = self.ollama.chat(
+                messages=[{"role": "user", "content": prompt}],
+                model="mistral:latest",
+            )
+            
+            design_content = response.get("message", {}).get("content", "")
+            
+            if design_content:
+                # Save design to file
+                design_dir = self.workspace / "docs" / "designs"
+                design_dir.mkdir(parents=True, exist_ok=True)
+                
+                # Create safe filename
+                safe_name = re.sub(r'[^\w\s-]', '', action.get('target', 'design')[:30]).strip().replace(' ', '_')
+                design_file = design_dir / f"{safe_name}_design.md"
+                
+                design_file.write_text(f"# {action.get('target', 'Design')}\n\n{design_content}")
+                
+                step.success = True
+                step.verified = design_file.exists()
+                step.actual_result = f"Design saved to {design_file}"
+            else:
+                step.success = False
+                step.error = "No design generated"
+                
+        except Exception as e:
+            step.success = False
+            step.error = str(e)
+        
+        return step
+    
+    def _ai_generate_code(self, action: Dict) -> ExecutionStep:
+        """Generate code using AI for complex tasks"""
+        step = ExecutionStep(
+            action="ai_generate",
+            target=action.get("target", "code"),
+        )
+        
+        try:
+            if not self.ollama:
+                step.success = True
+                step.verified = False
+                step.actual_result = "Code task noted (no AI available)"
+                return step
+            
+            category = action.get("category", "general")
+            description = action.get("description", action.get("target", ""))
+            
+            # Determine what kind of code to generate based on category
+            if category == "frontend":
+                prompt = f"""Create a Kotlin Compose UI component for: {description}
+
+Requirements:
+- Use Jetpack Compose
+- Include basic state management
+- Add comments explaining the code
+
+Output ONLY the Kotlin code, no explanation."""
+                file_ext = ".kt"
+                
+            elif category == "backend":
+                prompt = f"""Create a Kotlin backend service for: {description}
+
+Requirements:
+- Use Ktor or similar framework patterns
+- Include error handling
+- Add comments explaining the code
+
+Output ONLY the Kotlin code, no explanation."""
+                file_ext = ".kt"
+                
+            else:
+                prompt = f"""Provide a brief implementation plan for: {description}
+
+Include:
+1. Key steps to implement
+2. Files to create/modify
+3. Dependencies needed
+
+Keep it under 150 words."""
+                file_ext = ".md"
+            
+            # Generate using AI
+            response = self.ollama.chat(
+                messages=[{"role": "user", "content": prompt}],
+                model="qwen3-coder:30b",  # Use the better model for code
+            )
+            
+            content = response.get("message", {}).get("content", "")
+            
+            if content:
+                # Save to appropriate location
+                if category == "frontend":
+                    output_dir = self.workspace / "src" / "ui"
+                elif category == "backend":
+                    output_dir = self.workspace / "src" / "api"
+                else:
+                    output_dir = self.workspace / "docs" / "implementation"
+                
+                output_dir.mkdir(parents=True, exist_ok=True)
+                
+                # Create safe filename
+                safe_name = re.sub(r'[^\w\s-]', '', action.get('target', 'code')[:30]).strip().replace(' ', '_')
+                output_file = output_dir / f"{safe_name}{file_ext}"
+                
+                # Clean up code blocks if present
+                if "```" in content:
+                    # Extract code from markdown code block
+                    code_match = re.search(r'```\w*\n(.*?)```', content, re.DOTALL)
+                    if code_match:
+                        content = code_match.group(1)
+                
+                output_file.write_text(content)
+                
+                step.success = True
+                step.verified = output_file.exists()
+                step.actual_result = f"Generated {output_file}"
+            else:
+                step.success = False
+                step.error = "No code generated"
+                
+        except Exception as e:
+            step.success = False
+            step.error = str(e)
+        
+        return step
     
     def _generate_summary(self, task, result: TaskExecutionResult) -> str:
         """Generate a summary of task execution"""

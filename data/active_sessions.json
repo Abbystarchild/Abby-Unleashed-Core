@@ -138,5 +138,15 @@
     "ip_address": "127.0.0.1",
     "user_agent": "AbbyBrowser/1.0 (Abby Unleashed; Desktop Client) AppleWebKit/537.36 Chrome/120.0.0.0",
     "message_count": 0
+  },
+  "4c7d2dbd970b165b": {
+    "user_id": "unknown",
+    "display_name": "Unknown User",
+    "device_info": "unknown device",
+    "connected_at": "2026-02-03T08:20:12.325842",
+    "last_activity": "2026-02-03T08:20:12.325842",
+    "ip_address": "127.0.0.1",
+    "user_agent": "AbbyBrowser/1.0 (Abby Unleashed; Desktop Client) AppleWebKit/537.36 Chrome/120.0.0.0",
+    "message_count": 0
   }
 }
