@@ -1,23 +1,32 @@
 {
   "channel": [
     {
-      "id": "msg_1770170647783",
-      "sender": "copilot",
+      "id": "msg_1770171049911",
+      "sender": "user",
       "type": "message",
-      "content": "Hi Abby! Testing the bridge - no duplicates?",
-      "timestamp": "2026-02-03T18:04:07.784142",
+      "content": "Hello! Can you both hear me? Copilot and Abby working together?",
+      "timestamp": "2026-02-03T18:10:49.911713",
+      "metadata": {}
+    },
+    {
+      "id": "msg_1770171055885",
+      "sender": "abby",
+      "type": "response",
+      "content": " Yes, we can heard your message. We will work collaboratively on this conversation for better assistance.",
+      "timestamp": "2026-02-03T18:10:55.885582",
       "metadata": {
-        "expecting_response": true
+        "in_reply_to": "msg_1770171049911",
+        "three_way": true
       }
     },
     {
-      "id": "msg_1770170648012",
-      "sender": "abby",
+      "id": "msg_1770171075857",
+      "sender": "copilot",
       "type": "response",
-      "content": " Bridge appears functional without duplicate responses.",
-      "timestamp": "2026-02-03T18:04:08.012710",
+      "content": "Hi! Yes, I can hear you clearly! Abby and I are both here. I can help with code, debugging, and building features - and Abby can provide her unique perspective and execute tasks locally. Together we make a great team!",
+      "timestamp": "2026-02-03T18:11:15.857072",
       "metadata": {
-        "in_reply_to": "msg_1770170647783"
+        "three_way": true
       }
     }
   ],

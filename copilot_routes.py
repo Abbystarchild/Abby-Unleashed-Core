@@ -373,3 +373,114 @@ def user_chat():
     except Exception as e:
         logger.error(f"Error in user chat: {e}")
         return jsonify({"error": str(e)}), 500
+
+
+@copilot_bp.route('/three-way-chat', methods=['POST'])
+def three_way_chat():
+    """
+    Send a message as the user to BOTH Copilot and Abby.
+    This is a true three-way conversation where:
+    - User's message is posted to channel
+    - Abby automatically responds (with context that Copilot is also in the chat)
+    - Copilot (via VS Code) can see the message and respond too
+    - Everyone sees everyone's messages
+    
+    Request body:
+        - message: The message from the user
+    
+    Returns:
+        - message_id: ID of the user's message
+        - abby_response: Abby's response (if any)
+    """
+    try:
+        from api_server import get_streaming_conversation_instance
+        
+        bridge = get_copilot_bridge()
+        data = request.get_json()
+        
+        if not data or 'message' not in data:
+            return jsonify({"error": "message required"}), 400
+        
+        message = data['message']
+        
+        # Post user message to channel - both Copilot and Abby will see this
+        user_msg = bridge.post_from_user(message, "message")
+        
+        # Get streaming conversation for Abby's response
+        sc = get_streaming_conversation_instance()
+        if not sc:
+            return jsonify({
+                "message_id": user_msg.id,
+                "error": "Abby is not available"
+            }), 503
+        
+        # Build context - tell Abby this is a three-way conversation
+        context = {
+            'three_way_chat': True,
+            'participants': ['user', 'copilot', 'abby'],
+            'user_message_id': user_msg.id,
+            'system_note': 'You are in a three-way conversation with the User and GitHub Copilot. '
+                          'Copilot is an AI coding assistant in VS Code. You two can collaborate '
+                          'and build on each other\'s responses. Keep responses focused and concise.'
+        }
+        
+        # Collect Abby's response
+        response_parts = []
+        
+        for event in sc.stream_response(message, context):
+            if event.type == 'text':
+                response_parts.append(event.content)
+        
+        abby_response = ''.join(response_parts)
+        
+        # Post Abby's response to channel
+        if abby_response:
+            bridge.post_from_abby(abby_response, "response", {
+                "in_reply_to": user_msg.id,
+                "three_way": True
+            })
+        
+        return jsonify({
+            "message_id": user_msg.id,
+            "abby_response": abby_response
+        })
+        
+    except Exception as e:
+        logger.error(f"Error in three-way chat: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@copilot_bp.route('/copilot-respond', methods=['POST'])
+def copilot_respond():
+    """
+    Endpoint for Copilot (the real one) to post responses to the channel.
+    This allows Copilot to participate in the three-way conversation.
+    
+    Request body:
+        - message: Copilot's response/message
+        - in_reply_to: Optional message ID being replied to
+    """
+    try:
+        bridge = get_copilot_bridge()
+        data = request.get_json()
+        
+        if not data or 'message' not in data:
+            return jsonify({"error": "message required"}), 400
+        
+        message = data['message']
+        in_reply_to = data.get('in_reply_to')
+        
+        metadata = {"three_way": True}
+        if in_reply_to:
+            metadata["in_reply_to"] = in_reply_to
+        
+        msg = bridge.post_from_copilot(message, "response", metadata)
+        
+        return jsonify({
+            "posted": True,
+            "message_id": msg.id
+        })
+        
+    except Exception as e:
+        logger.error(f"Error posting Copilot response: {e}")
+        return jsonify({"error": str(e)}), 500
