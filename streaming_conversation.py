@@ -201,6 +201,15 @@ class StreamingConversation:
         self._is_speaking = False
         self._speech_start_time = None
         
+        # Copilot bridge integration
+        self._copilot_bridge = None
+        try:
+            from copilot_bridge import get_copilot_bridge
+            self._copilot_bridge = get_copilot_bridge()
+            logger.info("Copilot bridge connected")
+        except Exception as e:
+            logger.warning(f"Copilot bridge not available: {e}")
+        
         logger.info("StreamingConversation initialized with interrupt support")
     
     def enable_personaplex(self):
@@ -258,6 +267,36 @@ class StreamingConversation:
         if self.on_event:
             self.on_event(event)
     
+    def _post_to_copilot(self, message: str, msg_type: str = "message"):
+        """Post a message to Copilot via the bridge"""
+        if self._copilot_bridge:
+            try:
+                self._copilot_bridge.post_from_abby(message, msg_type)
+                logger.debug(f"Posted to Copilot: {message[:50]}...")
+            except Exception as e:
+                logger.warning(f"Failed to post to Copilot: {e}")
+    
+    def check_copilot_requests(self) -> Optional[Dict]:
+        """Check for pending requests from Copilot"""
+        if not self._copilot_bridge:
+            return None
+        
+        try:
+            requests = self._copilot_bridge.get_pending_requests(for_sender="abby")
+            if requests:
+                return requests[0]  # Return first pending request
+        except Exception as e:
+            logger.warning(f"Error checking Copilot requests: {e}")
+        return None
+    
+    def respond_to_copilot(self, request_id: str, response: str):
+        """Respond to a specific Copilot request"""
+        if self._copilot_bridge:
+            try:
+                self._copilot_bridge.respond_to_request(request_id, response, "abby")
+            except Exception as e:
+                logger.warning(f"Failed to respond to Copilot: {e}")
+
     def on_user_started_speaking(self):
         """
         Called when user starts speaking (detected by VAD or browser).
@@ -383,6 +422,13 @@ etc."""
         self.interrupt_message = None
         context = context or {}
         
+        # Track if this came from Copilot
+        from_copilot = context.get('from_copilot', False)
+        copilot_request_id = context.get('copilot_request_id')
+        
+        # Collect full response to send to Copilot at end
+        full_response_parts = []
+        
         try:
             self._set_state(ThinkingState.THINKING)
             self._emit_event('thinking', 'Processing...')
@@ -390,7 +436,8 @@ etc."""
             # Add to conversation history
             self.conversation_history.append({
                 "role": "user",
-                "content": user_input
+                "content": user_input,
+                "from_copilot": from_copilot
             })
             
             # Check for plan continuation commands
@@ -417,7 +464,11 @@ etc."""
                 yield from self._execute_planned_task(user_input, context)
             else:
                 # Simple conversation - stream response
-                yield from self._stream_simple_response(user_input, context)
+                # We need to capture the response for Copilot
+                for event in self._stream_simple_response(user_input, context):
+                    if event.type == 'text':
+                        full_response_parts.append(event.content)
+                    yield event
             
             # Check for follow-up actions
             if not self.interrupt_requested:
@@ -425,10 +476,22 @@ etc."""
             
             self._emit_event('done', 'Response complete')
             
+            # Post response to Copilot if this was from Copilot
+            if from_copilot and full_response_parts:
+                full_response = ''.join(full_response_parts)
+                if copilot_request_id:
+                    self.respond_to_copilot(copilot_request_id, full_response)
+                else:
+                    self._post_to_copilot(full_response, "response")
+            
         except Exception as e:
             logger.error(f"Stream error: {e}")
             self._emit_event('error', str(e))
             self._set_state(ThinkingState.IDLE)
+            
+            # Notify Copilot of error if applicable
+            if from_copilot:
+                self._post_to_copilot(f"Error: {str(e)}", "error")
         
         yield from self._drain_events()
     

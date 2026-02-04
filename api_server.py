@@ -23,6 +23,7 @@ from cli import AbbyUnleashed
 from presence.user_tracker import get_user_tracker, UserTracker
 from skills_display import get_skills_manager
 from plan_routes import plan_routes as plans_bp
+from copilot_routes import copilot_bp
 
 logger = logging.getLogger(__name__)
 
@@ -256,6 +257,9 @@ CORS(app, resources={
 
 # Register Plan Manager API Blueprint
 app.register_blueprint(plans_bp)
+
+# Register Copilot Bridge API Blueprint
+app.register_blueprint(copilot_bp)
 
 # Global Abby instance
 abby: Optional[AbbyUnleashed] = None
