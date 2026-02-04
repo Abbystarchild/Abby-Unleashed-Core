@@ -1,17 +1,25 @@
 """
 Copilot Bridge API Routes
 
-REST API for Copilot <-> Abby collaboration.
+REST API for Copilot <-> Abby <-> User collaboration.
 """
 
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, send_from_directory
 import logging
+import os
 
 from copilot_bridge import get_copilot_bridge
 
 logger = logging.getLogger(__name__)
 
 copilot_bp = Blueprint('copilot', __name__, url_prefix='/api/copilot')
+
+
+@copilot_bp.route('/bridge-chat')
+def bridge_chat_page():
+    """Serve the three-way bridge chat interface"""
+    static_dir = os.path.join(os.path.dirname(__file__), 'static')
+    return send_from_directory(static_dir, 'bridge_chat.html')
 
 
 @copilot_bp.route('/status', methods=['GET'])
@@ -291,11 +299,8 @@ def copilot_chat():
         
         full_response = ''.join(response_parts)
         
-        # Also post response to channel
-        if full_response:
-            bridge.post_from_abby(full_response, "response", {
-                "in_reply_to": msg.id
-            })
+        # Note: streaming_conversation already posts to channel via _post_to_copilot
+        # so we don't need to post again here
         
         return jsonify({
             "response": full_response,
@@ -305,4 +310,66 @@ def copilot_chat():
         
     except Exception as e:
         logger.error(f"Error in copilot chat: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@copilot_bp.route('/user-chat', methods=['POST'])
+def user_chat():
+    """
+    Send a message to Abby as the human user.
+    This allows three-way conversations in the bridge.
+    
+    Request body:
+        - message: The message from the user
+    
+    Returns:
+        - response: Abby's response
+        - message_id: ID of the user's message
+    """
+    try:
+        from api_server import get_streaming_conversation_instance
+        
+        bridge = get_copilot_bridge()
+        data = request.get_json()
+        
+        if not data or 'message' not in data:
+            return jsonify({"error": "message required"}), 400
+        
+        message = data['message']
+        
+        # Post user message to channel
+        msg = bridge.post_from_user(message, "message")
+        
+        # Get streaming conversation and process
+        sc = get_streaming_conversation_instance()
+        if not sc:
+            return jsonify({"error": "Abby is not available"}), 503
+        
+        # Build context
+        context = {
+            'from_user_bridge': True,
+            'user_message_id': msg.id
+        }
+        
+        # Collect full response
+        response_parts = []
+        
+        for event in sc.stream_response(message, context):
+            if event.type == 'text':
+                response_parts.append(event.content)
+        
+        full_response = ''.join(response_parts)
+        
+        # Post Abby's response
+        if full_response:
+            bridge.post_from_abby(full_response, "response", {
+                "in_reply_to": msg.id
+            })
+        
+        return jsonify({
+            "response": full_response,
+            "message_id": msg.id
+        })
+        
+    except Exception as e:
+        logger.error(f"Error in user chat: {e}")
         return jsonify({"error": str(e)}), 500

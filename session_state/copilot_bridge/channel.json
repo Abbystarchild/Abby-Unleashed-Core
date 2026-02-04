@@ -1,0 +1,25 @@
+{
+  "channel": [
+    {
+      "id": "msg_1770170647783",
+      "sender": "copilot",
+      "type": "message",
+      "content": "Hi Abby! Testing the bridge - no duplicates?",
+      "timestamp": "2026-02-03T18:04:07.784142",
+      "metadata": {
+        "expecting_response": true
+      }
+    },
+    {
+      "id": "msg_1770170648012",
+      "sender": "abby",
+      "type": "response",
+      "content": " Bridge appears functional without duplicate responses.",
+      "timestamp": "2026-02-03T18:04:08.012710",
+      "metadata": {
+        "in_reply_to": "msg_1770170647783"
+      }
+    }
+  ],
+  "context": {}
+}

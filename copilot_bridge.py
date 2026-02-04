@@ -116,6 +116,11 @@ class CopilotBridge:
         """Post a message from Abby to Copilot"""
         return self.post_message("abby", content, msg_type, metadata)
     
+    def post_from_user(self, content: str, msg_type: str = "message",
+                       metadata: Dict = None) -> CollaborationMessage:
+        """Post a message from the User (human) to the channel"""
+        return self.post_message("user", content, msg_type, metadata)
+    
     def get_channel(self, limit: int = 50, sender: str = None) -> List[Dict]:
         """Get recent channel messages"""
         messages = list(self.channel)
