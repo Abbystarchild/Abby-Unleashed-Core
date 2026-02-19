@@ -190,7 +190,6 @@ class OllamaClient:
             "repeat_last_n": 128,        # Look back further for repetition
             "top_k": 40,                 # Limit token choices
             "top_p": 0.9,                # Nucleus sampling
-            "num_predict": 150,          # Shorter responses
             "stop": ["\n\n\n", "---"],  # Stop on multiple newlines
         }
         
@@ -303,3 +302,39 @@ class OllamaClient:
             logger.error(f"Error pulling model: {e}")
             return {"error": str(e)}
     
+
+    def warmup_model(self, model: str, timeout: int = 120) -> bool:
+        """
+        Preload/warmup a model by sending a minimal request.
+        This ensures the model is loaded into VRAM before actual use.
+        
+        Args:
+            model: Model name to warmup
+            timeout: Max seconds to wait for model to load
+            
+        Returns:
+            True if model loaded successfully
+        """
+        logger.info(f"Warming up model: {model}")
+        
+        try:
+            # Send minimal generate request to force model load
+            response = requests.post(
+                f"{self.base_url}/generate",
+                json={
+                    "model": model,
+                    "prompt": "Hi",
+                    "options": {"num_predict": 1}  # Generate just 1 token
+                },
+                timeout=timeout
+            )
+            response.raise_for_status()
+            logger.info(f"Model {model} warmed up successfully")
+            return True
+            
+        except requests.exceptions.Timeout:
+            logger.warning(f"Model warmup timed out for {model}")
+            return False
+        except Exception as e:
+            logger.error(f"Model warmup failed for {model}: {e}")
+            return False

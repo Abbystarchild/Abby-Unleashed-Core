@@ -1,0 +1,59 @@
+system_design_curriculum:
+  version: "2024.1"
+  architectural_patterns:
+    - pattern: "Microservices"
+      definition: "Independently deployable small, modular services designed for specific business domains."
+      key_components: ["API Gateway", "Service Discovery", "Identity Provider", "Distributed Cache"]
+    - pattern: "Event Sourcing"
+      definition: "Storing application state changes as a sequence of immutable events rather than just the current state."
+      use_cases: ["New York Times Article Store", "CDC for Real-time Replication"]
+    - pattern: "CQRS"
+      definition: "Command Query Responsibility Segregation; separating read and write models to optimize performance and security."
+
+  architectural_patterns:
+    - pattern: "Microservices"
+      definition: "Independently deployable small, modular services designed for specific business domains."
+      key_components: ["API Gateway", "Service Discovery", "Identity Provider", "Distributed Cache"]
+    - pattern: "Event Sourcing"
+      definition: "Storing application state changes as a sequence of immutable events."
+      use_cases: ["New York Times Article Store", "CDC for Real-time Replication"]
+  critical_infrastructure:
+    - component: "Load Balancer"
+      [cite_start]use_cases: [Traffic Distribution, SSL Termination, Health Monitoring, Session Persistence] [cite: 2309, 809]
+      [cite_start]algorithms: [Round Robin, Weighted Round Robin, IP/URL Hash, Least Connections] [cite: 2527, 2627]
+    - component: "Caching Systems"
+      failure_modes: 
+        - name: "Cache Penetration"
+          [cite_start]description: "Queries for non-existent keys hit the DB directly." [cite: 1508, 1509]
+          [cite_start]fix: "Cache null values or use Bloom Filters." [cite: 1512, 1513]
+        - name: "Thunder Herd (Cache Stampede)"
+          [cite_start]description: "Mass key expiration causes a massive spike in DB traffic." [cite: 1503, 1504]
+          [cite_start]fix: "Randomize expiry times." [cite: 1506, 1262]
+      [cite_start]eviction_strategies: [LRU, MRU, LFU, FIFO] [cite: 783, 785]
+
+  api_standards:
+    - type: "REST"
+      [cite_start]principles: [Stateless, Cacheable, Layered System, Uniform Interface] [cite: 2956, 1880]
+      [cite_start]methods: [GET, POST, PUT, PATCH, DELETE] [cite: 2977, 807]
+    - type: "GraphQL"
+      [cite_start]definition: "Query language that allows clients to request exactly what they need in a single roundtrip." [cite: 2299, 348]
+      [cite_start]benefits: ["Prevents overfetching", "Strong type system", "Aggregates multiple sources"] [cite: 708, 353]
+    - type: "gRPC"
+      [cite_start]definition: "High-performance RPC framework using HTTP/2 and Protocol Buffers." [cite: 1341, 299]
+
+  database_fundamentals:
+    - [cite_start]types: [Relational/SQL, NoSQL, Time-series, Graph, Vector] [cite: 3282, 985]
+    - scaling_techniques: 
+        - [cite_start]"Database Sharding": "Splitting datasets into smaller manageable pieces across servers." [cite: 600, 1228]
+        - [cite_start]"Read Replicas": "Handling read-heavy traffic by replicating data to worker nodes." [cite: 1133, 1136]
+    - [cite_start]data_structures: [B-Tree, LSM-Tree, Inverted Index, SkipList, Bloom Filter] [cite: 729, 731]
+
+  security_best_practices:
+    - [cite_start]protocols: [HTTPS, SSL/TLS Handshake, SSH] [cite: 760, 1140]
+    - [cite_start]authentication: [JWT, OAuth 2.0, SSO, Session-based] [cite: 847, 957]
+    - vulnerabilities: ["Cross-Site Scripting (XSS)", "FP16 Overflows in ML"]
+
+  devops_principles:
+    - [cite_start]"12-Factor App": "Best practices for building reliable cloud-native software." [cite: 611, 612]
+    - [cite_start]"CI/CD Pipeline": [Build, Test, Scanning, Release, Monitoring] [cite: 272, 376]
+    - [cite_start]"Disaster Recovery": [Backup & Restore, Pilot Light, Warm Standby, Multi-Site] [cite: 2914, 2858]

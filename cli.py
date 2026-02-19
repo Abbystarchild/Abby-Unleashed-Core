@@ -19,6 +19,7 @@ from agents.action_executor import get_executor
 from parallel_thinker import ParallelThinker, create_parallel_thinker
 from intelligent_agent import get_intelligent_agent, IntelligentAgent
 from task_executor import get_task_executor, TaskExecutor
+from coordination.orchestrator import Orchestrator
 
 
 # Load environment variables
@@ -102,6 +103,15 @@ class AbbyUnleashed:
         )
         self.executor = get_executor()
         
+        # Initialize multi-agent orchestrator (the agentic loop)
+        self.orchestrator = Orchestrator(
+            agent_factory=self.agent_factory,
+            enable_memory=True,
+            enable_learning=True,
+        )
+        self.orchestrator.start()
+        logger.info("Multi-agent orchestrator started")
+
         # Track current task progress
         self.current_task = None
         self.task_progress = {}
@@ -130,6 +140,21 @@ class AbbyUnleashed:
         """Handle task progress updates"""
         self.progress_log.append({"message": message, "data": data})
         logger.info(f"Progress: {message}")
+
+    def result_aggregator_summary(self, orch_result: Dict[str, Any]) -> str:
+        """Convert orchestrator result dict to a readable string output."""
+        parts = []
+        if orch_result.get("final_output"):
+            parts.append(orch_result["final_output"])
+        if orch_result.get("task_outputs"):
+            for item in orch_result["task_outputs"]:
+                if isinstance(item, dict) and item.get("output"):
+                    parts.append(item["output"])
+                elif isinstance(item, str):
+                    parts.append(item)
+        if orch_result.get("error"):
+            parts.append(f"Error: {orch_result['error']}")
+        return "\n\n".join(parts) if parts else "Task completed."
     
     def _is_overwhelming_task(self, task: str) -> bool:
         """
@@ -406,16 +431,65 @@ class AbbyUnleashed:
             }
     
     def _is_coding_task(self, task: str) -> bool:
-        """Check if a task is coding-related"""
+        """
+        Check if a task is coding-related - uses big model (qwen3-coder)
+        
+        Smart detection via:
+        1. Direct coding keywords
+        2. File extensions mentioned
+        3. Technical patterns
+        """
+        task_lower = task.lower()
+        
+        # Direct coding keywords
         coding_keywords = [
-            'code', 'coding', 'program', 'script', 'function', 'class',
+            'code', 'coding', 'program', 'script', 'function', 'class', 'method',
             'debug', 'fix', 'error', 'bug', 'implement', 'create', 'build',
             'develop', 'write', 'refactor', 'optimize', 'api', 'database',
-            'python', 'javascript', 'html', 'css', 'sql', 'json', 'yaml',
-            'file', 'module', 'import', 'export', 'test', 'deploy'
+            'python', 'javascript', 'typescript', 'kotlin', 'java', 'rust', 'go',
+            'html', 'css', 'sql', 'json', 'yaml', 'xml', 'regex',
+            'file', 'module', 'import', 'export', 'test', 'deploy', 'compile',
+            'variable', 'array', 'list', 'dict', 'loop', 'condition', 'algorithm',
+            'git', 'commit', 'branch', 'merge', 'repository',
+            'docker', 'kubernetes', 'container', 'microservice',
+            'frontend', 'backend', 'fullstack', 'framework', 'library',
+            'async', 'await', 'promise', 'callback', 'thread', 'process'
         ]
-        task_lower = task.lower()
-        return any(kw in task_lower for kw in coding_keywords)
+        
+        if any(kw in task_lower for kw in coding_keywords):
+            return True
+        
+        # File extensions that indicate coding
+        code_extensions = [
+            '.py', '.js', '.ts', '.jsx', '.tsx', '.java', '.kt', '.kts',
+            '.rs', '.go', '.cpp', '.c', '.h', '.cs', '.rb', '.php',
+            '.swift', '.scala', '.lua', '.sh', '.bash', '.ps1', '.bat',
+            '.yaml', '.yml', '.json', '.xml', '.toml', '.ini', '.env',
+            '.html', '.css', '.scss', '.sass', '.vue', '.svelte'
+        ]
+        
+        if any(ext in task_lower for ext in code_extensions):
+            return True
+        
+        # Technical patterns (regex-like checks)
+        import re
+        tech_patterns = [
+            r'\bdef\s+\w+',          # Python function
+            r'\bclass\s+\w+',        # Class definition
+            r'\bimport\s+\w+',       # Import statement
+            r'\bfrom\s+\w+\s+import', # From import
+            r'\bfunction\s+\w+',     # JS function
+            r'\bconst\s+\w+\s*=',    # JS const
+            r'\blet\s+\w+\s*=',      # JS let
+            r'```\w+',               # Code block markers
+            r'\w+\(\)',              # Function calls
+        ]
+        
+        for pattern in tech_patterns:
+            if re.search(pattern, task_lower):
+                return True
+        
+        return False
     
     def _get_coding_guidance(self) -> str:
         """Get coding best practices guidance for the prompt"""
@@ -631,6 +705,17 @@ class AbbyUnleashed:
             if self._is_overwhelming_task(task):
                 logger.info("Overwhelming task detected - using task decomposer")
                 return self._execute_with_decomposition(task, context)
+
+            # Route complex/action tasks through the multi-agent orchestrator
+            if use_orchestrator and self._needs_execution(task, context):
+                logger.info("Routing to multi-agent orchestrator")
+                orch_result = self.orchestrator.execute_task(task, context)
+                self.task_progress["status"] = "completed"
+                return {
+                    "status": orch_result.get("status", "completed"),
+                    "output": orch_result.get("output") or self.result_aggregator_summary(orch_result),
+                    "orchestrated": True,
+                }
             
             # Determine if this needs ACTION or just conversation
             needs_action = self._needs_execution(task, context)
@@ -649,9 +734,14 @@ class AbbyUnleashed:
                 self.task_progress["steps_completed"] = 1
                 return result
             
-            # Get model to use
-            model = os.getenv("DEFAULT_MODEL", "qwen2.5:latest")
-            
+            # Smart model selection - use code model for coding tasks
+            if self._is_coding_task(task):
+                # Use the big model (qwen3-coder) for coding/action tasks
+                model = self.parallel_thinker.big_model
+                logger.info(f"Action task detected as coding - using {model}")
+            else:
+                model = self.parallel_thinker.fast_model
+                logger.info(f"Action task using fast model: {model}")
             # Build system prompt with personality AND action capabilities
             personality = self.brain_clone.get_personality()
             identity = personality.get("identity", {})

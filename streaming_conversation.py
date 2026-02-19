@@ -219,8 +219,9 @@ class StreamingConversation:
         """
         try:
             from speech_interface import ConversationManager
+            # Let ConversationManager auto-detect TTS backend based on env
             self._personaplex_manager = ConversationManager(
-                tts_backend="elevenlabs"  # Use ElevenLabs for voice
+                tts_backend=None
             )
             
             # Connect Abby as the task executor
@@ -375,7 +376,7 @@ etc."""
                 result = self.abby.ollama_client.generate(
                     prompt=plan_prompt,
                     model="mistral:latest",
-                    options={"num_predict": 150, "temperature": 0.3}
+                    options={ "temperature": 0.3}
                 )
                 plan_text = result.get('response', '')
                 
@@ -706,19 +707,34 @@ NEVER:
 - Start with a greeting
 - Be vague or generic
 - Talk about these rules{anti_repeat_rule}"""
-        
+
         # Add user context
         if context.get('user_prompt_addition'):
             system_prompt += f"\n\n{context['user_prompt_addition']}"
+
+        # Add three-way/system note context if provided
+        if context.get('system_note'):
+            system_prompt += f"\n\n{context['system_note']}"
         
         messages = [{"role": "system", "content": system_prompt}]
         messages.extend(self.conversation_history[-10:])  # Last 10 turns
         
         # Stream from Ollama
         try:
+            # Select model based on task type when available
+            model = "mistral:latest"
+            if hasattr(self.abby, "model_selector") and self.abby.model_selector:
+                try:
+                    model = self.abby.model_selector.select_model(
+                        agent_role="assistant",
+                        task_type=user_input
+                    )
+                except Exception as e:
+                    logger.warning(f"Model selection failed, using default: {e}")
+
             response_stream = self.abby.ollama_client.chat(
                 messages=messages,
-                model="mistral:latest",
+                model=model,
                 stream=True
             )
             

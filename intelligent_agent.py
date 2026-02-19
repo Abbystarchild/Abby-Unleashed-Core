@@ -350,6 +350,30 @@ class IntelligentAgent:
             logger.error(f"Error loading plan {plan_id}: {e}")
             return None
     
+
+    def save_plan(self, plan) -> bool:
+        """
+        Save a task plan to disk for persistence.
+        
+        This allows work to be resumed across sessions and prevents
+        redoing work that's already been planned.
+        """
+        try:
+            plans_dir = self.session_dir / "task_plans"
+            plans_dir.mkdir(parents=True, exist_ok=True)
+            
+            plan_file = plans_dir / f"{plan.id}.json"
+            
+            with open(plan_file, 'w') as f:
+                json.dump(plan.to_dict(), f, indent=2, default=str)
+            
+            self.active_plan_id = plan.id
+            logger.info(f"Saved plan {plan.id} to {plan_file}")
+            return True
+        except Exception as e:
+            logger.error(f"Error saving plan: {e}")
+            return False
+
     # =========================================================================
     # 3. WORK VERIFICATION - Confirm operations succeeded
     # =========================================================================
@@ -617,3 +641,4 @@ def get_intelligent_agent(workspace: str = None) -> IntelligentAgent:
         _agent_instance = IntelligentAgent(workspace_path=workspace)
         
     return _agent_instance
+

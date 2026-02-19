@@ -159,16 +159,14 @@ class TaskPlan:
                     "error": t.error,
                     "notes": t.notes,
                     "files_to_create": t.files_to_create,
-                    "files_to_modify": t.files_to_modify,
-                }
+                    "files_to_modify": t.files_to_modify}
                 for t in self.tasks
             ],
             "created_at": self.created_at.isoformat(),
             "completed_tasks": self.completed_tasks,
             "total_tasks": self.total_tasks,
             "current_phase": self.current_phase,
-            "notes": self.notes,
-        }
+            "notes": self.notes}
     
     @classmethod
     def from_dict(cls, data: Dict) -> 'TaskPlan':
@@ -223,8 +221,7 @@ class TaskDecomposer:
         "integration": ["connect", "wire", "integrate", "link", "combine", "merge"],
         "testing": ["test", "verify", "validate", "check", "debug", "fix"],
         "assets": ["image", "icon", "graphic", "asset", "placeholder", "media", "sound", "animation"],
-        "documentation": ["document", "readme", "comment", "explain", "note"],
-    }
+        "documentation": ["document", "readme", "comment", "explain", "note"]}
     
     def __init__(self, ollama_client=None, save_dir: str = "session_state/task_plans"):
         """
@@ -337,7 +334,7 @@ Tasks (JSON only):"""
             response = self.ollama.generate(
                 prompt=prompt,
                 model="mistral:latest",
-                options={"temperature": 0.3, "num_predict": 2000}
+                options={"temperature": 0.3}
             )
             
             if "error" in response:
@@ -541,8 +538,7 @@ Tasks (JSON only):"""
                     "summary": data["summary"],
                     "total_tasks": data["total_tasks"],
                     "completed_tasks": data["completed_tasks"],
-                    "created_at": data["created_at"],
-                })
+                    "created_at": data["created_at"]})
             except Exception as e:
                 logger.warning(f"Error loading plan {filepath}: {e}")
         
@@ -576,8 +572,7 @@ Tasks (JSON only):"""
             "in_progress": "🔄",
             "pending": "⏳",
             "blocked": "🚫",
-            "failed": "❌",
-        }
+            "failed": "❌"}
         
         for status in ["in_progress", "pending", "completed", "failed", "blocked"]:
             if status not in by_status:

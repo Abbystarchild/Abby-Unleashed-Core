@@ -450,8 +450,7 @@ Provide relevant facts JSON:"""
                 system=system_prompt,
                 options={
                     "temperature": 0.3,  # Low temp for factual
-                    "num_predict": 200,
-                }
+                                    }
             )
             
             # Check for API errors
@@ -589,14 +588,12 @@ NEVER:
                 options = {
                     "temperature": 0.4,  # Lower temp for code accuracy
                     "repeat_penalty": 1.2,
-                    "num_predict": 1000,  # More tokens for code
-                }
+                                    }
             else:
                 options = {
                     "temperature": 0.7,   # Lower for more consistent behavior
                     "repeat_penalty": 1.5,  # Higher to prevent repetition
-                    "num_predict": 100,   # Very short - force conciseness
-                    "top_p": 0.85,
+                                        "top_p": 0.85,
                 }
             
             response = self.ollama.chat(
@@ -673,7 +670,7 @@ Be helpful but brief. You can ask clarifying questions if the task is too comple
                     fallback_response = self.ollama.chat(
                         messages=fallback_messages,
                         model=self.fast_model,
-                        options={"temperature": 0.5, "num_predict": 300}
+                        options={"temperature": 0.5, }
                     )
                     
                     fallback_text = fallback_response.get("message", {}).get("content", "")
@@ -750,8 +747,7 @@ What visuals would help? JSON only:"""
                 system=system_prompt,
                 options={
                     "temperature": 0.3,
-                    "num_predict": 200,
-                }
+                                    }
             )
             
             # Check for API errors
@@ -1002,6 +998,11 @@ What visuals would help? JSON only:"""
         # Generate all sections
         full_response_parts = []
         model = self.big_model  # Use big model for detailed responses
+
+        # Warmup the big model before switching (prevents 500 errors from VRAM pressure)
+        if self.ollama:
+            logger.info(f"Warming up {model} for long response generation...")
+            self.ollama.warmup_model(model, timeout=120)
         
         while ctx_manager.continue_response():
             section_text = ""
@@ -1099,8 +1100,7 @@ HOW TO RESPOND:
                 options={
                     "temperature": 0.8,
                     "repeat_penalty": 1.3,
-                    "num_predict": 150,  # Keep it short for voice
-                }
+                                    }
             )
             
             full_response = ""
@@ -1150,6 +1150,11 @@ HOW TO RESPOND:
         
         # Stream each section
         model = self.big_model  # Use big model for detailed content
+
+        # Warmup the big model before switching (prevents 500 errors from VRAM pressure)
+        if self.ollama:
+            logger.info(f"Warming up {model} for streaming long response...")
+            self.ollama.warmup_model(model, timeout=120)
         
         while ctx_manager.continue_response():
             for token in ctx_manager.generate_next_section(model, personality):

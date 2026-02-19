@@ -380,7 +380,7 @@ Summary:"""
             response = self.ollama.generate(
                 prompt=prompt,
                 model=self.summarizer_model,
-                options={"temperature": 0.3, "num_predict": 300}
+                options={"temperature": 0.3}
             )
             
             if "error" in response:
@@ -528,7 +528,7 @@ Plan:"""
             response = self.ollama.generate(
                 prompt=plan_prompt,
                 model=self.summarizer_model,
-                options={"temperature": 0.4, "num_predict": 500}
+                options={"temperature": 0.4}
             )
             
             if "error" in response:
@@ -767,10 +767,7 @@ Section {plan.current_section + 1}:"""
                 ],
                 model=model,
                 stream=True,
-                options={
-                    "temperature": 0.7,
-                    "num_predict": self.max_output_tokens
-                }
+options={"temperature": 0.7}
             )
             
             section_content = ""
@@ -813,7 +810,7 @@ Section {plan.current_section + 1}:"""
             response = self.ollama.generate(
                 prompt=f"Summarize the key points covered so far in 2-3 sentences:\n\n{all_content}",
                 model=self.summarizer_model,
-                options={"temperature": 0.3, "num_predict": 150}
+                options={"temperature": 0.3}
             )
             return response.get("response", all_content[:500])
         except:

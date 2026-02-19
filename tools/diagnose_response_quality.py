@@ -39,7 +39,7 @@ class ResponseQualityDiagnostics:
             result = client.generate(
                 prompt="Say 'OK'",
                 model="mistral:latest",
-                options={"num_predict": 5, "temperature": 0.1}
+                options={ "temperature": 0.1}
             )
             
             response = result.get('response', '')
@@ -150,7 +150,7 @@ User: What should you say?"""
             result = client.generate(
                 prompt=test_prompt,
                 model="mistral:latest",
-                options={"num_predict": 20, "temperature": 0.1}
+                options={ "temperature": 0.1}
             )
             
             response = result.get('response', '').strip().upper()
