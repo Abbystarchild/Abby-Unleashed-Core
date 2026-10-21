@@ -16,7 +16,7 @@ class DuplexTests(unittest.TestCase):
         c = self.speaking(**style)
         c.overlap(10, "near_end")
         c.pause_receipt(20, 1, 0, 350)
-        c.user_end(30, "yes, and another thing")
+        c.user_end(30, "yes, and another thing", utterance_id=c.utterance_id)
         c.classified(40, c.epoch, intent, .95)
         return c
 
@@ -25,7 +25,7 @@ class DuplexTests(unittest.TestCase):
         commands = c.overlap(10)
         self.assertEqual([x['kind'] for x in commands], ['pause_flush', 'cancel_generation'])
         self.assertEqual(c.chunk(11, 1, "late", "stale", 100)[0]['kind'], 'drop_stale')
-        c.user_end(12, "yes")
+        c.user_end(12, "yes", utterance_id=c.utterance_id)
         self.assertEqual(c.classified(13, c.epoch, "agreement", .9), [])
         self.assertEqual(c.pause_receipt(14, 1, 0, 400)[0]['kind'], 'plan')
         self.assertEqual(c.cursor['played_ms'], 400)
@@ -97,7 +97,7 @@ class DuplexTests(unittest.TestCase):
         for confidence in [.4, float('nan')]:
             c = self.speaking()
             c.overlap(10)
-            c.user_end(20, 'uncertain')
+            c.user_end(20, 'uncertain', utterance_id=c.utterance_id)
             self.assertEqual(c.classified(21, c.epoch, 'agreement', confidence)[0]['kind'], 'listen')
         c = self.planning()
         self.assertEqual(c.tick(2000)[0]['kind'], 'listen')
@@ -106,11 +106,11 @@ class DuplexTests(unittest.TestCase):
     def test_revised_yes_but_invalidates_classifier(self):
         c = self.speaking()
         c.overlap(10)
-        c.user_end(20, 'yes')
+        c.user_end(20, 'yes', utterance_id=c.utterance_id)
         old = c.epoch
-        self.assertEqual(c.revise_transcript(21, 1, 'yes, but', final=False), [])
+        self.assertEqual(c.revise_transcript(21, 1, 'yes, but', final=False, utterance_id=c.utterance_id), [])
         self.assertEqual(c.classified(22, old, 'agreement', 1), [])
-        self.assertEqual(c.revise_transcript(23, 2, 'yes, but that assumption is wrong', final=True)[0]['kind'], 'classify')
+        self.assertEqual(c.revise_transcript(23, 2, 'yes, but that assumption is wrong', final=True, utterance_id=c.utterance_id)[0]['kind'], 'classify')
 
     def test_duplicate_and_unsubmitted_and_regressive_receipts(self):
         c = self.speaking()
@@ -131,7 +131,7 @@ class DuplexTests(unittest.TestCase):
         c = self.planning()
         c.planned(41, c.epoch, 'ack', 'Acknowledgment')
         old = c.epoch
-        result = c.revise_transcript(42, 1, 'Actually, correction', final=True)
+        result = c.revise_transcript(42, 1, 'Actually, correction', final=True, utterance_id=c.utterance_id)
         self.assertEqual([r['kind'] for r in result], ['pause_flush', 'cancel_generation', 'classify'])
         self.assertEqual(c.chunk(43, old, 'late', 'late', 100)[0]['kind'], 'drop_stale')
 
@@ -158,6 +158,72 @@ class DuplexTests(unittest.TestCase):
             c.overlap(1)
         with self.assertRaises(ValueError):
             Style(summary_ms=10000)
+
+    def test_stale_asr_after_stop_cannot_cancel_new_response(self):
+        c = Controller()
+        c.begin(0, 'first')
+        c.overlap(1, 'near_end')
+        old_id = c.utterance_id
+        c.user_end(2, 'first utterance', utterance_id=old_id)
+        c.stop(3)
+        c.stopped(4, c.epoch)
+        c.begin(5, 'new unrelated response')
+        snapshot = (c.epoch, c.state, c.context, c.transcript, c.asr_revision)
+        self.assertEqual(c.revise_transcript(6, 1, 'old ASR correction', final=True,
+                                            utterance_id=old_id), [])
+        self.assertEqual((c.epoch, c.state, c.context, c.transcript, c.asr_revision), snapshot)
+
+    def test_new_utterance_accepts_revision_one_again(self):
+        c = Controller()
+        c.overlap(0)
+        first = c.utterance_id
+        c.user_end(1, 'first', utterance_id=first)
+        c.revise_transcript(2, 1, 'first revised', final=True, utterance_id=first)
+        c.classified(3, c.epoch, 'disruption', 1)
+        c.overlap(4)
+        second = c.utterance_id
+        self.assertNotEqual(first, second)
+        c.user_end(5, 'second', utterance_id=second)
+        result = c.revise_transcript(6, 1, 'second revised', final=True, utterance_id=second)
+        self.assertEqual(result[0]['kind'], 'classify')
+        self.assertEqual(c.transcript, 'second revised')
+        self.assertEqual(c.revise_transcript(7, 99, 'stale first', final=True,
+                                            utterance_id=first), [])
+        self.assertEqual(c.transcript, 'second revised')
+
+    def test_old_endpoint_cannot_end_new_utterance(self):
+        c = Controller()
+        c.overlap(0)
+        old_id = c.utterance_id
+        c.user_end(1, 'first', utterance_id=old_id)
+        c.overlap(2)
+        new_id = c.utterance_id
+        self.assertEqual(c.user_end(3, 'late first endpoint', utterance_id=old_id), [])
+        self.assertTrue(c.speaking_user)
+        self.assertEqual(c.user_end(4, 'second', utterance_id=new_id)[0]['kind'], 'classify')
+
+    def test_asr_identity_survives_valid_correction_cancellation(self):
+        c = self.planning()
+        identity = c.utterance_id
+        c.planned(41, c.epoch, 'ack', 'Acknowledgment')
+        c.revise_transcript(42, 1, 'correction', final=True, utterance_id=identity)
+        self.assertEqual(c.utterance_id, identity)
+        self.assertEqual(c.asr_revision, 1)
+        self.assertEqual(c.revise_transcript(43, 1, 'duplicate', final=True,
+                                            utterance_id=identity), [])
+
+    def test_adapter_carries_captured_asr_identity(self):
+        from duplex_adapter import TurnSession
+        s = TurnSession('asr-session')
+        captured, _ = s.asr_onset(at=0)
+        s.event(**captured, event='user_end', at=1, transcript='first')
+        s.event('asr-session', 'stop', at=2)
+        s.event('asr-session', 'stopped', at=3, epoch=s.controller.epoch)
+        s.event('asr-session', 'begin', at=4, context='new')
+        count = len(s.sink.commands)
+        self.assertEqual(s.event(**captured, event='revise_transcript', at=5,
+                                 revision=1, transcript='stale', final=True), [])
+        self.assertEqual(len(s.sink.commands), count)
 
 
 if __name__ == '__main__':

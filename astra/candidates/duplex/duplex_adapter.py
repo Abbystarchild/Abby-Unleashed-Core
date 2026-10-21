@@ -43,6 +43,23 @@ class TurnSession:
             return (session_id == self.session_id and epoch == self.controller.epoch
                     and self.controller.state in {"main", "ack", "clarify", "summary"})
 
+    def asr_identity(self):
+        """Snapshot at acoustic onset, before launching an ASR job.
+
+        Capture this once for the job; never relabel a delayed result with the
+        current identity. Session IDs must be unique across controller lifetimes.
+        """
+        with self._lock:
+            return dict(session_id=self.session_id,
+                        utterance_id=self.controller.utterance_id)
+
+    def asr_onset(self, at, echo="uncertain"):
+        """Atomically process onset and capture the identity for its ASR job."""
+        with self._lock:
+            commands = self.event(self.session_id, "overlap", at=at, echo=echo)
+            identity = self.asr_identity() if echo != "echo_only" else None
+            return identity, commands
+
     def event(self, session_id, event, **payload):
         """Host provides monotonic time and ordered events; no polling here.
 

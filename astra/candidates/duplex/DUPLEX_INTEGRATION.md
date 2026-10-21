@@ -8,4 +8,10 @@ Generated and submitted chunks are not evidence of heard speech. Report cumulati
 
 Host sinks must return promptly. Prioritize stop and overlap over slow callbacks; enforce response budgets in the device as well as the policy timer. Echo cancellation, VAD, ASR, intent classification, semantic planning, generation, TTS, playback and animation adapters are not implemented. The core consumes acoustic evidence; it does not establish its correctness.
 
-18 synthetic tests passed in the publication copy. No microphone, speaker, model or live app was activated, and no hardware latency was measured. A future audio pilot needs separate integration review and explicit authorization.
+## ASR identity correction (pending independent re-review)
+
+Independent review found that stale ASR corrections could affect a new response, and that the revision counter was not scoped to an utterance. The corrected candidate requires `utterance_id` on both `user_end` and `revise_transcript`. `TurnSession.asr_onset` atomically handles onset and captures session/utterance identity before an ASR job starts. Keep that captured identity on every callback; never relabel delayed results with the current identity. Session IDs must be unique across controller lifetimes.
+
+Revisions are monotonic within an utterance and restart for a new utterance. Stop and a fresh assistant `begin` retire the previous identity; a newer human utterance supersedes it. Valid corrections retain their identity across output epoch changes and response cancellation. Repeated acoustic activity during the same utterance retains its identity.
+
+23 synthetic tests passed in the corrected publication copy (the original 18 plus five regressions for stale corrections, revision restart, stale endpoints, valid correction identity and adapter propagation). Independent re-review is pending. No microphone, speaker, model or live app was activated, and no hardware latency was measured. A future audio pilot needs separate integration review and explicit authorization.

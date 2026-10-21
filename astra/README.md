@@ -8,7 +8,7 @@ This is a review snapshot, not a completed release or a replacement for the lega
 | --- | --- |
 | Qwen3-4B identity correction and plain personal chat | Reported deployed by the local runtime owner. This publication task did not run or independently requalify the live model. The personal runtime, profiles, and deployment configuration are deliberately not packaged here. |
 | Foundation | Offline source slice: bounded scoped memory, provider contracts, explicit read capability, hash-checked reads and outcome journaling. Generated prose remains `needs-review`. Direct HTTP transport is disabled by default. Synthetic tests only in this snapshot. |
-| Conversational turn controller | Isolated tested candidate. Acoustic overlap, cancellation epochs, rendered-position receipts, transcript revisions, planning boundaries and stop behavior are policy events. No live audio integration or latency achievement. |
+| Conversational turn controller | Isolated tested candidate with an ASR utterance-identity correction; independent re-review pending. Acoustic overlap, cancellation epochs, rendered-position receipts, transcript revisions, planning boundaries and stop behavior are policy events. No live audio integration or latency achievement. |
 | Personality calibration | Isolated tested candidate with neutral defaults, explicit reviewed examples, versioned preferences, undo/reset/export and an offline editor. This is prompt calibration, not fine-tuned weights. No adoption by live personal chat. |
 | Integration and release readiness | Unreviewed for production. Device adapters, live integration and model evaluation remain pending. |
 | Future work | Live duplex pilot, echo cancellation, streaming ASR/TTS, personal-style evaluation, any weight training, and dreaming remain planned, not delivered by this snapshot. |
@@ -23,7 +23,7 @@ python -S -B -m unittest discover -s astra/candidates/duplex -p test_duplex_cont
 python -S -B -m unittest discover -s astra/candidates/personality -p test_personality.py -v
 ```
 
-The publication copy passed 17 foundation, 18 duplex and 13 personality tests (48 total). Tests use synthetic inputs, mocks and disposable databases; they do not call models or activate devices. The foundation compatibility test extracts only the repository client's `chat` method and uses a mocked HTTP interface; it does not import or start the legacy application. Its source pin uses normalized line endings.
+The initial publication copy passed 17 foundation, 18 duplex and 13 personality tests (48 total). The duplex correction passed 23 tests (original 18 plus five regressions); foundation and personality results remain from the initial publication and were not rerun for this duplex-only follow-up. Independent re-review of the duplex correction is pending. Tests use synthetic inputs, mocks and disposable databases; they do not call models or activate devices. The foundation compatibility test extracts only the repository client's `chat` method and uses a mocked HTTP interface; it does not import or start the legacy application. Its source pin uses normalized line endings.
 
 The personality owner separately reported 29 automated local Tk checks; those were not rerun for publication. Subjective visual acceptance, other display scales and actual model behavior are not established by these unit tests. The editor is included as source and was not opened in this task.
 

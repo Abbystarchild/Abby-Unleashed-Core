@@ -56,6 +56,8 @@ class Controller:
     intent: str | None = None
     submitted: set = field(default_factory=set)
     asr_revision: int = -1
+    utterance_id: int | None = None
+    utterance_serial: int = 0
 
     def _time(self, at):
         if not isinstance(at, int) or at < self.now:
@@ -63,7 +65,8 @@ class Controller:
         self.now = at
 
     def _command(self, kind, **data):
-        return dict(kind=kind, epoch=self.epoch, at_ms=self.now, **data)
+        return dict(kind=kind, epoch=self.epoch, at_ms=self.now,
+                    utterance_id=self.utterance_id, **data)
 
     def _stage(self, mode):
         self.epoch += 1
@@ -80,6 +83,8 @@ class Controller:
         self.cursor = None
         self.context = context
         self.topic_expires = None
+        self.utterance_id = None
+        self.asr_revision = -1
         self._stage("main")
         return [self._command("generate", context=context, profile=self.style.profile)]
 
@@ -136,16 +141,24 @@ class Controller:
             raise ValueError("Invalid acoustic evidence")
         if echo == "echo_only":
             return [self._command("ignore_echo")]
+        if not self.speaking_user:
+            self.utterance_serial += 1
+            self.utterance_id = self.utterance_serial
+            self.asr_revision = -1
         self.speaking_user = True
         if self.state == "stopping":
             return []
+        self.metrics.append(dict(event="overlap", at_ms=at, echo=echo))
+        return self._pause_output()
+
+    def _pause_output(self):
+        """Invalidate output without creating a new acoustic utterance."""
         self.classify_deadline = None
         self.decision = None
         self.summary_deadline = None
-        self.metrics.append(dict(event="overlap", at_ms=at, echo=echo))
         if self.state in {"main", "ack", "clarify", "summary"}:
             if self.state == "main":
-                self.topic_expires = at + self.style.topic_ttl_ms
+                self.topic_expires = self.now + self.style.topic_ttl_ms
             old = self.epoch
             self.pending_pause = old
             self.epoch += 1  # invalidate LLM/TTS output before issuing cancellation
@@ -165,9 +178,9 @@ class Controller:
         self.metrics.append(dict(event="playback_quiescent", at_ms=at, epoch=source_epoch))
         return self._resolve()
 
-    def user_end(self, at, transcript):
+    def user_end(self, at, transcript, *, utterance_id):
         self._time(at)
-        if not self.speaking_user:
+        if utterance_id is None or utterance_id != self.utterance_id or not self.speaking_user:
             return []
         self.speaking_user = False
         self.transcript = transcript
@@ -179,15 +192,21 @@ class Controller:
                               played_cursor=self.cursor, profile=self.style.profile,
                               labels=["agreement", "assistance", "clarification", "disruption"])]
 
-    def revise_transcript(self, at, revision, transcript, final=False):
-        """Partial ASR cannot cause content actions. Revisions invalidate plans."""
+    def revise_transcript(self, at, revision, transcript, final=False, *, utterance_id):
+        """Accept only corrections bound to the current acoustic utterance.
+
+        Its identity survives output epoch changes but not Stop, a fresh begin,
+        or a newer human utterance. Revisions are monotonic within that identity.
+        """
         self._time(at)
+        if utterance_id is None or utterance_id != self.utterance_id:
+            return []
         if revision <= self.asr_revision or self.state in {"listening", "stopping"}:
             return []
         self.asr_revision = revision
         cancellation = []
         if self.state in {"main", "ack", "clarify", "summary"}:
-            cancellation = self.overlap(at, "uncertain")
+            cancellation = self._pause_output()
             self.speaking_user = False  # revision of an already endpointed utterance
         self.epoch += 1
         self.decision = None
@@ -197,7 +216,7 @@ class Controller:
         if not final or self.speaking_user:
             return cancellation
         self.speaking_user = True  # reuse endpointed final-transcript path
-        return cancellation + self.user_end(at, transcript)
+        return cancellation + self.user_end(at, transcript, utterance_id=utterance_id)
 
     def classified(self, at, epoch, intent, confidence):
         self._time(at)
@@ -307,6 +326,9 @@ class Controller:
         old = self.epoch
         self.epoch += 1
         self.state = "stopping"
+        self.utterance_id = None
+        self.asr_revision = -1
+        self.speaking_user = False
         self.cursor = None
         self.context = ""
         self.pending_pause = self.decision = None
