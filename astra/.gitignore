@@ -8,6 +8,8 @@ __pycache__/
 *.db-*
 *.log
 test-evidence.json
+DRAFT-CHECK.json
+EDITOR-CHECK.json
 calibration*.json
 .env
 .venv/
